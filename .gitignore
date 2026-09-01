@@ -40,3 +40,5 @@ next-env.d.ts
 
 # arquivo gerado por concatenação das migrations (não versionar)
 /supabase/reset_e_aplicar_tudo.sql
+
+.token-optimizer/
