@@ -275,6 +275,82 @@ export type Database = {
           },
         ]
       }
+      contatos_whatsapp: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          empresa_id: string
+          id: string
+          numero_contrato: string | null
+          obra_id: string | null
+          telefone: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          empresa_id: string
+          id?: string
+          numero_contrato?: string | null
+          obra_id?: string | null
+          telefone: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          empresa_id?: string
+          id?: string
+          numero_contrato?: string | null
+          obra_id?: string | null
+          telefone?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contatos_whatsapp_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contatos_whatsapp_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contatos_whatsapp_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contatos_whatsapp_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras_com_valores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contatos_whatsapp_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras_financeiro"
+            referencedColumns: ["obra_id"]
+          },
+          {
+            foreignKeyName: "contatos_whatsapp_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "receitas_obra"
+            referencedColumns: ["obra_id"]
+          },
+        ]
+      }
       contratos: {
         Row: {
           anexos: Json | null
@@ -404,6 +480,111 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "propostas_financeiro"
             referencedColumns: ["id", "empresa_id", "obra_id"]
+          },
+        ]
+      }
+      documentos_processamento: {
+        Row: {
+          arquivo_url: string
+          contrato_criado_id: string | null
+          created_at: string | null
+          created_by: string | null
+          dados_extraidos: Json | null
+          empresa_id: string
+          id: string
+          motivo_revisao: string | null
+          numero_contrato: string | null
+          obra_id: string | null
+          status: string
+          tipo_documento: string
+          updated_at: string | null
+        }
+        Insert: {
+          arquivo_url: string
+          contrato_criado_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          dados_extraidos?: Json | null
+          empresa_id: string
+          id?: string
+          motivo_revisao?: string | null
+          numero_contrato?: string | null
+          obra_id?: string | null
+          status?: string
+          tipo_documento: string
+          updated_at?: string | null
+        }
+        Update: {
+          arquivo_url?: string
+          contrato_criado_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          dados_extraidos?: Json | null
+          empresa_id?: string
+          id?: string
+          motivo_revisao?: string | null
+          numero_contrato?: string | null
+          obra_id?: string | null
+          status?: string
+          tipo_documento?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documentos_processamento_contrato_criado_id_fkey"
+            columns: ["contrato_criado_id"]
+            isOneToOne: false
+            referencedRelation: "contratos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documentos_processamento_contrato_criado_id_fkey"
+            columns: ["contrato_criado_id"]
+            isOneToOne: false
+            referencedRelation: "contratos_financeiro"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documentos_processamento_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documentos_processamento_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documentos_processamento_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documentos_processamento_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras_com_valores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documentos_processamento_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "obras_financeiro"
+            referencedColumns: ["obra_id"]
+          },
+          {
+            foreignKeyName: "documentos_processamento_obra_id_fkey"
+            columns: ["obra_id"]
+            isOneToOne: false
+            referencedRelation: "receitas_obra"
+            referencedColumns: ["obra_id"]
           },
         ]
       }
@@ -1818,6 +1999,7 @@ export type Database = {
           pct_medicao_instalacao_calculado: number | null
           pct_sinal_calculado: number | null
           prazo_execucao: string | null
+          progresso_itens_pct: number | null
           status: string | null
           updated_at: string | null
           valor_final_calculado: number | null
@@ -2151,12 +2333,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2180,11 +2362,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2205,11 +2387,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2230,11 +2412,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2247,11 +2429,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

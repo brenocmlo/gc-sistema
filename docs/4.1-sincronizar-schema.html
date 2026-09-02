@@ -536,10 +536,11 @@
   <div class="notice">
     <span class="mark">Estado</span>
     <span>
-      <strong>gc-dev: 004–010 aplicadas, 21 de 21 checagens OK.</strong> <strong>gc-prod está
-      pausado</strong> — só dev está em uso, então tudo relativo a prod aqui é pendência
-      registrada, não bloqueio. A análise abaixo saiu da leitura do repositório; o veredito de
-      "está aplicado" vem do script de verificação, rodado no SQL Editor de dev.
+      <strong>gc-dev: 004–010 aplicadas, 21 de 21 checagens OK, types regenerados.</strong>
+      <strong>gc-prod está pausado</strong> — só dev está em uso, então tudo relativo a prod aqui é
+      pendência registrada, não bloqueio. O veredito de "está aplicado" vem do script de
+      verificação rodado no SQL Editor de dev; o de "types em dia" vem do
+      <code>db:types</code> rodado contra o projeto.
     </span>
   </div>
 
@@ -566,11 +567,18 @@
       <p>
         Contexto do catálogo de dev: <strong>16 tabelas</strong> e <strong>53 policies</strong> em
         <code>public</code>. As 16 são exatamente as 14 que o <code>types.ts</code> já conhece mais
-        <code>documentos_processamento</code> e <code>contatos_whatsapp</code> — um dev completo com
-        um <code>types.ts</code> atrasado. Dos cinco problemas a seguir, os de escopo e de aplicação
-        estão resolvidos <em>em dev</em>, e por evidência, não por suposição. Sobra um item
-        acionável agora — <strong>regenerar o <code>types.ts</code></strong> — mais os dois
-        estruturais.
+        <code>documentos_processamento</code> e <code>contatos_whatsapp</code> — o schema completo.
+      </p>
+      <p>
+        <strong>Os types já foram regenerados.</strong> O <code>npm run db:types</code> rodou contra
+        <code>gzbmhgnpoehormnidmgg</code> e trouxe os três objetos que faltavam, o que também prova
+        que <strong>esse project-id é o gc-dev</strong>. O <code>types.ts</code> saiu de 2267 para
+        2449 linhas (+192/−10): entraram <code>contatos_whatsapp</code> com 8 colunas,
+        <code>documentos_processamento</code> com 13, e <code>progresso_itens_pct</code> em
+        <code>obras_com_valores</code>; as 10 remoções são reformatação do gerador nos helpers
+        genéricos. <code>tsc --noEmit</code> e <code>lint</code> seguem limpos. Dos cinco problemas
+        a seguir, escopo, aplicação e drift de types estão resolvidos <em>em dev</em> — por
+        evidência, não por suposição. Restam os dois estruturais.
       </p>
     </div>
   </section>
@@ -616,7 +624,7 @@
             <td><span class="chip med">médio</span></td>
             <td class="subj"><b><code>types.ts</code> está três objetos atrás do schema</b></td>
             <td>E <code>db:types</code> tem o <code>--project-id</code> fixo: não dá pra gerar os types do outro ambiente.</td>
-            <td><span class="chip crit">próximo passo</span></td>
+            <td><span class="chip ok">resolvido em dev</span></td>
           </tr>
         </tbody>
       </table>
@@ -869,13 +877,13 @@ $ npm run lint
         </ol>
       </div>
       <div class="phase">
-        <h3>Próximo — dev, acionável agora <span class="count">passos 3–7</span></h3>
+        <h3>Dev — feito, e o que restou <span class="count">passos 3–7</span></h3>
         <ol class="steps">
-          <li class="blocker"><span class="idx">03</span><span class="box"></span><span>Autenticar a CLI: <code>supabase login</code>, ou exportar <code>SUPABASE_ACCESS_TOKEN</code> — sem isso o <code>db:types</code> falha antes de gerar qualquer coisa</span></li>
-          <li><span class="idx">04</span><span class="box"></span><span><code>npm run db:types</code> e conferir no diff que <code>progresso_itens_pct</code>, <code>documentos_processamento</code> e <code>contatos_whatsapp</code> apareceram — isso também revela se <code>gzbmhgnpoehormnidmgg</code> é dev</span></li>
-          <li><span class="idx">05</span><span class="box"></span><span><code>npx tsc --noEmit</code> e <code>npm run lint</code> depois de regenerar — agora podem falhar de verdade, e uma falha aqui é informação</span></li>
+          <li class="ticked"><span class="idx">03</span><span class="box"></span><span>Autenticar a CLI — feito com personal access token via <code>SUPABASE_ACCESS_TOKEN</code>; o fluxo de navegador não roda sem TTY</span></li>
+          <li class="ticked"><span class="idx">04</span><span class="box"></span><span><code>npm run db:types</code> — os três objetos apareceram, e <code>gzbmhgnpoehormnidmgg</code> é o <strong>gc-dev</strong></span></li>
+          <li class="ticked"><span class="idx">05</span><span class="box"></span><span><code>npx tsc --noEmit</code> e <code>npm run lint</code> com os types novos — ambos limpos</span></li>
           <li class="ticked"><span class="idx">06</span><span class="box"></span><span><code>db:types</code> blindado contra truncamento e aceitando <code>$SUPABASE_PROJECT_ID</code>, com <code>db:types:dev</code> ao lado</span></li>
-          <li><span class="idx">07</span><span class="box"></span><span>Envolver 008 e 009 em <code>begin; … commit;</code> — não muda nada em dev, protege a aplicação futura em prod</span></li>
+          <li class="blocker"><span class="idx">07</span><span class="box"></span><span>Envolver 008 e 009 em <code>begin; … commit;</code> — não muda nada em dev, protege a aplicação futura em prod</span></li>
         </ol>
       </div>
       <div class="phase waiting">
