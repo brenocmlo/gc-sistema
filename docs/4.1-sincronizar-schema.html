@@ -408,7 +408,8 @@
     font-size: 13px;
     font-weight: 600;
     color: var(--ink);
-    word-break: break-word;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
   }
   .drift .src {
     font-family: var(--f-mono);
@@ -744,7 +745,7 @@ $ npm run lint
     <div class="drift">
       <div>
         <span class="src">Migration 007</span>
-        <span class="obj">obras_com_valores.progresso_itens_pct</span>
+        <span class="obj">obras_com_valores<wbr>.progresso_itens_pct</span>
         <span class="verdict">ausente da view tipada</span>
       </div>
       <div>
