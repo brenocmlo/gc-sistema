@@ -432,6 +432,26 @@
     border-top: 3px solid var(--accent);
   }
   .phase.later { border-top-color: var(--rule); }
+  .phase.done { border-top-color: var(--ok); }
+  .phase.waiting { border-top-color: var(--med); }
+  .phase.waiting .box { border-style: dashed; border-color: var(--med); }
+  ol.steps li.ticked { color: var(--ink-mute); }
+  ol.steps li.ticked .box {
+    border-color: var(--ok);
+    background: var(--ok);
+    position: relative;
+  }
+  ol.steps li.ticked .box::after {
+    content: "";
+    position: absolute;
+    left: 2.5px;
+    top: 0.5px;
+    width: 4px;
+    height: 7px;
+    border-right: 1.5px solid var(--surface);
+    border-bottom: 1.5px solid var(--surface);
+    transform: rotate(40deg);
+  }
   .phase h3 { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
   .phase h3 .count {
     font-family: var(--f-mono);
@@ -501,33 +521,66 @@
     <h1>Sincronizar schema: o que a tarefa 4.1 não consegue medir</h1>
     <p class="standfirst">
       A tarefa pede pra conferir se as migrations 004–007 foram aplicadas em gc-dev e gc-prod.
-      Existem migrations até a 010, não há registro de nada do que já rodou, e os dois critérios
-      de aceite passam hoje — com os types desatualizados.
+      Existem migrations até a 010, não havia registro de nada do que já rodou, e os dois critérios
+      de aceite passam hoje — com os types desatualizados. A verificação em dev já foi feita:
+      está tudo aplicado, e sobra um item.
     </p>
     <dl class="meta">
       <div><dt>Repositório</dt><dd>cremalet/gc-sistema</dd></div>
       <div><dt>Branch</dt><dd>feature-dev-breno-automacao</dd></div>
       <div><dt>Commit lido</dt><dd>e2dcc57</dd></div>
-      <div><dt>Data</dt><dd>2026-09-01</dd></div>
+      <div><dt>Verificado em</dt><dd>2026-09-02</dd></div>
     </dl>
   </header>
 
   <div class="notice">
-    <span class="mark">Escopo</span>
+    <span class="mark">Estado</span>
     <span>
-      Toda a análise vem da leitura do repositório. <strong>Nada foi executado contra gc-dev ou
-      gc-prod</strong> — não há credenciais versionadas (<code>.env.local</code> fica fora do repo)
-      nem projeto linkado pela CLI. Quem diz o que está aplicado é o script de verificação, rodado
-      por quem tem acesso aos dois painéis.
+      <strong>gc-dev: 004–010 aplicadas, 21 de 21 checagens OK.</strong> <strong>gc-prod está
+      pausado</strong> — só dev está em uso, então tudo relativo a prod aqui é pendência
+      registrada, não bloqueio. A análise abaixo saiu da leitura do repositório; o veredito de
+      "está aplicado" vem do script de verificação, rodado no SQL Editor de dev.
     </span>
   </div>
 
   <section>
-    <div class="section-head"><h2>Os cinco problemas, do mais grave pro menos</h2></div>
+    <div class="section-head"><h2>Verificação em gc-dev</h2></div>
     <div class="scroller">
       <table>
         <thead>
-          <tr><th>#</th><th>Gravidade</th><th>Problema</th><th>Impacto</th></tr>
+          <tr><th>Migration</th><th>Checagens</th><th>Resultado</th><th>Evidência no catálogo</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="n">004</td><td class="n">8 / 8</td><td><span class="chip ok">aplicada</span></td><td><code>clientes</code>, <code>cliente_id</code> NOT NULL, FK, zero colunas legacy em <code>obras</code> e <code>orcamentos</code>, rename <code>observacao</code>, 4 views</td></tr>
+          <tr><td class="n">005</td><td class="n">2 / 2</td><td><span class="chip ok">aplicada</span></td><td>RLS + 4 policies em <code>clientes</code></td></tr>
+          <tr><td class="n">006</td><td class="n">1 / 1</td><td><span class="chip ok">aplicada</span></td><td><code>calcular_valores_obra</code> com o CASO 2 (<code>fonte=sem_proposta</code>)</td></tr>
+          <tr><td class="n">007</td><td class="n">1 / 1</td><td><span class="chip ok">aplicada</span></td><td><code>progresso_itens_pct</code> exposto na view</td></tr>
+          <tr><td class="n">008</td><td class="n">4 / 4</td><td><span class="chip ok">aplicada</span></td><td>tabela, RLS, 4 policies, 3 índices</td></tr>
+          <tr><td class="n">009</td><td class="n">3 / 3</td><td><span class="chip ok">aplicada</span></td><td>tabela, RLS, 4 policies</td></tr>
+          <tr><td class="n">010</td><td class="n">2 / 2</td><td><span class="chip ok">aplicada</span></td><td>bucket privado 20 MB <code>application/pdf</code> + 4 policies de <code>storage.objects</code></td></tr>
+          <tr><td class="n">prod</td><td class="n">—</td><td><span class="chip med">pausado</span></td><td>Projeto fora do ar; verificação e aplicação em espera</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="prose">
+      <p>
+        Contexto do catálogo de dev: <strong>16 tabelas</strong> e <strong>53 policies</strong> em
+        <code>public</code>. As 16 são exatamente as 14 que o <code>types.ts</code> já conhece mais
+        <code>documentos_processamento</code> e <code>contatos_whatsapp</code> — um dev completo com
+        um <code>types.ts</code> atrasado. Dos cinco problemas a seguir, os de escopo e de aplicação
+        estão resolvidos <em>em dev</em>, e por evidência, não por suposição. Sobra um item
+        acionável agora — <strong>regenerar o <code>types.ts</code></strong> — mais os dois
+        estruturais.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>O diagnóstico original, do mais grave pro menos</h2></div>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th>#</th><th>Gravidade</th><th>Problema</th><th>Impacto</th><th>Situação</th></tr>
         </thead>
         <tbody>
           <tr>
@@ -535,30 +588,35 @@
             <td><span class="chip crit">crítico</span></td>
             <td class="subj"><b>004 é destrutiva, não idempotente e sensível à ordem</b></td>
             <td>Aplicada em prod sem backup/janela, dropa 13 colunas de <code>obras</code> com dados. Fora de ordem, reverte a 007 e derruba <code>/obras</code>.</td>
+            <td><span class="chip med">diferido</span></td>
           </tr>
           <tr>
             <td class="n">2</td>
             <td><span class="chip crit">crítico</span></td>
             <td class="subj"><b>Escopo desatualizado: são 004–010, não 004–007</b></td>
             <td>008, 009 e 010 entraram depois da tarefa ser criada. A 010 é pré-requisito da ingestão via WhatsApp em prod.</td>
+            <td><span class="chip ok">resolvido em dev</span></td>
           </tr>
           <tr>
             <td class="n">3</td>
             <td><span class="chip high">alto</span></td>
             <td class="subj"><b>Não existe controle de migrations</b></td>
             <td>Sem <code>supabase/migrations</code>, sem CLI, sem tabela de controle: "rodar as pendentes" não corresponde a comando nenhum.</td>
+            <td><span class="chip high">aberto</span></td>
           </tr>
           <tr>
             <td class="n">4</td>
             <td><span class="chip high">alto</span></td>
             <td class="subj"><b>Critérios de aceite são falso-positivos</b></td>
             <td><code>tsc</code> e <code>lint</code> já passam com os types velhos. Um <code>as unknown as</code> apaga o drift.</td>
+            <td><span class="chip high">aberto</span></td>
           </tr>
           <tr>
             <td class="n">5</td>
             <td><span class="chip med">médio</span></td>
             <td class="subj"><b><code>types.ts</code> está três objetos atrás do schema</b></td>
             <td>E <code>db:types</code> tem o <code>--project-id</code> fixo: não dá pra gerar os types do outro ambiente.</td>
+            <td><span class="chip crit">próximo passo</span></td>
           </tr>
         </tbody>
       </table>
@@ -680,8 +738,9 @@ supabase/007_progresso_itens_obra.sql
         <code>documentos-processamento</code> e as policies de <code>storage.objects</code> que
         exigem o <code>empresa_id</code> como primeiro segmento do path. O workflow n8n de ingestão
         via WhatsApp já grava em <code>{empresa_id}/whatsapp/{messageId}-{fileName}</code> contando
-        com isso. Se a 010 não estiver em prod, a ingestão falha em prod — e nenhum item do
-        checklist original detecta, porque storage não aparece nos types nem no compilador.
+        com isso. A verificação confirmou a 010 aplicada em <strong>dev</strong>, então a ingestão
+        está de pé no ambiente em uso; em prod é pendência registrada — e do tipo que nenhum item
+        do checklist original detectaria, porque storage não aparece nos types nem no compilador.
       </p>
     </div>
   </section>
@@ -770,51 +829,51 @@ $ npm run lint
     <div class="prose">
       <p>
         O repositório não documenta se <code>gzbmhgnpoehormnidmgg</code> é gc-dev ou gc-prod, e não
-        há como gerar os types do outro ambiente — que é exatamente o que a tarefa pede pra
-        comparar. Caminho: dois scripts (<code>db:types:dev</code> / <code>db:types:prod</code>) ou
+        há como gerar os types do outro ambiente. Caminho: dois scripts
+        (<code>db:types:dev</code> / <code>db:types:prod</code>) ou
         <code>--project-id $SUPABASE_PROJECT_ID</code>.
+      </p>
+      <p>
+        Com dev verificado, rodar <code>npm run db:types</code> agora responde essa pergunta de
+        graça: se os três objetos ausentes aparecerem no diff, o id é gc-dev e o atraso era só falta
+        de regenerar. Se não aparecerem — ou o comando falhar por projeto indisponível — o id aponta
+        pra gc-prod, que está pausado, e o script precisa mudar antes de qualquer outra coisa.
       </p>
     </div>
   </section>
 
   <section>
-    <div class="section-head"><h2>Checklist corrigido</h2></div>
+    <div class="section-head"><h2>Checklist — estado em 2026-09-02</h2></div>
     <div class="phases">
-      <div class="phase">
-        <h3>Diagnóstico <span class="count">passos 1–3</span></h3>
+      <div class="phase done">
+        <h3>Feito <span class="count">verificado em dev</span></h3>
         <ol class="steps">
-          <li><span class="idx">01</span><span class="box"></span><span>Rodar <code>supabase/verificar_schema_aplicado.sql</code> em <strong>gc-dev</strong> e salvar a saída</span></li>
-          <li><span class="idx">02</span><span class="box"></span><span>Rodar o mesmo em <strong>gc-prod</strong> e salvar a saída</span></li>
-          <li><span class="idx">03</span><span class="box"></span><span>Diffar as duas saídas — essa é a lista real de pendências por ambiente</span></li>
+          <li class="ticked"><span class="idx">01</span><span class="box"></span><span>Rodar <code>supabase/verificar_schema_aplicado.sql</code> em <strong>gc-dev</strong> — 21/21 OK</span></li>
+          <li class="ticked"><span class="idx">02</span><span class="box"></span><span>Confirmar que <strong>004–010 estão aplicadas em dev</strong>, por evidência de catálogo</span></li>
         </ol>
       </div>
       <div class="phase">
-        <h3>Preparação <span class="count">passos 4–5</span></h3>
+        <h3>Próximo — dev, acionável agora <span class="count">passos 3–6</span></h3>
         <ol class="steps">
-          <li><span class="idx">04</span><span class="box"></span><span>Confirmar qual projeto é <code>gzbmhgnpoehormnidmgg</code> e ajustar <code>db:types</code> pra alcançar os dois</span></li>
-          <li><span class="idx">05</span><span class="box"></span><span>Envolver 008 e 009 em <code>begin; … commit;</code></span></li>
+          <li class="blocker"><span class="idx">03</span><span class="box"></span><span><code>npm run db:types</code> e conferir no diff que <code>progresso_itens_pct</code>, <code>documentos_processamento</code> e <code>contatos_whatsapp</code> apareceram — isso também revela se <code>gzbmhgnpoehormnidmgg</code> é dev</span></li>
+          <li><span class="idx">04</span><span class="box"></span><span><code>npx tsc --noEmit</code> e <code>npm run lint</code> depois de regenerar — agora podem falhar de verdade, e uma falha aqui é informação</span></li>
+          <li><span class="idx">05</span><span class="box"></span><span>Ajustar <code>db:types</code> pra distinguir os ambientes (<code>db:types:dev</code> / <code>db:types:prod</code>, ou <code>$SUPABASE_PROJECT_ID</code>)</span></li>
+          <li><span class="idx">06</span><span class="box"></span><span>Envolver 008 e 009 em <code>begin; … commit;</code> — não muda nada em dev, protege a aplicação futura em prod</span></li>
         </ol>
       </div>
-      <div class="phase">
-        <h3>Aplicação <span class="count">passos 6–8</span></h3>
+      <div class="phase waiting">
+        <h3>Em espera — gc-prod pausado <span class="count">passos 7–9</span></h3>
         <ol class="steps">
-          <li><span class="idx">06</span><span class="box"></span><span>Aplicar o que falta em gc-dev, <strong>na ordem 004&rarr;010</strong>, e revalidar com o script</span></li>
-          <li class="blocker"><span class="idx">07</span><span class="box"></span><span><strong>Backup + janela de manutenção</strong> antes de qualquer coisa em gc-prod — a 004 é irreversível</span></li>
-          <li><span class="idx">08</span><span class="box"></span><span>Aplicar em gc-prod na mesma ordem e revalidar com o script</span></li>
-        </ol>
-      </div>
-      <div class="phase">
-        <h3>Fechamento <span class="count">passos 9–10</span></h3>
-        <ol class="steps">
-          <li><span class="idx">09</span><span class="box"></span><span><code>npm run db:types</code> e conferir no diff que os três objetos ausentes apareceram</span></li>
-          <li><span class="idx">10</span><span class="box"></span><span><code>npx tsc --noEmit</code> e <code>npm run lint</code> — sabendo que passam por causa do cast</span></li>
+          <li><span class="idx">07</span><span class="box"></span><span>Rodar o script de verificação em gc-prod e diffar contra a saída de dev</span></li>
+          <li><span class="idx">08</span><span class="box"></span><span><strong>Backup + janela de manutenção</strong> antes de qualquer coisa em prod — a 004 dropa 13 colunas de <code>obras</code> e é irreversível</span></li>
+          <li><span class="idx">09</span><span class="box"></span><span>Aplicar o que faltar em prod <strong>na ordem 004&rarr;010</strong> e revalidar com o script</span></li>
         </ol>
       </div>
       <div class="phase later">
-        <h3>Fora do bloco, recomendado <span class="count">passos 11–12</span></h3>
+        <h3>Estrutural, fora do bloco <span class="count">passos 10–11</span></h3>
         <ol class="steps">
-          <li><span class="idx">11</span><span class="box"></span><span>Remover o <code>as unknown as</code> de <code>obras/page.tsx</code> pra que o <code>tsc</code> volte a detectar drift de schema</span></li>
-          <li><span class="idx">12</span><span class="box"></span><span>Migrar pra <code>supabase/migrations</code> + CLI, pra que "o que já rodou" pare de ser uma pergunta sem resposta</span></li>
+          <li><span class="idx">10</span><span class="box"></span><span>Remover o <code>as unknown as</code> de <code>obras/page.tsx</code> pra que o <code>tsc</code> volte a detectar drift de schema</span></li>
+          <li><span class="idx">11</span><span class="box"></span><span>Migrar pra <code>supabase/migrations</code> + CLI, pra que "o que já rodou" pare de ser uma pergunta que só o catálogo responde</span></li>
         </ol>
       </div>
     </div>
@@ -834,22 +893,24 @@ $ npm run lint
       </div>
       <div class="file">
         <span class="path">docs/4.1-sincronizar-schema-analise.md</span>
-        <p>Esta análise em markdown, versionada junto do código, com o checklist corrigido.</p>
+        <p>Esta análise em markdown, versionada junto do código, com o checklist por estado.</p>
       </div>
       <div class="file">
-        <span class="path">branch worktree-verificar-schema-4-1 · commit a600f06</span>
+        <span class="path">docs/4.1-sincronizar-schema.html · docs/4.1-sincronizar-schema.pdf</span>
         <p>
-          O push pro GitHub falhou com 403 — <code>brenocmlo</code> não tem permissão de escrita em
-          <code>cremalet/gc-sistema</code>. O commit está no <code>.git</code> compartilhado do
-          repositório local e sobrevive à remoção do worktree.
+          A página e o PDF (A4) gerados do mesmo HTML. Os quatro arquivos estão no checkout
+          principal, na branch <code>feature-dev-breno-automacao</code>, ainda sem commit; a branch
+          <code>worktree-verificar-schema-4-1</code> guarda o histórico. O push pro GitHub falhou
+          com 403 — <code>brenocmlo</code> não tem permissão de escrita em
+          <code>cremalet/gc-sistema</code>.
         </p>
       </div>
     </div>
   </section>
 
   <footer>
-    <span>Análise por leitura estática do repositório</span>
-    <span>Nenhum comando executado contra gc-dev ou gc-prod</span>
+    <span>Diagnóstico por leitura estática do repositório</span>
+    <span>Estado de dev verificado no catálogo em 2026-09-02 · gc-prod pausado</span>
     <span>e2dcc57 · feature-dev-breno-automacao</span>
   </footer>
 
