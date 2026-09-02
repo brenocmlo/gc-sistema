@@ -1,0 +1,855 @@
+<title>Sincronizar Schema 4.1</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+  :root {
+    --ground: #f4f6f7;
+    --surface: #ffffff;
+    --surface-sunk: #eceff1;
+    --ink: #16202a;
+    --ink-soft: #435162;
+    --ink-mute: #6c7c8c;
+    --rule: #d5dcdf;
+    --rule-soft: #e4e9eb;
+    --accent: #12615e;
+    --accent-soft: #dceceb;
+    --accent-ink: #0c4744;
+    --crit: #a8352a;
+    --crit-soft: #f7e2df;
+    --high: #8f5c11;
+    --high-soft: #f7ecd8;
+    --med: #3f5f7d;
+    --med-soft: #e3eaf1;
+    --ok: #2c6b46;
+    --ok-soft: #dfeee5;
+
+    --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --f-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --measure: 66ch;
+    --pad: clamp(20px, 5vw, 64px);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #10161c;
+      --surface: #171f26;
+      --surface-sunk: #1d262e;
+      --ink: #e7edf1;
+      --ink-soft: #b0bec9;
+      --ink-mute: #8494a1;
+      --rule: #2c3941;
+      --rule-soft: #232e36;
+      --accent: #58b6ad;
+      --accent-soft: #17322f;
+      --accent-ink: #8fd3cb;
+      --crit: #e88a7c;
+      --crit-soft: #38211d;
+      --high: #d9a95d;
+      --high-soft: #332814;
+      --med: #93b1cc;
+      --med-soft: #1e2a35;
+      --ok: #7fc59b;
+      --ok-soft: #17281f;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #10161c;
+    --surface: #171f26;
+    --surface-sunk: #1d262e;
+    --ink: #e7edf1;
+    --ink-soft: #b0bec9;
+    --ink-mute: #8494a1;
+    --rule: #2c3941;
+    --rule-soft: #232e36;
+    --accent: #58b6ad;
+    --accent-soft: #17322f;
+    --accent-ink: #8fd3cb;
+    --crit: #e88a7c;
+    --crit-soft: #38211d;
+    --high: #d9a95d;
+    --high-soft: #332814;
+    --med: #93b1cc;
+    --med-soft: #1e2a35;
+    --ok: #7fc59b;
+    --ok-soft: #17281f;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: var(--pad) var(--pad) 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 52px;
+  }
+
+  .prose { max-width: var(--measure); }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding-bottom: 26px;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+  .eyebrow .sep { color: var(--rule); }
+
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 700;
+    font-size: clamp(30px, 5.4vw, 50px);
+    line-height: 1.04;
+    letter-spacing: -0.022em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-size: clamp(17px, 2.1vw, 20px);
+    color: var(--ink-soft);
+    max-width: 62ch;
+    margin: 0;
+  }
+
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 2px 26px;
+    font-family: var(--f-mono);
+    font-size: 12.5px;
+    color: var(--ink-mute);
+    border-top: 1px solid var(--rule-soft);
+    padding-top: 16px;
+  }
+  .meta div { display: flex; flex-direction: column; gap: 2px; }
+  .meta dt {
+    font-size: 10.5px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    opacity: 0.75;
+  }
+  .meta dd { margin: 0; color: var(--ink); font-weight: 500; }
+
+  /* ---------- notice ---------- */
+
+  .notice {
+    display: flex;
+    gap: 16px;
+    padding: 16px 20px;
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    font-size: 15.5px;
+    color: var(--accent-ink);
+    max-width: 76ch;
+  }
+  .notice strong { font-weight: 600; }
+  .notice .mark {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding-top: 4px;
+    white-space: nowrap;
+  }
+
+  /* ---------- section scaffolding ---------- */
+
+  section { display: flex; flex-direction: column; gap: 20px; }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 10px;
+  }
+
+  h2 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: clamp(21px, 2.6vw, 27px);
+    letter-spacing: -0.014em;
+    line-height: 1.16;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .rank {
+    font-family: var(--f-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    padding: 2px 8px;
+    border: 1px solid var(--accent);
+    line-height: 1.4;
+    flex: none;
+  }
+
+  h3 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: 16px;
+    letter-spacing: 0.005em;
+    margin: 0;
+  }
+
+  p { margin: 0; }
+  section p + p { margin-top: -6px; }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, li:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  code, .mono { font-family: var(--f-mono); font-size: 0.86em; }
+  code {
+    background: var(--surface-sunk);
+    padding: 0.1em 0.34em;
+    border-radius: 2px;
+    color: var(--ink);
+  }
+
+  pre {
+    margin: 0;
+    padding: 16px 18px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--rule);
+    overflow-x: auto;
+    font-family: var(--f-mono);
+    font-size: 12.5px;
+    line-height: 1.75;
+    color: var(--ink-soft);
+  }
+  pre b { color: var(--ink); font-weight: 600; }
+  pre .cmt { color: var(--ink-mute); }
+  pre .new { color: var(--high); }
+
+  ul.plain { margin: 0; padding-left: 1.15em; }
+  ul.plain li { margin-bottom: 4px; }
+
+  /* ---------- summary ledger ---------- */
+
+  .scroller { overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+
+  th {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--ink-mute);
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+    background: var(--surface-sunk);
+  }
+
+  td {
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+    color: var(--ink-soft);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.n {
+    font-family: var(--f-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  td.subj { color: var(--ink); }
+  td.subj b { font-weight: 600; }
+
+  .chip {
+    display: inline-block;
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    white-space: nowrap;
+  }
+  .chip.crit { background: var(--crit-soft); color: var(--crit); }
+  .chip.high { background: var(--high-soft); color: var(--high); }
+  .chip.med  { background: var(--med-soft);  color: var(--med); }
+  .chip.ok   { background: var(--ok-soft);   color: var(--ok); }
+
+  .no  { color: var(--crit); font-weight: 600; }
+  .yes { color: var(--ok); font-weight: 600; }
+  .na  { color: var(--ink-mute); }
+  td.flag { font-family: var(--f-mono); font-size: 13px; white-space: nowrap; }
+
+  /* ---------- ordering chain ---------- */
+
+  .chain-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+  }
+  .chain-strip {
+    display: flex;
+    align-items: stretch;
+    overflow-x: auto;
+    padding: 22px 20px;
+    gap: 0;
+  }
+  .step {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 104px;
+    padding-right: 8px;
+  }
+  .step .num {
+    font-family: var(--f-mono);
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .step .what {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--ink-mute);
+    letter-spacing: 0.02em;
+  }
+  .step.pivot .num { color: var(--crit); }
+  .step.pivot { border-bottom: 2px solid var(--crit); }
+  .step.dep .num { color: var(--high); }
+  .step.dep { border-bottom: 2px solid var(--high); }
+  .arrow {
+    flex: none;
+    align-self: flex-start;
+    font-family: var(--f-mono);
+    color: var(--rule);
+    padding: 2px 12px 0 4px;
+    font-size: 14px;
+  }
+  .chain-notes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    border-top: 1px solid var(--rule);
+  }
+  .chain-notes div {
+    padding: 14px 20px;
+    font-size: 14.5px;
+    color: var(--ink-soft);
+  }
+  .chain-notes div + div { border-left: 1px solid var(--rule-soft); }
+  .chain-notes .tag {
+    display: block;
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+  }
+  .chain-notes .pivot-tag { color: var(--crit); }
+  .chain-notes .dep-tag { color: var(--high); }
+
+  /* ---------- drift list ---------- */
+
+  .drift {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+  .drift div {
+    background: var(--surface);
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .drift .obj {
+    font-family: var(--f-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    word-break: break-word;
+  }
+  .drift .src {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+  }
+  .drift .verdict { font-size: 14px; color: var(--crit); }
+
+  /* ---------- checklist ---------- */
+
+  .phase {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px 20px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--accent);
+  }
+  .phase.later { border-top-color: var(--rule); }
+  .phase h3 { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  .phase h3 .count {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--ink-mute);
+    letter-spacing: 0.08em;
+  }
+  .phases { display: grid; gap: 16px; }
+  ol.steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; counter-reset: none; }
+  ol.steps li {
+    display: grid;
+    grid-template-columns: 26px 14px 1fr;
+    gap: 10px;
+    align-items: start;
+    font-size: 15.5px;
+    color: var(--ink-soft);
+  }
+  ol.steps .idx {
+    font-family: var(--f-mono);
+    font-size: 12px;
+    color: var(--ink-mute);
+    font-variant-numeric: tabular-nums;
+    padding-top: 3px;
+  }
+  ol.steps .box {
+    width: 13px;
+    height: 13px;
+    border: 1.5px solid var(--rule);
+    margin-top: 5px;
+  }
+  ol.steps li.blocker .box { border-color: var(--crit); }
+  ol.steps li.blocker { color: var(--ink); }
+
+  /* ---------- deliverables ---------- */
+
+  .files { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+  .file { background: var(--surface); padding: 18px 20px; display: flex; flex-direction: column; gap: 7px; }
+  .file .path { font-family: var(--f-mono); font-size: 13px; font-weight: 600; color: var(--ink); word-break: break-all; }
+  .file p { font-size: 14.5px; color: var(--ink-soft); }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 18px;
+    font-family: var(--f-mono);
+    font-size: 12px;
+    color: var(--ink-mute);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+  }
+
+  @media (max-width: 640px) {
+    body { font-size: 16px; }
+    .chain-notes div + div { border-left: none; border-top: 1px solid var(--rule-soft); }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>Bloco 4.1</span><span class="sep">/</span>
+      <span>Plataforma Gestão de Obras</span><span class="sep">/</span>
+      <span>Análise técnica</span>
+    </div>
+    <h1>Sincronizar schema: o que a tarefa 4.1 não consegue medir</h1>
+    <p class="standfirst">
+      A tarefa pede pra conferir se as migrations 004–007 foram aplicadas em gc-dev e gc-prod.
+      Existem migrations até a 010, não há registro de nada do que já rodou, e os dois critérios
+      de aceite passam hoje — com os types desatualizados.
+    </p>
+    <dl class="meta">
+      <div><dt>Repositório</dt><dd>cremalet/gc-sistema</dd></div>
+      <div><dt>Branch</dt><dd>feature-dev-breno-automacao</dd></div>
+      <div><dt>Commit lido</dt><dd>e2dcc57</dd></div>
+      <div><dt>Data</dt><dd>2026-09-01</dd></div>
+    </dl>
+  </header>
+
+  <div class="notice">
+    <span class="mark">Escopo</span>
+    <span>
+      Toda a análise vem da leitura do repositório. <strong>Nada foi executado contra gc-dev ou
+      gc-prod</strong> — não há credenciais versionadas (<code>.env.local</code> fica fora do repo)
+      nem projeto linkado pela CLI. Quem diz o que está aplicado é o script de verificação, rodado
+      por quem tem acesso aos dois painéis.
+    </span>
+  </div>
+
+  <section>
+    <div class="section-head"><h2>Os cinco problemas, do mais grave pro menos</h2></div>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th>#</th><th>Gravidade</th><th>Problema</th><th>Impacto</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="n">1</td>
+            <td><span class="chip crit">crítico</span></td>
+            <td class="subj"><b>004 é destrutiva, não idempotente e sensível à ordem</b></td>
+            <td>Aplicada em prod sem backup/janela, dropa 13 colunas de <code>obras</code> com dados. Fora de ordem, reverte a 007 e derruba <code>/obras</code>.</td>
+          </tr>
+          <tr>
+            <td class="n">2</td>
+            <td><span class="chip crit">crítico</span></td>
+            <td class="subj"><b>Escopo desatualizado: são 004–010, não 004–007</b></td>
+            <td>008, 009 e 010 entraram depois da tarefa ser criada. A 010 é pré-requisito da ingestão via WhatsApp em prod.</td>
+          </tr>
+          <tr>
+            <td class="n">3</td>
+            <td><span class="chip high">alto</span></td>
+            <td class="subj"><b>Não existe controle de migrations</b></td>
+            <td>Sem <code>supabase/migrations</code>, sem CLI, sem tabela de controle: "rodar as pendentes" não corresponde a comando nenhum.</td>
+          </tr>
+          <tr>
+            <td class="n">4</td>
+            <td><span class="chip high">alto</span></td>
+            <td class="subj"><b>Critérios de aceite são falso-positivos</b></td>
+            <td><code>tsc</code> e <code>lint</code> já passam com os types velhos. Um <code>as unknown as</code> apaga o drift.</td>
+          </tr>
+          <tr>
+            <td class="n">5</td>
+            <td><span class="chip med">médio</span></td>
+            <td class="subj"><b><code>types.ts</code> está três objetos atrás do schema</b></td>
+            <td>E <code>db:types</code> tem o <code>--project-id</code> fixo: não dá pra gerar os types do outro ambiente.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="p1">
+    <div class="section-head"><span class="rank">1</span><h2>A 004 é destrutiva, não idempotente e sensível à ordem</h2></div>
+    <div class="prose">
+      <p>
+        A <code>004_revisao_schema.sql</code> cria a tabela <code>clientes</code>, migra os dados de
+        cliente que moravam em <code>obras</code>, e então dropa as colunas antigas — sem
+        <code>if not exists</code> na criação e sem <code>if exists</code> nos drops. Ela está
+        envolvida em <code>begin/commit</code>, então uma segunda execução aborta inteira em vez de
+        deixar meio caminho. O risco não é re-rodar: é rodar a primeira vez em produção.
+      </p>
+    </div>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th>Migration</th><th>Idempotente</th><th>Em transação</th><th>Por quê</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="n">004</td><td class="flag"><span class="no">não</span></td><td class="flag"><span class="yes">sim</span></td><td><code>create table</code> e <code>drop column</code> sem guard; migra dados de <code>obras</code> pra <code>clientes</code></td></tr>
+          <tr><td class="n">005</td><td class="flag"><span class="yes">sim</span></td><td class="flag"><span class="na">não</span></td><td><code>drop policy if exists</code> antes de cada <code>create policy</code></td></tr>
+          <tr><td class="n">006</td><td class="flag"><span class="yes">sim</span></td><td class="flag"><span class="na">n/a</span></td><td><code>create or replace function</code>, statement único</td></tr>
+          <tr><td class="n">007</td><td class="flag"><span class="yes">sim</span></td><td class="flag"><span class="na">n/a</span></td><td><code>create or replace view</code>, statement único</td></tr>
+          <tr><td class="n">008</td><td class="flag"><span class="no">não</span></td><td class="flag"><span class="no">não</span></td><td><code>create table documentos_processamento</code> sem guard, seguida de índices, trigger e 4 policies</td></tr>
+          <tr><td class="n">009</td><td class="flag"><span class="no">não</span></td><td class="flag"><span class="no">não</span></td><td><code>create table contatos_whatsapp</code> sem guard, mesma estrutura</td></tr>
+          <tr><td class="n">010</td><td class="flag"><span class="yes">sim</span></td><td class="flag"><span class="na">não</span></td><td><code>on conflict do nothing</code> no bucket + <code>drop policy if exists</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="prose">
+      <p>
+        O que a 004 remove, em definitivo e sem backup: de <code>obras</code>, as colunas
+        <code>cliente</code>, <code>contato</code>, <code>cpf_cnpj</code>, <code>telefone</code>,
+        <code>email</code>, <code>valor_total</code>, <code>desconto</code>,
+        <code>valor_final</code>, os quatro <code>pct_*</code>, <code>forma_pagamento</code> e
+        <code>doc_url</code> — treze no total; de <code>orcamentos</code>, outras seis. O cabeçalho
+        do próprio arquivo pede janela de manutenção. O checklist da tarefa diz apenas "aplicar as
+        mesmas migrations em gc-prod": não menciona backup nem janela.
+      </p>
+    </div>
+
+    <h3>A ordem não é sugestão</h3>
+    <div class="chain-block">
+      <div class="chain-strip">
+        <div class="step pivot">
+          <span class="num">004</span>
+          <span class="what">revisão de schema<br>recria as 4 views</span>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step">
+          <span class="num">005</span>
+          <span class="what">RLS + policies<br>de clientes</span>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step dep">
+          <span class="num">006</span>
+          <span class="what">conserta<br>calcular_valores_obra</span>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step pivot">
+          <span class="num">007</span>
+          <span class="what">progresso_itens_pct<br>na view</span>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step">
+          <span class="num">008</span>
+          <span class="what">documentos_<br>processamento</span>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step">
+          <span class="num">009</span>
+          <span class="what">contatos_<br>whatsapp</span>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step">
+          <span class="num">010</span>
+          <span class="what">bucket + policies<br>de storage</span>
+        </div>
+      </div>
+      <div class="chain-notes">
+        <div>
+          <span class="tag pivot-tag">004 depois de 007 reverte a 007</span>
+          A 004 recria <code>obras_com_valores</code> no final (linha 536) <em>sem</em>
+          <code>progresso_itens_pct</code>. A listagem seleciona essa coluna por nome em
+          <code>src/app/(app)/obras/page.tsx:51</code> — a página quebra em runtime, não em build.
+        </div>
+        <div>
+          <span class="tag dep-tag">004 sem 006 derruba a listagem inteira</span>
+          A 004 dropa os campos legacy que a <code>calcular_valores_obra</code> assumia, e a view
+          chama a função via <code>LATERAL</code>. Aplicar a 004 em prod e parar ali deixa
+          <code>/obras</code> fora do ar.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="p2">
+    <div class="section-head"><span class="rank">2</span><h2>O escopo real é 004–010</h2></div>
+    <div class="prose">
+      <p>
+        Três migrations entraram no último commit (<code>e2dcc57 — migration e documetacao</code>),
+        depois da tarefa ter sido criada:
+      </p>
+    </div>
+    <pre>supabase/004_revisao_schema.sql
+supabase/005_rls_clientes.sql
+supabase/006_fix_calcular_valores_obra.sql
+supabase/007_progresso_itens_obra.sql
+<span class="new">supabase/008_documentos_processamento.sql                  &larr; e2dcc57</span>
+<span class="new">supabase/009_contatos_whatsapp.sql                         &larr; e2dcc57</span>
+<span class="new">supabase/010_storage_bucket_documentos_processamento.sql   &larr; e2dcc57</span></pre>
+    <div class="prose">
+      <p>
+        A 010 é a mais fácil de esquecer e a mais barulhenta quando falta: ela cria o bucket
+        <code>documentos-processamento</code> e as policies de <code>storage.objects</code> que
+        exigem o <code>empresa_id</code> como primeiro segmento do path. O workflow n8n de ingestão
+        via WhatsApp já grava em <code>{empresa_id}/whatsapp/{messageId}-{fileName}</code> contando
+        com isso. Se a 010 não estiver em prod, a ingestão falha em prod — e nenhum item do
+        checklist original detecta, porque storage não aparece nos types nem no compilador.
+      </p>
+    </div>
+  </section>
+
+  <section id="p3">
+    <div class="section-head"><span class="rank">3</span><h2>Ninguém sabe o que já rodou — e não é descuido, é ausência de mecanismo</h2></div>
+    <div class="prose">
+      <p>
+        Não existe <code>supabase/migrations/</code>, não existe <code>supabase/config.toml</code>,
+        não existe projeto linkado pela CLI. Os <code>.sql</code> são scripts numerados aplicados à
+        mão no SQL Editor. Daí decorrem três coisas:
+      </p>
+      <ul class="plain">
+        <li>não há tabela de controle (<code>schema_migrations</code>) pra consultar;</li>
+        <li>"rodar as migrations pendentes em gc-dev" não corresponde a comando nenhum;</li>
+        <li>a única forma de conferir é <strong>inspecionar o catálogo do Postgres</strong>.</li>
+      </ul>
+      <p>
+        Foi pra isso que escrevi <code>supabase/verificar_schema_aplicado.sql</code>: somente
+        leitura, seguro pra rodar em produção. Cola no SQL Editor de cada projeto e sai uma linha
+        <span class="chip ok">ok</span> ou <span class="chip crit">falta</span> por evidência —
+        tabela <code>clientes</code>, colunas legacy dropadas, FK <code>obras_cliente_fk</code>,
+        as 4 views recriadas, RLS e contagem de policies, o CASO 2 da
+        <code>calcular_valores_obra</code>, a coluna <code>progresso_itens_pct</code>, as duas
+        tabelas novas, o bucket e suas policies — mais contagens totais de tabelas e policies pra
+        diff direto entre dev e prod.
+      </p>
+    </div>
+  </section>
+
+  <section id="p4">
+    <div class="section-head"><span class="rank">4</span><h2>Os critérios de aceite não podem falhar</h2></div>
+    <div class="prose">
+      <p>Rodados nesta branch, agora, com os types desatualizados:</p>
+    </div>
+    <pre>$ npx tsc --noEmit
+<b>(sem erros)</b>
+
+$ npm run lint
+<b>&#10003; No ESLint warnings or errors</b></pre>
+    <div class="prose">
+      <p>
+        Os itens 4 e 5 do checklist já estão verdes <em>apesar</em> do drift, por dois motivos
+        concretos: <code>src/lib/types.ts:232</code> declara <code>progresso_itens_pct</code> à mão,
+        e <code>src/app/(app)/obras/page.tsx:96</code> faz
+        <code>(data ?? []) as unknown as ObraListItem[]</code>. O <code>as unknown as</code> apaga
+        qualquer divergência entre a string do <code>select()</code> e o <code>Database</code>
+        gerado. Enquanto ele existir, o <code>tsc</code> nunca vai apontar coluna faltando — nem
+        agora, nem na próxima migration.
+      </p>
+    </div>
+  </section>
+
+  <section id="p5">
+    <div class="section-head"><span class="rank">5</span><h2>O drift de types, objeto por objeto</h2></div>
+    <div class="prose">
+      <p>
+        <code>src/lib/supabase/types.ts</code> tem 2.267 linhas e não contém nenhum destes três:
+      </p>
+    </div>
+    <div class="drift">
+      <div>
+        <span class="src">Migration 007</span>
+        <span class="obj">obras_com_valores.progresso_itens_pct</span>
+        <span class="verdict">ausente da view tipada</span>
+      </div>
+      <div>
+        <span class="src">Migration 008</span>
+        <span class="obj">documentos_processamento</span>
+        <span class="verdict">tabela ausente</span>
+      </div>
+      <div>
+        <span class="src">Migration 009</span>
+        <span class="obj">contatos_whatsapp</span>
+        <span class="verdict">tabela ausente</span>
+      </div>
+    </div>
+    <div class="prose">
+      <p>
+        E o script de geração aponta pra um projeto fixo, sem chave de ambiente:
+      </p>
+    </div>
+    <pre><span class="cmt">// package.json</span>
+"db:types": "npx --yes supabase gen types typescript
+              --project-id <b>gzbmhgnpoehormnidmgg</b> &gt; src/lib/supabase/types.ts"</pre>
+    <div class="prose">
+      <p>
+        O repositório não documenta se <code>gzbmhgnpoehormnidmgg</code> é gc-dev ou gc-prod, e não
+        há como gerar os types do outro ambiente — que é exatamente o que a tarefa pede pra
+        comparar. Caminho: dois scripts (<code>db:types:dev</code> / <code>db:types:prod</code>) ou
+        <code>--project-id $SUPABASE_PROJECT_ID</code>.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>Checklist corrigido</h2></div>
+    <div class="phases">
+      <div class="phase">
+        <h3>Diagnóstico <span class="count">passos 1–3</span></h3>
+        <ol class="steps">
+          <li><span class="idx">01</span><span class="box"></span><span>Rodar <code>supabase/verificar_schema_aplicado.sql</code> em <strong>gc-dev</strong> e salvar a saída</span></li>
+          <li><span class="idx">02</span><span class="box"></span><span>Rodar o mesmo em <strong>gc-prod</strong> e salvar a saída</span></li>
+          <li><span class="idx">03</span><span class="box"></span><span>Diffar as duas saídas — essa é a lista real de pendências por ambiente</span></li>
+        </ol>
+      </div>
+      <div class="phase">
+        <h3>Preparação <span class="count">passos 4–5</span></h3>
+        <ol class="steps">
+          <li><span class="idx">04</span><span class="box"></span><span>Confirmar qual projeto é <code>gzbmhgnpoehormnidmgg</code> e ajustar <code>db:types</code> pra alcançar os dois</span></li>
+          <li><span class="idx">05</span><span class="box"></span><span>Envolver 008 e 009 em <code>begin; … commit;</code></span></li>
+        </ol>
+      </div>
+      <div class="phase">
+        <h3>Aplicação <span class="count">passos 6–8</span></h3>
+        <ol class="steps">
+          <li><span class="idx">06</span><span class="box"></span><span>Aplicar o que falta em gc-dev, <strong>na ordem 004&rarr;010</strong>, e revalidar com o script</span></li>
+          <li class="blocker"><span class="idx">07</span><span class="box"></span><span><strong>Backup + janela de manutenção</strong> antes de qualquer coisa em gc-prod — a 004 é irreversível</span></li>
+          <li><span class="idx">08</span><span class="box"></span><span>Aplicar em gc-prod na mesma ordem e revalidar com o script</span></li>
+        </ol>
+      </div>
+      <div class="phase">
+        <h3>Fechamento <span class="count">passos 9–10</span></h3>
+        <ol class="steps">
+          <li><span class="idx">09</span><span class="box"></span><span><code>npm run db:types</code> e conferir no diff que os três objetos ausentes apareceram</span></li>
+          <li><span class="idx">10</span><span class="box"></span><span><code>npx tsc --noEmit</code> e <code>npm run lint</code> — sabendo que passam por causa do cast</span></li>
+        </ol>
+      </div>
+      <div class="phase later">
+        <h3>Fora do bloco, recomendado <span class="count">passos 11–12</span></h3>
+        <ol class="steps">
+          <li><span class="idx">11</span><span class="box"></span><span>Remover o <code>as unknown as</code> de <code>obras/page.tsx</code> pra que o <code>tsc</code> volte a detectar drift de schema</span></li>
+          <li><span class="idx">12</span><span class="box"></span><span>Migrar pra <code>supabase/migrations</code> + CLI, pra que "o que já rodou" pare de ser uma pergunta sem resposta</span></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>O que está entregue</h2></div>
+    <div class="files">
+      <div class="file">
+        <span class="path">supabase/verificar_schema_aplicado.sql</span>
+        <p>
+          Uma única query, somente leitura, sobre os catálogos do Postgres. Cobre 004 a 010 com
+          ~20 evidências e devolve <code>migration · status · checagem · esperado · encontrado</code>
+          ordenado por migration. Seguro em produção: não há DDL nem DML. Validado como Postgres
+          antes de entregar.
+        </p>
+      </div>
+      <div class="file">
+        <span class="path">docs/4.1-sincronizar-schema-analise.md</span>
+        <p>Esta análise em markdown, versionada junto do código, com o checklist corrigido.</p>
+      </div>
+      <div class="file">
+        <span class="path">branch worktree-verificar-schema-4-1 · commit a600f06</span>
+        <p>
+          O push pro GitHub falhou com 403 — <code>brenocmlo</code> não tem permissão de escrita em
+          <code>cremalet/gc-sistema</code>. O commit está no <code>.git</code> compartilhado do
+          repositório local e sobrevive à remoção do worktree.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Análise por leitura estática do repositório</span>
+    <span>Nenhum comando executado contra gc-dev ou gc-prod</span>
+    <span>e2dcc57 · feature-dev-breno-automacao</span>
+  </footer>
+
+</div>
