@@ -225,7 +225,7 @@
   }
 
   p { margin: 0; }
-  section p + p { margin-top: -6px; }
+  section p + p { margin-top: 0.85em; }
 
   a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
   a:focus-visible, li:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
@@ -823,15 +823,31 @@ $ npm run lint
         E o script de geração aponta pra um projeto fixo, sem chave de ambiente:
       </p>
     </div>
-    <pre><span class="cmt">// package.json</span>
+    <pre><span class="cmt">// package.json — como estava</span>
 "db:types": "npx --yes supabase gen types typescript
-              --project-id <b>gzbmhgnpoehormnidmgg</b> &gt; src/lib/supabase/types.ts"</pre>
+              --project-id <b>gzbmhgnpoehormnidmgg</b> &gt; src/lib/supabase/types.ts"
+
+<span class="cmt">// como está agora: gera num .tmp e só promove se der certo</span>
+"db:types": "npx --yes supabase gen types typescript
+              --project-id <b>${SUPABASE_PROJECT_ID:-gzbmhgnpoehormnidmgg}</b>
+              &gt; src/lib/supabase/types.ts.tmp
+              &amp;&amp; mv src/lib/supabase/types.ts.tmp src/lib/supabase/types.ts
+              || (rm -f src/lib/supabase/types.ts.tmp; exit 1)"</pre>
     <div class="prose">
       <p>
         O repositório não documenta se <code>gzbmhgnpoehormnidmgg</code> é gc-dev ou gc-prod, e não
         há como gerar os types do outro ambiente. Caminho: dois scripts
         (<code>db:types:dev</code> / <code>db:types:prod</code>) ou
         <code>--project-id $SUPABASE_PROJECT_ID</code>.
+      </p>
+      <p>
+        <strong>Cuidado, e já mordeu:</strong> o script redirecionava com <code>&gt;</code> direto
+        pro arquivo final, e o shell trunca o destino <em>antes</em> de rodar o comando. Na primeira
+        tentativa a CLI abortou por falta de token (<code>supabase login</code>) e o
+        <code>src/lib/supabase/types.ts</code> ficou com <strong>0 bytes</strong> — restaurado do
+        commit <code>e2dcc57</code> (blob <code>ab59e07</code>, 2267 linhas). O script agora escreve
+        num <code>.tmp</code> e só promove com <code>mv</code> se a geração terminar bem, então uma
+        falha deixa o arquivo bom intacto.
       </p>
       <p>
         Com dev verificado, rodar <code>npm run db:types</code> agora responde essa pergunta de
@@ -853,27 +869,28 @@ $ npm run lint
         </ol>
       </div>
       <div class="phase">
-        <h3>Próximo — dev, acionável agora <span class="count">passos 3–6</span></h3>
+        <h3>Próximo — dev, acionável agora <span class="count">passos 3–7</span></h3>
         <ol class="steps">
-          <li class="blocker"><span class="idx">03</span><span class="box"></span><span><code>npm run db:types</code> e conferir no diff que <code>progresso_itens_pct</code>, <code>documentos_processamento</code> e <code>contatos_whatsapp</code> apareceram — isso também revela se <code>gzbmhgnpoehormnidmgg</code> é dev</span></li>
-          <li><span class="idx">04</span><span class="box"></span><span><code>npx tsc --noEmit</code> e <code>npm run lint</code> depois de regenerar — agora podem falhar de verdade, e uma falha aqui é informação</span></li>
-          <li><span class="idx">05</span><span class="box"></span><span>Ajustar <code>db:types</code> pra distinguir os ambientes (<code>db:types:dev</code> / <code>db:types:prod</code>, ou <code>$SUPABASE_PROJECT_ID</code>)</span></li>
-          <li><span class="idx">06</span><span class="box"></span><span>Envolver 008 e 009 em <code>begin; … commit;</code> — não muda nada em dev, protege a aplicação futura em prod</span></li>
+          <li class="blocker"><span class="idx">03</span><span class="box"></span><span>Autenticar a CLI: <code>supabase login</code>, ou exportar <code>SUPABASE_ACCESS_TOKEN</code> — sem isso o <code>db:types</code> falha antes de gerar qualquer coisa</span></li>
+          <li><span class="idx">04</span><span class="box"></span><span><code>npm run db:types</code> e conferir no diff que <code>progresso_itens_pct</code>, <code>documentos_processamento</code> e <code>contatos_whatsapp</code> apareceram — isso também revela se <code>gzbmhgnpoehormnidmgg</code> é dev</span></li>
+          <li><span class="idx">05</span><span class="box"></span><span><code>npx tsc --noEmit</code> e <code>npm run lint</code> depois de regenerar — agora podem falhar de verdade, e uma falha aqui é informação</span></li>
+          <li class="ticked"><span class="idx">06</span><span class="box"></span><span><code>db:types</code> blindado contra truncamento e aceitando <code>$SUPABASE_PROJECT_ID</code>, com <code>db:types:dev</code> ao lado</span></li>
+          <li><span class="idx">07</span><span class="box"></span><span>Envolver 008 e 009 em <code>begin; … commit;</code> — não muda nada em dev, protege a aplicação futura em prod</span></li>
         </ol>
       </div>
       <div class="phase waiting">
-        <h3>Em espera — gc-prod pausado <span class="count">passos 7–9</span></h3>
+        <h3>Em espera — gc-prod pausado <span class="count">passos 8–10</span></h3>
         <ol class="steps">
-          <li><span class="idx">07</span><span class="box"></span><span>Rodar o script de verificação em gc-prod e diffar contra a saída de dev</span></li>
-          <li><span class="idx">08</span><span class="box"></span><span><strong>Backup + janela de manutenção</strong> antes de qualquer coisa em prod — a 004 dropa 13 colunas de <code>obras</code> e é irreversível</span></li>
-          <li><span class="idx">09</span><span class="box"></span><span>Aplicar o que faltar em prod <strong>na ordem 004&rarr;010</strong> e revalidar com o script</span></li>
+          <li><span class="idx">08</span><span class="box"></span><span>Rodar o script de verificação em gc-prod e diffar contra a saída de dev</span></li>
+          <li><span class="idx">09</span><span class="box"></span><span><strong>Backup + janela de manutenção</strong> antes de qualquer coisa em prod — a 004 dropa 13 colunas de <code>obras</code> e é irreversível</span></li>
+          <li><span class="idx">10</span><span class="box"></span><span>Aplicar o que faltar em prod <strong>na ordem 004&rarr;010</strong> e revalidar com o script</span></li>
         </ol>
       </div>
       <div class="phase later">
-        <h3>Estrutural, fora do bloco <span class="count">passos 10–11</span></h3>
+        <h3>Estrutural, fora do bloco <span class="count">passos 11–12</span></h3>
         <ol class="steps">
-          <li><span class="idx">10</span><span class="box"></span><span>Remover o <code>as unknown as</code> de <code>obras/page.tsx</code> pra que o <code>tsc</code> volte a detectar drift de schema</span></li>
-          <li><span class="idx">11</span><span class="box"></span><span>Migrar pra <code>supabase/migrations</code> + CLI, pra que "o que já rodou" pare de ser uma pergunta que só o catálogo responde</span></li>
+          <li><span class="idx">11</span><span class="box"></span><span>Remover o <code>as unknown as</code> de <code>obras/page.tsx</code> pra que o <code>tsc</code> volte a detectar drift de schema</span></li>
+          <li><span class="idx">12</span><span class="box"></span><span>Migrar pra <code>supabase/migrations</code> + CLI, pra que "o que já rodou" pare de ser uma pergunta que só o catálogo responde</span></li>
         </ol>
       </div>
     </div>
