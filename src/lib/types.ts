@@ -228,8 +228,6 @@ export type ObraListItem = Omit<
   nome: string
   status: ObraStatus
   cliente: Pick<Cliente, 'nome'> | null
-  /** Adicionado pela migration 007 — % de itens medidos sobre total contratado. NULL se obra não tem itens. */
-  progresso_itens_pct: number | null
 }
 
 export type ItemComStatus = Views['itens_com_status']['Row']

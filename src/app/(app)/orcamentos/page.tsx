@@ -115,7 +115,7 @@ export default async function OrcamentosPage({
   }
 
   // Cast: status vem como `string` do gen, mas o banco garante OrcamentoStatus.
-  const orcamentos = (data ?? []) as unknown as OrcamentoListItem[]
+  const orcamentos = (data ?? []) as OrcamentoListItem[]
   const total = count ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 

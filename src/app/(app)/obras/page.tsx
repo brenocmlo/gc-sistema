@@ -91,7 +91,9 @@ export default async function ObrasPage({
 
   // Cast: narrowing de campos NOT NULL da tabela obras que a view marca como
   // nullable (id, empresa_id, codigo_obra, nome, status) — ver lib/types.ts.
-  const obras = (data ?? []) as unknown as ObraListItem[]
+  // Um `as` só, nunca `as unknown as`: assim o tsc ainda compara o resultado do
+  // select() com o Database gerado e acusa coluna que deixou de existir.
+  const obras = (data ?? []) as ObraListItem[]
   const total = count ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 

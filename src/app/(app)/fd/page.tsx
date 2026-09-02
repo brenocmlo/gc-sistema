@@ -112,7 +112,7 @@ export default async function FdPage({
     )
   }
 
-  const fds = (data ?? []) as unknown as FdListItem[]
+  const fds = (data ?? []) as FdListItem[]
   const total = count ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
