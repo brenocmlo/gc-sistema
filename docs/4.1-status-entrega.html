@@ -494,17 +494,6 @@ on 'obras_com_valores'."&gt;[]' to type 'ObraListItem[]' may be a mistake</pre>
 
   <section>
     <div class="head"><h2>Pendências</h2></div>
-    <div class="note alert">
-      <span class="tag">Um comando</span>
-      <span>
-        Falta rodar <code>git rm --cached .env.local.example</code> no seu checkout. É a única
-        pendência que não pode ser espelhada por cópia de arquivo, porque é mudança no índice do
-        git, não no disco. Na branch o arquivo já saiu do rastreamento. O comando não apaga nada: o
-        arquivo fica no disco com as suas credenciais, e o <code>.gitignore</code> novo passa a
-        ignorá-lo. As credenciais nunca entraram no histórico, o commit e2dcc57 tem o arquivo em
-        branco.
-      </span>
-    </div>
     <div class="prose">
       <ol>
         <li>
@@ -514,14 +503,40 @@ on 'obras_com_valores'."&gt;[]' to type 'ObraListItem[]' may be a mistake</pre>
           destrutiva. Ela aborta sozinha por estar em transação, mas o susto é evitável. Comandos
           exatos no <code>supabase/README.md</code>.
         </li>
-        <li><strong>Rodar <code>git rm --cached .env.local.example</code></strong>, conforme o aviso acima. Depois, conferir com <code>git status</code> que o arquivo não aparece mais, revogar o personal access token e criar o <code>.env.local</code> com os valores.</li>
         <li>
-          <strong>Commitar.</strong> As alterações estão espelhadas no checkout principal, ainda sem
-          commit. O histórico detalhado está na branch <code>worktree-verificar-schema-4-1</code>,
-          que parte de e2dcc57 e entra como fast forward.
+          <strong>Revogar o personal access token do Supabase</strong> usado para gerar os types.
+          Ele circulou fora do arquivo de env.
+        </li>
+        <li>
+          <strong>Conferir o <code>.env.local</code>.</strong> Foi criado com os valores que estavam
+          no antigo <code>.env.local.example</code>, antes de o arquivo sair do repositório, então
+          nada se perdeu. Falta ajustar o nome da variável da chave: o código lê
+          <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, e o que está lá é
+          <code>PUBLISHABLE_KEY</code>.
         </li>
         <li><strong>gc-prod</strong>, quando despausar, conforme a atividade 2.</li>
       </ol>
+    </div>
+  </section>
+
+  <section>
+    <div class="head"><h2>Estado do repositório</h2></div>
+    <div class="prose">
+      <p>
+        Tudo está commitado em <strong>feature-dev-breno-automacao</strong>, que foi de
+        <code>e2dcc57</code> para <code>184cdfc</code> por fast forward, com onze commits. A árvore
+        está limpa, <code>tsc</code> e <code>lint</code> passam nessa branch.
+      </p>
+      <p>
+        O <code>.env.local.example</code> saiu do rastreamento e do disco, como o commit pede. As
+        credenciais que estavam nele vivem agora no <code>.env.local</code>, ignorado pelo git.
+      </p>
+      <p>
+        O push para o GitHub continua bloqueado: <code>brenocmlo</code> não tem permissão de escrita
+        em <code>cremalet/gc-sistema</code>, então os commits existem só no clone local. A branch
+        auxiliar <code>worktree-verificar-schema-4-1</code> aponta para o mesmo commit e pode ser
+        apagada quando você quiser.
+      </p>
     </div>
   </section>
 
