@@ -471,6 +471,14 @@ on 'obras_com_valores'."&gt;[]' to type 'ObraListItem[]' may be a mistake</pre>
           sem policies. Foram envolvidas em <code>begin; commit;</code>.
         </li>
         <li>
+          O <code>.gitignore</code> ganhou um bloco de env que cobre qualquer <code>.env</code>,
+          incluindo <code>.env</code>, <code>.env.local</code> e
+          <code>.env.&lt;ambiente&gt;.local</code>, com uma exceção explícita para o
+          <code>.env.local.example</code>, que é o template e continua versionado em branco. A linha
+          <code>.env.local.*</code> que existia antes foi removida: ela ignorava justamente o
+          template. Verificado com <code>git check-ignore</code>.
+        </li>
+        <li>
           O repositório passou a usar <code>supabase/migrations</code> com a CLI. As dez migrations
           viraram arquivos com timestamp, usando as datas reais dos commits que introduziram cada
           uma, então a ordem cronológica é a mesma da numeração antiga. O de para está no
@@ -488,12 +496,16 @@ on 'obras_com_valores'."&gt;[]' to type 'ObraListItem[]' may be a mistake</pre>
     <div class="note alert">
       <span class="tag">Atenção</span>
       <span>
-        O <code>.env.local.example</code> é rastreado pelo git e está com a URL do gc-dev, uma
-        publishable key e um personal access token na cópia de trabalho. No commit e2dcc57 ele está
-        em branco, então nada foi para o histórico ainda, mas um <code>git add -A</code> levaria o
-        segredo junto. Correção: <code>cp .env.local.example .env.local</code> e depois
-        <code>git checkout -- .env.local.example</code>. Atenção ao nome da variável: o código lê
-        <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, não <code>PUBLISHABLE_KEY</code>.
+        O <code>.gitignore</code> novo protege qualquer <code>.env</code> que você criar, mas não
+        resolve este caso: o <code>.env.local.example</code> já é rastreado, e gitignore não afeta
+        arquivo rastreado. Ele está com a URL do gc-dev, uma publishable key e um personal access
+        token na cópia de trabalho. No commit e2dcc57 está em branco, então nada foi para o
+        histórico ainda, mas um <code>git add -A</code> levaria o segredo junto. Correção, dois
+        comandos: <code>cp .env.local.example .env.local</code> e depois
+        <code>git checkout -- .env.local.example</code>. Ao editar o <code>.env.local</code>,
+        atenção ao nome da variável: o código lê <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, não
+        <code>PUBLISHABLE_KEY</code>. E vale revogar o personal access token, que já circulou fora
+        do arquivo.
       </span>
     </div>
     <div class="prose">
@@ -505,7 +517,7 @@ on 'obras_com_valores'."&gt;[]' to type 'ObraListItem[]' may be a mistake</pre>
           destrutiva. Ela aborta sozinha por estar em transação, mas o susto é evitável. Comandos
           exatos no <code>supabase/README.md</code>.
         </li>
-        <li><strong>Tirar as credenciais do <code>.env.local.example</code></strong>, conforme o aviso acima.</li>
+        <li><strong>Tirar as credenciais do <code>.env.local.example</code></strong>, com os dois comandos do aviso acima. O <code>.gitignore</code> não cobre esse arquivo por ser rastreado, e é de propósito: o template precisa continuar versionado.</li>
         <li>
           <strong>Commitar.</strong> As alterações estão espelhadas no checkout principal, ainda sem
           commit. O histórico detalhado está na branch <code>worktree-verificar-schema-4-1</code>,
