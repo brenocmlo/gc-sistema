@@ -26,11 +26,11 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
-# Qualquer .env fica fora do git. O .env.local.example e a excecao: e o
-# template, versionado com os valores em branco.
+# Nenhum .env e versionado, nem o .env.local.example: ele chegou a ser
+# rastreado com credenciais reais na copia de trabalho. As variaveis
+# obrigatorias estao documentadas no README.
 .env
 .env.*
-!.env.local.example
 
 # vercel
 .vercel

@@ -471,12 +471,13 @@ on 'obras_com_valores'."&gt;[]' to type 'ObraListItem[]' may be a mistake</pre>
           sem policies. Foram envolvidas em <code>begin; commit;</code>.
         </li>
         <li>
-          O <code>.gitignore</code> ganhou um bloco de env que cobre qualquer <code>.env</code>,
-          incluindo <code>.env</code>, <code>.env.local</code> e
-          <code>.env.&lt;ambiente&gt;.local</code>, com uma exceção explícita para o
-          <code>.env.local.example</code>, que é o template e continua versionado em branco. A linha
-          <code>.env.local.*</code> que existia antes foi removida: ela ignorava justamente o
-          template. Verificado com <code>git check-ignore</code>.
+          Nenhum arquivo <code>.env</code> é mais versionado. O <code>.gitignore</code> ignora
+          <code>.env</code> e <code>.env.*</code>, e o <code>.env.local.example</code> saiu do
+          índice do git com <code>git rm --cached</code>, porque gitignore não desrastreia arquivo
+          já rastreado. O arquivo continua no disco, agora ignorado, então as credenciais que estão
+          nele não se perdem. A lista de variáveis obrigatórias passou a viver na seção de env do
+          <code>README.md</code>, junto do bloco pronto para colar no <code>.env.local</code>.
+          Verificado com <code>git check-ignore</code> e <code>git ls-files</code>.
         </li>
         <li>
           O repositório passou a usar <code>supabase/migrations</code> com a CLI. As dez migrations
@@ -494,18 +495,14 @@ on 'obras_com_valores'."&gt;[]' to type 'ObraListItem[]' may be a mistake</pre>
   <section>
     <div class="head"><h2>Pendências</h2></div>
     <div class="note alert">
-      <span class="tag">Atenção</span>
+      <span class="tag">Um comando</span>
       <span>
-        O <code>.gitignore</code> novo protege qualquer <code>.env</code> que você criar, mas não
-        resolve este caso: o <code>.env.local.example</code> já é rastreado, e gitignore não afeta
-        arquivo rastreado. Ele está com a URL do gc-dev, uma publishable key e um personal access
-        token na cópia de trabalho. No commit e2dcc57 está em branco, então nada foi para o
-        histórico ainda, mas um <code>git add -A</code> levaria o segredo junto. Correção, dois
-        comandos: <code>cp .env.local.example .env.local</code> e depois
-        <code>git checkout -- .env.local.example</code>. Ao editar o <code>.env.local</code>,
-        atenção ao nome da variável: o código lê <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, não
-        <code>PUBLISHABLE_KEY</code>. E vale revogar o personal access token, que já circulou fora
-        do arquivo.
+        Falta rodar <code>git rm --cached .env.local.example</code> no seu checkout. É a única
+        pendência que não pode ser espelhada por cópia de arquivo, porque é mudança no índice do
+        git, não no disco. Na branch o arquivo já saiu do rastreamento. O comando não apaga nada: o
+        arquivo fica no disco com as suas credenciais, e o <code>.gitignore</code> novo passa a
+        ignorá-lo. As credenciais nunca entraram no histórico, o commit e2dcc57 tem o arquivo em
+        branco.
       </span>
     </div>
     <div class="prose">
@@ -517,7 +514,7 @@ on 'obras_com_valores'."&gt;[]' to type 'ObraListItem[]' may be a mistake</pre>
           destrutiva. Ela aborta sozinha por estar em transação, mas o susto é evitável. Comandos
           exatos no <code>supabase/README.md</code>.
         </li>
-        <li><strong>Tirar as credenciais do <code>.env.local.example</code></strong>, com os dois comandos do aviso acima. O <code>.gitignore</code> não cobre esse arquivo por ser rastreado, e é de propósito: o template precisa continuar versionado.</li>
+        <li><strong>Rodar <code>git rm --cached .env.local.example</code></strong>, conforme o aviso acima. Depois, conferir com <code>git status</code> que o arquivo não aparece mais, revogar o personal access token e criar o <code>.env.local</code> com os valores.</li>
         <li>
           <strong>Commitar.</strong> As alterações estão espelhadas no checkout principal, ainda sem
           commit. O histórico detalhado está na branch <code>worktree-verificar-schema-4-1</code>,
@@ -539,6 +536,7 @@ on 'obras_com_valores'."&gt;[]' to type 'ObraListItem[]' may be a mistake</pre>
           <tr><td class="a"><code>supabase/verificar_schema_aplicado.sql</code></td><td>verificação somente leitura de 004 a 010, segura em produção</td></tr>
           <tr><td class="a"><code>supabase/migrations/</code></td><td>as dez migrations sob o histórico da CLI</td></tr>
           <tr><td class="a"><code>supabase/config.toml</code> e <code>supabase/README.md</code></td><td>config mínima e runbook de adoção</td></tr>
+          <tr><td class="a"><code>README.md</code>, seção de env</td><td>variáveis obrigatórias e bloco pronto para o <code>.env.local</code></td></tr>
           <tr><td class="a"><code>docs/4.1-sincronizar-schema-analise.md</code></td><td>análise completa, com o diagnóstico e o raciocínio</td></tr>
         </tbody>
       </table>

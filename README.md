@@ -27,7 +27,7 @@ Pré-requisitos: Node 20+ e npm (o lockfile versionado é o `package-lock.json`)
 
 ```bash
 npm install
-cp .env.local.example .env.local   # preencher com as credenciais do projeto gc-dev
+touch .env.local                   # preencher com as variáveis da tabela abaixo
 npm run dev                        # http://localhost:3000
 ```
 
@@ -47,9 +47,26 @@ npm run db:types  # regenera src/lib/supabase/types.ts a partir do schema do Sup
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | client, server e middleware | sim |
 | `SUPABASE_SERVICE_ROLE_KEY` | reservada para uso server-side (ainda não consumida pelo código) | não |
 
-`.env.local` é ignorado pelo git (`.env*.local` no `.gitignore`) e **nunca** deve
-ser versionado. Ao adicionar uma variável nova, atualize `.env.local.example` no
-mesmo commit.
+Conteúdo mínimo do `.env.local`:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+```
+
+Pegue os valores em Settings, API no painel do Supabase. Atenção: o painel novo
+chama a anon key de *publishable key*, mas o nome da variável que o código lê é
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+
+**Nenhum arquivo `.env` é versionado**, o `.gitignore` ignora `.env` e `.env.*`.
+Não existe mais `.env.local.example` no repositório: ele era rastreado e chegou a
+receber credenciais reais na cópia de trabalho, então a lista de variáveis passou
+a viver aqui, nesta seção, que é o lugar que ninguém preenche por engano. Ao
+adicionar uma variável nova, atualize a tabela e o bloco acima no mesmo commit.
+
+A `SUPABASE_SERVICE_ROLE_KEY` nunca deve receber o prefixo `NEXT_PUBLIC_`, que
+expõe a variável no bundle do client.
 
 ## Ambientes
 
