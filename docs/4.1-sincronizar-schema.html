@@ -883,7 +883,13 @@ $ npm run lint
           <li class="ticked"><span class="idx">04</span><span class="box"></span><span><code>npm run db:types</code> — os três objetos apareceram, e <code>gzbmhgnpoehormnidmgg</code> é o <strong>gc-dev</strong></span></li>
           <li class="ticked"><span class="idx">05</span><span class="box"></span><span><code>npx tsc --noEmit</code> e <code>npm run lint</code> com os types novos — ambos limpos</span></li>
           <li class="ticked"><span class="idx">06</span><span class="box"></span><span><code>db:types</code> blindado contra truncamento e aceitando <code>$SUPABASE_PROJECT_ID</code>, com <code>db:types:dev</code> ao lado</span></li>
-          <li class="blocker"><span class="idx">07</span><span class="box"></span><span>Envolver 008 e 009 em <code>begin; … commit;</code> — não muda nada em dev, protege a aplicação futura em prod</span></li>
+          <li class="ticked"><span class="idx">07</span><span class="box"></span><span>008 e 009 envolvidas em <code>begin; … commit;</code> — não muda nada em dev, protege a aplicação futura em prod</span></li>
+        </ol>
+      </div>
+      <div class="phase waiting">
+        <h3>Pendente de quem tem acesso <span class="count">um comando</span></h3>
+        <ol class="steps">
+          <li><span class="idx">13</span><span class="box"></span><span><code>supabase migration repair --status applied</code> nas dez versões, pra o histórico da CLI refletir o que já está em dev — sem isso um <code>db push</code> tentaria reaplicar a <code>revisao_schema</code> (ex-004)</span></li>
         </ol>
       </div>
       <div class="phase waiting">
@@ -894,19 +900,74 @@ $ npm run lint
           <li><span class="idx">10</span><span class="box"></span><span>Aplicar o que faltar em prod <strong>na ordem 004&rarr;010</strong> e revalidar com o script</span></li>
         </ol>
       </div>
-      <div class="phase later">
-        <h3>Estrutural, fora do bloco <span class="count">passos 11–12</span></h3>
+      <div class="phase done">
+        <h3>Estrutural — feito <span class="count">passos 11–12</span></h3>
         <ol class="steps">
-          <li><span class="idx">11</span><span class="box"></span><span>Remover o <code>as unknown as</code> de <code>obras/page.tsx</code> pra que o <code>tsc</code> volte a detectar drift de schema</span></li>
-          <li><span class="idx">12</span><span class="box"></span><span>Migrar pra <code>supabase/migrations</code> + CLI, pra que "o que já rodou" pare de ser uma pergunta que só o catálogo responde</span></li>
+          <li class="ticked"><span class="idx">11</span><span class="box"></span><span><code>as unknown as</code> removido das três listagens (<code>obras</code>, <code>fd</code>, <code>orcamentos</code>) — um <code>as</code> só mantém o narrowing e devolve ao <code>tsc</code> a checagem contra o <code>Database</code></span></li>
+          <li class="ticked"><span class="idx">12</span><span class="box"></span><span><code>supabase/migrations</code> + <code>config.toml</code> adotados; as dez migrations viraram arquivos com timestamp e o procedimento está em <code>supabase/README.md</code></span></li>
         </ol>
       </div>
     </div>
   </section>
 
   <section>
+    <div class="section-head"><h2>Migrations sob a CLI</h2></div>
+    <div class="prose">
+      <p>
+        Os dez scripts numerados viraram um histórico que a CLI entende. Os timestamps são as datas
+        reais dos commits que introduziram cada arquivo, então a ordem cronológica é idêntica à da
+        numeração antiga — e a numeração ficou anotada no <code>supabase/README.md</code>, porque a
+        documentação e as tarefas do ClickUp falam nesses números.
+      </p>
+    </div>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr><th>Antes</th><th>Agora, em supabase/migrations/</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="n">001</td><td><code>20260424121550_initial.sql</code></td></tr>
+          <tr><td class="n">002</td><td><code>20260424121551_rls_policies.sql</code></td></tr>
+          <tr><td class="n">003</td><td><code>20260424121552_storage_buckets.sql</code></td></tr>
+          <tr><td class="n">004</td><td><code>20260511151924_revisao_schema.sql</code> <span class="chip crit">destrutiva</span></td></tr>
+          <tr><td class="n">005</td><td><code>20260512135125_rls_clientes.sql</code></td></tr>
+          <tr><td class="n">006</td><td><code>20260512141810_fix_calcular_valores_obra.sql</code></td></tr>
+          <tr><td class="n">007</td><td><code>20260512151918_progresso_itens_obra.sql</code></td></tr>
+          <tr><td class="n">008</td><td><code>20260901120909_documentos_processamento.sql</code></td></tr>
+          <tr><td class="n">009</td><td><code>20260901120910_contatos_whatsapp.sql</code></td></tr>
+          <tr><td class="n">010</td><td><code>20260901120911_storage_bucket_documentos_processamento.sql</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="prose">
+      <p>
+        Os scripts que <em>não</em> são migrations ficaram fora de <code>migrations/</code> e nunca
+        entram num <code>db push</code>: <code>000_reset_dev.sql</code>,
+        <code>setup_inicial_dev.sql</code>, <code>seed_orcamentos.sql</code> e o
+        <code>verificar_schema_aplicado.sql</code>.
+      </p>
+      <p>
+        <strong>Falta um comando, e ele importa.</strong> As dez já estão aplicadas em dev, mas o
+        histórico remoto da CLI está vazio — ela não tem como saber. Antes de qualquer
+        <code>db push</code>, é preciso rodar <code>migration repair --status applied</code> nas dez
+        versões; senão a CLI tenta reaplicar tudo a partir da <code>revisao_schema</code>, que é
+        destrutiva. Ela aborta sozinha (está em <code>begin/commit</code>) e nada é perdido, mas o
+        susto é evitável. Os comandos exatos estão em <code>supabase/README.md</code>.
+      </p>
+    </div>
+  </section>
+
+  <section>
     <div class="section-head"><h2>O que está entregue</h2></div>
     <div class="files">
+      <div class="file">
+        <span class="path">supabase/migrations/ · supabase/config.toml · supabase/README.md</span>
+        <p>
+          As dez migrations sob o histórico da CLI, a config mínima que a própria CLI validou, e o
+          runbook com o <code>link</code>, o <code>repair</code> e as duas regras que o histórico
+          deste repo justifica (transação sempre; cuidado com view recriada em migration nova).
+        </p>
+      </div>
       <div class="file">
         <span class="path">supabase/verificar_schema_aplicado.sql</span>
         <p>
@@ -923,11 +984,11 @@ $ npm run lint
       <div class="file">
         <span class="path">docs/4.1-sincronizar-schema.html · docs/4.1-sincronizar-schema.pdf</span>
         <p>
-          A página e o PDF (A4) gerados do mesmo HTML. Os quatro arquivos estão no checkout
-          principal, na branch <code>feature-dev-breno-automacao</code>, ainda sem commit; a branch
-          <code>worktree-verificar-schema-4-1</code> guarda o histórico. O push pro GitHub falhou
-          com 403 — <code>brenocmlo</code> não tem permissão de escrita em
-          <code>cremalet/gc-sistema</code>.
+          A página e o PDF (A4) gerados do mesmo HTML. Tudo está commitado na branch
+          <code>worktree-verificar-schema-4-1</code>, que parte de <code>e2dcc57</code> e por isso
+          entra em <code>feature-dev-breno-automacao</code> como fast-forward. O push pro GitHub
+          falhou com 403 — <code>brenocmlo</code> não tem permissão de escrita em
+          <code>cremalet/gc-sistema</code>, então os commits existem só no clone local.
         </p>
       </div>
     </div>
@@ -935,7 +996,7 @@ $ npm run lint
 
   <footer>
     <span>Diagnóstico por leitura estática do repositório</span>
-    <span>Estado de dev verificado no catálogo em 2026-09-02 · gc-prod pausado</span>
+    <span>Dev verificado no catálogo em 2026-09-02 · types regenerados · migrations sob a CLI · gc-prod pausado</span>
     <span>e2dcc57 · feature-dev-breno-automacao</span>
   </footer>
 

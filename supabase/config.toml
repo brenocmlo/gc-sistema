@@ -1,0 +1,16 @@
+# Config mínima da CLI do Supabase — o suficiente pra `link`, `migration` e
+# `db push`. Não cobre o stack local (`supabase start`), que este projeto não
+# usa: se um dia usar, rode `supabase init` num diretório separado e traga as
+# seções [api], [db], [studio] etc. de lá.
+#
+# project_id é só o nome local do projeto, não o ref do Supabase. O ref vai no
+# `supabase link --project-ref <ref>`:
+#   gc-dev  -> gzbmhgnpoehormnidmgg
+#   gc-prod -> pausado; pegar o ref no painel quando voltar
+
+project_id = "gc-sistema"
+
+[db.migrations]
+# Scripts em supabase/ que NÃO são migrations (reset de dev, setup manual,
+# seeds) ficam fora de supabase/migrations e nunca entram no `db push`.
+schema_paths = []

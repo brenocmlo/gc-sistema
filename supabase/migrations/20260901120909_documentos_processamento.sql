@@ -12,7 +12,12 @@
 -- pra bater com as regras reais de `contratos` (obra_id NOT NULL,
 -- numero NOT NULL único por empresa) — ver
 -- relatorios/empecilhos_implementacao_n8n.md no projeto keen-mendel.
+-- Tudo dentro de uma única transação (atomic): sem isso, uma falha no
+-- meio (um index, uma policy) deixa a tabela criada e o resto faltando,
+-- e o script não é idempotente pra retomar de onde parou.
 -- ============================================================
+
+begin;
 
 create table documentos_processamento (
   id uuid primary key default uuid_generate_v4(),
@@ -80,3 +85,5 @@ create policy "Documentos processamento: excluir (admin)" on documentos_processa
     empresa_id = current_empresa_id()
     and has_perfil(array['admin'])
   );
+
+commit;

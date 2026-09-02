@@ -11,7 +11,12 @@
 -- pela mesma checagem de vínculo do fluxo principal (nunca é
 -- descartado) — ver relatorios/md/roadmap_zapi_integracao.md e
 -- fluxo_e_campos_extracao.md (Seção 1.3) no projeto keen-mendel.
+-- Tudo dentro de uma única transação (atomic): sem isso, uma falha no
+-- meio (um index, uma policy) deixa a tabela criada e o resto faltando,
+-- e o script não é idempotente pra retomar de onde parou.
 -- ============================================================
+
+begin;
 
 create table contatos_whatsapp (
   id uuid primary key default uuid_generate_v4(),
@@ -70,3 +75,5 @@ create policy "Contatos WhatsApp: excluir (admin)" on contatos_whatsapp
     empresa_id = current_empresa_id()
     and has_perfil(array['admin'])
   );
+
+commit;
