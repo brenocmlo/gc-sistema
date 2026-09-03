@@ -357,17 +357,34 @@ ancestral da branch de trabalho), com os dois worktrees removidos e o
 </tr>
 </thead>
 <tbody><tr>
+<td><code>npm test</code></td>
+<td>17 casos, todos passando</td>
+</tr>
+<tr>
 <td><code>npx tsc --noEmit</code></td>
 <td>limpo</td>
 </tr>
 <tr>
-<td><code>npx eslint</code> nos três arquivos</td>
-<td>limpo</td>
+<td><code>npm run lint</code></td>
+<td>sem warnings nem erros</td>
+</tr>
+<tr>
+<td><code>npm run build</code></td>
+<td>compila, 19 rotas</td>
 </tr>
 </tbody></table>
-<p>Não há teste automatizado no repositório, então os helpers de <code>pct_*</code> e de status
-não têm cobertura. Eles são funções puras e sem dependência, o que os torna o
-primeiro candidato natural quando entrar um runner (ver pendências).</p>
+<p>O repositório passou a ter teste automatizado, sem dependência nova: o Node 24
+executa <code>.ts</code> direto por type stripping nativo, então <code>node --test</code> basta. Por
+isso o import no teste traz a extensão (<code>./propostas.ts</code>) — o Node não resolve
+extensão nem o alias <code>@/</code> — e o <code>tsconfig.json</code> ganhou
+<code>allowImportingTsExtensions</code>, que só é aceito porque o projeto já é <code>noEmit</code>.</p>
+<p>Os 17 casos cobrem <code>src/lib/propostas.ts</code> inteiro: os guards e transições de
+status, <code>isPropostaVencida</code>, <code>validarMotivoRejeicao</code>, os dois CHECKs de <code>pct_*</code>,
+a conversão de borda entre UI e banco e o rateio em reais. Dois merecem
+destaque, porque travam regressão em cima de decisão sutil: a soma
+<code>0.1 + 0.2 + 0.3 + 0.4</code> precisa ser aceita como 100% (sem o <code>round4</code> o float
+recusaria), e a soma das parcelas mais o restante precisa fechar exatamente o
+valor final.</p>
 <h2>O que vem depois</h2>
 <p>O bloco 4.2 entrega base, não tela. <code>src/app/(app)/propostas/page.tsx</code> continua
 em <code>&lt;EmConstrucao /&gt;</code>. Seguindo o que Orçamentos já tem, é isto que falta para
@@ -390,7 +407,8 @@ submeter. A seleção de obra substitui a de cliente de orçamentos, e o <code>n
 <code>requiresDataDecisao</code> e <code>validarMotivoRejeicao</code>. O diálogo precisa limpar
 <code>motivo_rejeicao</code> e <code>detalhe_rejeicao</code> quando o status sai de <code>rejeitada</code>,
 porque o CHECK do banco proíbe motivo em status diferente de rejeitada, igual
-ao que <code>changeOrcamentoStatus</code> já faz.</li>
+ao que <code>changeOrcamentoStatus</code> já faz. O diálogo também não oferece
+destino nenhum para proposta aprovada ou rejeitada, conforme a pendência 2.</li>
 <li><strong>Anexos.</strong> <code>anexos-tab.tsx</code> sobre a coluna <code>anexos</code> jsonb e o bucket
 <code>anexos</code>, reusando <code>buildStoragePath</code>, <code>validateFile</code> e o tipo <code>Anexo</code>.</li>
 <li><strong>Permissão de escrita nas Server Actions.</strong> O guard de layout protege a
@@ -405,23 +423,34 @@ deletável — o erro do banco tem que virar mensagem legível.</li>
 em <code>types.ts</code>.</li>
 </ol>
 <h2>Pendências</h2>
+<p>As três pendências próprias do bloco foram resolvidas. Ficou aberta só a herdada
+do 4.1, que depende de credencial.</p>
 <ol>
-<li><strong>Sem cobertura de teste.</strong> O repositório não tem runner. <code>validarSomaPct</code>,
-<code>pctToFraction</code> e <code>canChangePropostaStatus</code> são puros e mereciam teste antes
-das telas dependerem deles.</li>
-<li><strong>Confirmar o fluxo de status</strong> de <code>PROPOSTA_TRANSICOES</code> com a área
-comercial, em especial se proposta aprovada ou rejeitada pode voltar ao funil.</li>
-<li><strong>Definir o tratamento de proposta vencida na UI.</strong> <code>isPropostaVencida</code> está
-pronto, mas falta decidir se aparece como selo ao lado do status, como filtro
-na listagem, ou os dois.</li>
-<li>Herdadas do 4.1 e ainda abertas: <code>supabase migration repair --status applied</code>
-nas dez versões antes de qualquer <code>db push</code>, revogar o personal access token
-usado para gerar os types, e gc-prod quando despausar.</li>
+<li><del>Sem cobertura de teste.</del> <strong>Resolvida.</strong> <code>npm test</code> com 17 casos sobre os
+helpers puros, sem dependência nova. Detalhes na seção de verificação.</li>
+<li><del>Confirmar o fluxo de status.</del> <strong>Resolvida em 2026-09-03.</strong> A área comercial
+confirmou que aprovada e rejeitada são <strong>terminais</strong>: decisão registrada não
+volta pro funil, e correção exige proposta nova. <code>PROPOSTA_TRANSICOES</code> já
+estava assim e agora carrega a confirmação no comentário, para não ser
+afrouxada por engano depois.</li>
+<li><del>Definir o tratamento de proposta vencida na UI.</del> <strong>Resolvida.</strong> Vai ser
+<strong>selo e filtro</strong>, os dois. Especificação para o bloco das telas: na listagem,
+selo âmbar ao lado do <code>StatusBadge</code> quando <code>isPropostaVencida</code> for verdadeiro,
+e uma opção &quot;Vencidas&quot; no <code>filters.tsx</code>; no detalhe, o mesmo selo no
+<code>detail-header.tsx</code>. Como vencida não é status do banco, o filtro não vira
+<code>eq(&#39;status&#39;, ...)</code>: a query filtra <code>status = &#39;enviada&#39;</code> com
+<code>data_validade &lt; hoje</code>, e a querystring usa uma chave própria (<code>?vencidas=1</code>)
+para não colidir com o <code>?status=</code> que <code>isPropostaStatus</code> valida.</li>
+<li><strong>Herdada do 4.1, ainda aberta:</strong> <code>supabase migration repair --status applied</code>
+nas dez versões antes de qualquer <code>db push</code>. Depende de personal access token
+e <code>supabase link</code>. Junto dela seguem a revogação do token antigo, usado para
+gerar os types, e gc-prod quando despausar.</li>
 </ol>
 <h2>Estado do repositório</h2>
-<p>Tudo commitado em <strong>feature-dev-breno-automacao</strong>, que foi de <code>0f16abf</code> para
-<code>1de7ea5</code>. Nenhum worktree ativo, só as branches <code>feature-dev-breno-automacao</code> e
-<code>main</code>. O push para o GitHub continua bloqueado: <code>brenocmlo</code> não tem permissão de
+<p>Tudo commitado em <strong>feature-dev-breno-automacao</strong>, que acumulou cinco commits
+desde <code>0f16abf</code>: a base de Propostas (<code>1de7ea5</code>), este documento, o gerador de
+PDF dos relatórios, os testes dos helpers e o fecho das pendências. Nenhum
+worktree ativo, só as branches <code>feature-dev-breno-automacao</code> e <code>main</code>. O push para o GitHub continua bloqueado: <code>brenocmlo</code> não tem permissão de
 escrita em <code>cremalet/gc-sistema</code>, então os commits existem só no clone local.</p>
 <p>Duas coisas ficaram fora deste commit, de propósito, porque não são do 4.2 e
 apagar seria destrutivo: <code>docs/4.1-status-entrega.{html,md,pdf}</code> e
@@ -450,6 +479,14 @@ de antes deste trabalho, e o diretório <code>.claude/</code> segue untracked.</
 <tr>
 <td><code>src/app/(app)/propostas/layout.tsx</code></td>
 <td>inalterado, já tinha o guard correto</td>
+</tr>
+<tr>
+<td><code>src/lib/propostas.test.ts</code></td>
+<td>novo. 17 casos sobre os helpers puros</td>
+</tr>
+<tr>
+<td><code>scripts/docs-pdf.sh</code> e <code>scripts/docs-pdf.css</code></td>
+<td><code>npm run docs:pdf</code>, gera HTML e PDF dos relatórios</td>
 </tr>
 <tr>
 <td><code>docs/4.2-status-entrega.md</code></td>

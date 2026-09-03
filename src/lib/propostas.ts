@@ -68,6 +68,10 @@ export function isFinalizada(s: PropostaStatus): boolean {
  *   - rascunho  → enviada
  *   - enviada   → aprovada | rejeitada | rascunho (voltar pra correção)
  *   - aprovada / rejeitada são terminais (ver isFinalizada)
+ *
+ * Os terminais foram confirmados com a área comercial em 2026-09-03: decisão
+ * registrada não volta pro funil, correção exige proposta nova. Não é
+ * placeholder — mudar aqui muda uma regra acordada.
  */
 export const PROPOSTA_TRANSICOES: Record<
   PropostaStatus,
