@@ -164,11 +164,38 @@ export type OrcamentoListItem = Pick<
   cliente: Pick<Cliente, 'nome' | 'cidade'> | null
 }
 
-export type Proposta = Omit<Tables['propostas']['Row'], 'status'> & {
+// propostas.status e propostas.motivo_rejeicao são string no gen (CHECK
+// constraint) — narrar pros unions correspondentes.
+export type Proposta = Omit<
+  Tables['propostas']['Row'],
+  'status' | 'motivo_rejeicao'
+> & {
   status: PropostaStatus
+  motivo_rejeicao: MotivoRejeicao | null
 }
 export type PropostaInsert = Tables['propostas']['Insert']
 export type PropostaUpdate = Tables['propostas']['Update']
+
+// Subset de campos pra listagem. Proposta liga em obra (FK composta
+// obra_id+empresa_id), e o cliente vem via obra — não há cliente_id direto.
+export type PropostaListItem = Pick<
+  Proposta,
+  | 'id'
+  | 'numero'
+  | 'obra_id'
+  | 'data_emissao'
+  | 'data_validade'
+  | 'status'
+  | 'valor_total'
+  | 'desconto'
+  | 'valor_final'
+> & {
+  obra:
+    | (Pick<Obra, 'codigo_obra' | 'nome'> & {
+        cliente: Pick<Cliente, 'nome'> | null
+      })
+    | null
+}
 
 export type Contrato = Omit<Tables['contratos']['Row'], 'status'> & {
   status: ContratoStatus
