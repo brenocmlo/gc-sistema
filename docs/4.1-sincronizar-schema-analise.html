@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=block">
+<title>4.1 Sincronizar schema — análise do bloco</title>
+<style>
+/* Identidade dos relatórios de entrega (docs/4.1-*), calibrada para papel:
+   paleta clara fixa, A4 e quebras controladas. */
+
+@page {
+  size: A4;
+  margin: 18mm 16mm 20mm;
+}
+
+:root {
+  --ink: #16202a;
+  --ink-soft: #435162;
+  --ink-mute: #6c7c8c;
+  --rule: #d5dcdf;
+  --rule-soft: #e4e9eb;
+  --surface-sunk: #eceff1;
+  --accent: #12615e;
+  --accent-soft: #dceceb;
+  --accent-ink: #0c4744;
+
+  --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: #fff;
+  font-family: var(--f-body);
+  font-size: 10.5pt;
+  line-height: 1.55;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+main { max-width: 100%; }
+
+/* --- Títulos --- */
+
+h1, h2, h3, h4 {
+  font-family: var(--f-display);
+  line-height: 1.25;
+  break-after: avoid;
+  page-break-after: avoid;
+}
+
+h1 {
+  font-size: 21pt;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 4mm;
+  padding-bottom: 3mm;
+  border-bottom: 2px solid var(--accent);
+}
+
+h2 {
+  font-size: 13.5pt;
+  font-weight: 600;
+  color: var(--accent-ink);
+  margin: 9mm 0 3mm;
+  padding-bottom: 1.5mm;
+  border-bottom: 1px solid var(--rule);
+  break-before: auto;
+}
+
+h3 {
+  font-size: 11.5pt;
+  font-weight: 600;
+  margin: 6mm 0 2mm;
+}
+
+/* Linha de metadados logo depois do H1 */
+h1 + p {
+  color: var(--ink-mute);
+  font-family: var(--f-display);
+  font-size: 9pt;
+  margin-top: 0;
+}
+
+/* --- Texto --- */
+
+p { margin: 0 0 3.5mm; orphans: 3; widows: 3; }
+
+strong { font-weight: 600; color: var(--accent-ink); }
+
+a { color: var(--accent); text-decoration: none; }
+
+ul, ol { margin: 0 0 4mm; padding-left: 6mm; }
+li { margin-bottom: 1.5mm; }
+li > p { margin-bottom: 1.5mm; }
+
+/* --- Código --- */
+
+code {
+  font-family: var(--f-mono);
+  font-size: 8.8pt;
+  background: var(--surface-sunk);
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  padding: 0.3mm 1mm;
+  word-break: break-word;
+}
+
+pre {
+  background: var(--surface-sunk);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 3mm 4mm;
+  margin: 0 0 4mm;
+  overflow-x: auto;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 8.5pt;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+/* --- Tabelas --- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 5mm;
+  font-size: 9.2pt;
+  break-inside: auto;
+}
+
+thead { display: table-header-group; }
+tr { break-inside: avoid; page-break-inside: avoid; }
+
+th {
+  font-family: var(--f-display);
+  font-size: 8.5pt;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: left;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--rule);
+  padding: 2mm 2.5mm;
+}
+
+td {
+  padding: 2mm 2.5mm;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: top;
+  color: var(--ink-soft);
+}
+
+td code { font-size: 8.2pt; }
+
+/* --- Regra horizontal --- */
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 7mm 0;
+}
+</style>
+</head>
+<body>
+<main>
+<h1>4.1 Sincronizar schema — análise do bloco</h1>
+<blockquote>
+<p>Contexto: tarefa ClickUp &quot;4.1 Sincronizar schema: conferir migrations
+aplicadas em dev e prod&quot; (s4/bloco). Escrito a partir da leitura do
+repositório na branch <code>feature-dev-breno-automacao</code> (e2dcc57).
+<strong>Nada foi executado contra gc-dev ou gc-prod</strong> — o repositório não tem
+credenciais (<code>.env.local</code> não versionado) nem link de CLI.</p>
+</blockquote>
+<blockquote>
+<p><strong>Atualização 2026-09-02 — gc-prod está pausado.</strong> O trabalho acontece só em
+gc-dev. Isso não invalida nada aqui, mas reordena: conferir e aplicar em prod
+sai do caminho crítico e vira pendência registrada, e o risco da <code>004</code> em prod
+(destrutiva, 13 colunas de <code>obras</code>) passa a ser risco <strong>diferido</strong> — precisa
+estar em pé no dia em que prod voltar, com backup e janela.</p>
+</blockquote>
+<h2>Estado verificado em gc-dev (2026-09-02)</h2>
+<p>O <code>verificar_schema_aplicado.sql</code> foi rodado em gc-dev: <strong>21 de 21 checagens
+OK</strong>. As migrations <strong>004 a 010 estão todas aplicadas em dev</strong>, inclusive a 010
+(bucket <code>documentos-processamento</code> privado, 20 MB, <code>application/pdf</code>, com as 4
+policies de <code>storage.objects</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Migration</th>
+<th>Resultado em gc-dev</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>004</td>
+<td>8/8 — <code>clientes</code>, <code>cliente_id</code> NOT NULL, FK, colunas legacy zeradas em <code>obras</code> e <code>orcamentos</code>, rename <code>observacao</code>, 4 views</td>
+</tr>
+<tr>
+<td>005</td>
+<td>2/2 — RLS + 4 policies em <code>clientes</code></td>
+</tr>
+<tr>
+<td>006</td>
+<td>1/1 — <code>calcular_valores_obra</code> com o CASO 2 (<code>fonte=sem_proposta</code>)</td>
+</tr>
+<tr>
+<td>007</td>
+<td>1/1 — <code>progresso_itens_pct</code> exposto na view</td>
+</tr>
+<tr>
+<td>008</td>
+<td>4/4 — tabela, RLS, 4 policies, 3 índices</td>
+</tr>
+<tr>
+<td>009</td>
+<td>3/3 — tabela, RLS, 4 policies</td>
+</tr>
+<tr>
+<td>010</td>
+<td>2/2 — bucket + 4 policies de storage</td>
+</tr>
+</tbody></table>
+<p>Contexto: <strong>16 tabelas</strong> e <strong>53 policies</strong> em <code>public</code>. As 16 batem com as 14
+tabelas que o <code>types.ts</code> já conhece mais <code>documentos_processamento</code> e
+<code>contatos_whatsapp</code> — coerente com um dev completo e um <code>types.ts</code> atrasado.</p>
+<p><strong>Types regenerados (2026-09-02).</strong> <code>npm run db:types</code> rodou contra
+<code>gzbmhgnpoehormnidmgg</code> e trouxe os três objetos que faltavam — o que também
+prova que <strong>esse project-id é o gc-dev</strong>. O <code>types.ts</code> passou de 2267 para 2449
+linhas (+192/−10): entraram <code>contatos_whatsapp</code> (8 colunas),
+<code>documentos_processamento</code> (13 colunas) e <code>progresso_itens_pct</code> em
+<code>obras_com_valores</code>; as 10 remoções são só reformatação do gerador nos helpers
+genéricos (<code>TableName extends …</code>). <code>npx tsc --noEmit</code> e <code>npm run lint</code> seguem
+limpos.</p>
+<p><strong>Consequência prática:</strong> dos cinco problemas do diagnóstico, escopo, aplicação
+e drift de types estão resolvidos em dev — por verificação, não por suposição.
+Restam os dois estruturais: o cast que esconde drift futuro e a ausência de
+controle de migrations. Tudo relativo a prod fica em espera.</p>
+<h2>Resumo (diagnóstico original)</h2>
+<p>A tarefa, como está escrita, não é executável e os seus critérios de aceite
+não medem o que deveriam. Cinco problemas, do mais grave pro menos:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Problema</th>
+<th>Impacto</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Escopo desatualizado: existem migrations <strong>004 a 010</strong>, não 004 a 007</td>
+<td>3 migrations ficariam fora da conferência</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Não existe controle de migrations (sem <code>supabase/migrations</code>, sem CLI)</td>
+<td>&quot;rodar as migrations pendentes&quot; não é um comando; ninguém sabe o que já rodou</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>004</code> é destrutiva e não idempotente</td>
+<td>rodar em prod sem janela/backup dropa 13 colunas de <code>obras</code> com dados</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>types.ts</code> está desatualizado</td>
+<td>drift silencioso entre schema e código</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>tsc --noEmit</code> e <code>lint</code> passam <strong>hoje</strong>, com os types velhos</td>
+<td>os itens 4 e 5 do checklist são falso-positivos</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>1. O escopo é 004–010, não 004–007</h2>
+<pre><code>supabase/004_revisao_schema.sql
+supabase/005_rls_clientes.sql
+supabase/006_fix_calcular_valores_obra.sql
+supabase/007_progresso_itens_obra.sql
+supabase/008_documentos_processamento.sql                 &lt;- commit e2dcc57
+supabase/009_contatos_whatsapp.sql                        &lt;- commit e2dcc57
+supabase/010_storage_bucket_documentos_processamento.sql  &lt;- commit e2dcc57
+</code></pre>
+<blockquote>
+<p>Os caminhos abaixo são os de antes da adoção da CLI. O de–para pra
+<code>supabase/migrations/&lt;timestamp&gt;_nome.sql</code> está em <code>supabase/README.md</code>.</p>
+</blockquote>
+<p>008/009/010 entraram no último commit (<code>migration e documetacao</code>), depois da
+tarefa ter sido criada. 010 mexe em <code>storage.buckets</code> + policies de
+<code>storage.objects</code> — e o workflow n8n de ingestão via WhatsApp depende dele
+(o próprio arquivo documenta o contrato de path <code>{empresa_id}/whatsapp/...</code>).
+A verificação confirmou a 010 aplicada em <strong>dev</strong>, então a ingestão está de pé
+no ambiente em uso. Em prod ela é pendência registrada — e do tipo que nenhum
+<code>tsc</code> detecta, porque storage não aparece nos types.</p>
+<h2>2. Não há como saber o que está aplicado — só introspecção</h2>
+<p>Não existe <code>supabase/migrations/</code>, <code>supabase/config.toml</code>, nem projeto
+linkado pela CLI. Os <code>.sql</code> são scripts numerados aplicados <strong>à mão</strong> no SQL
+Editor. Consequências:</p>
+<ul>
+<li>não existe tabela de controle (<code>schema_migrations</code>) pra consultar;</li>
+<li>&quot;rodar as migrations pendentes em gc-dev&quot; não corresponde a nenhum comando;</li>
+<li>a única forma de conferir é <strong>inspecionar o catálogo do Postgres</strong>.</li>
+</ul>
+<p>Foi escrito pra isso: <strong><code>supabase/verificar_schema_aplicado.sql</code></strong> —
+somente leitura, seguro em prod. Com prod pausado, roda em dev agora e guarda
+a saída; prod entra na comparação quando voltar:</p>
+<pre><code>SQL Editor do gc-dev  -&gt; colar -&gt; Run        (agora)
+SQL Editor do gc-prod -&gt; colar -&gt; Run        (quando prod despausar)
+</code></pre>
+<p>Cada linha sai como OK / FALTA, por migration: tabela <code>clientes</code>,
+colunas legacy de <code>obras</code>/<code>orcamentos</code> dropadas, FK <code>obras_cliente_fk</code>,
+4 views recriadas, RLS + policies de <code>clientes</code>, o CASO 2 da
+<code>calcular_valores_obra</code> (006), a coluna <code>progresso_itens_pct</code> na view (007),
+<code>documentos_processamento</code> (008), <code>contatos_whatsapp</code> (009), bucket +
+policies de storage (010), e contagens totais de tabelas/policies pra
+diff dev↔prod.</p>
+<h2>3. Ordem e idempotência: onde isso explode</h2>
+<table>
+<thead>
+<tr>
+<th>Migration</th>
+<th>Idempotente?</th>
+<th>Em transação?</th>
+<th>Observação</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>004</td>
+<td><strong>não</strong></td>
+<td>sim (<code>begin</code>/<code>commit</code>)</td>
+<td><code>create table clientes</code> e <code>drop column</code> sem <code>if [not] exists</code>; migra dados de <code>obras</code> para <code>clientes</code></td>
+</tr>
+<tr>
+<td>005</td>
+<td>sim</td>
+<td>não</td>
+<td><code>drop policy if exists</code> antes de cada <code>create policy</code></td>
+</tr>
+<tr>
+<td>006</td>
+<td>sim</td>
+<td>n/a</td>
+<td><code>create or replace function</code></td>
+</tr>
+<tr>
+<td>007</td>
+<td>sim</td>
+<td>n/a</td>
+<td><code>create or replace view</code></td>
+</tr>
+<tr>
+<td>008</td>
+<td><strong>não</strong></td>
+<td><strong>não</strong></td>
+<td><code>create table documentos_processamento</code> sem guard</td>
+</tr>
+<tr>
+<td>009</td>
+<td><strong>não</strong></td>
+<td><strong>não</strong></td>
+<td><code>create table contatos_whatsapp</code> sem guard</td>
+</tr>
+<tr>
+<td>010</td>
+<td>sim</td>
+<td>não</td>
+<td><code>on conflict do nothing</code> + <code>drop policy if exists</code></td>
+</tr>
+</tbody></table>
+<p>Três armadilhas concretas:</p>
+<ol>
+<li><strong>004 depois de 007 reverte o 007.</strong> A 004 recria <code>obras_com_valores</code> no
+final (linha 536) <em>sem</em> <code>progresso_itens_pct</code>. A listagem de obras
+seleciona essa coluna explicitamente
+(<code>src/app/(app)/obras/page.tsx:51</code>) — a página quebra em runtime.
+Ordem obrigatória: <strong>004 -&gt; 005 -&gt; 006 -&gt; 007 -&gt; 008 -&gt; 009 -&gt; 010</strong>.</li>
+<li><strong>004 sem 006 quebra a listagem inteira.</strong> É o que o cabeçalho do 006
+diz: a 004 dropa os campos legacy que a <code>calcular_valores_obra</code>
+assumia, e a view chama a função via <code>LATERAL</code>. Aplicar 004 em prod e
+parar ali derruba <code>/obras</code>.</li>
+<li><strong>008 e 009 não estão em transação.</strong> Se falharem no meio (ex.: index ou
+policy), deixam estado parcial. Vale envolver em <code>begin; ... commit;</code>
+antes de aplicar em prod.</li>
+</ol>
+<p>Sobre a 004 em prod: ela dropa 13 colunas de <code>obras</code>
+(<code>cliente</code>, <code>contato</code>, <code>cpf_cnpj</code>, <code>telefone</code>, <code>email</code>, <code>valor_total</code>,
+<code>desconto</code>, <code>valor_final</code>, <code>pct_*</code>, <code>forma_pagamento</code>, <code>doc_url</code>) e 6 de
+<code>orcamentos</code>, depois de copiar os dados pra <code>clientes</code>. É irreversível sem
+backup. O próprio arquivo pede janela de manutenção — o checklist da tarefa
+(&quot;Aplicar as mesmas migrations em gc-prod&quot;) não menciona backup nem janela.</p>
+<h2>4. <code>types.ts</code> está desatualizado</h2>
+<p><code>src/lib/supabase/types.ts</code> (2267 linhas) <strong>não contém</strong>:</p>
+<ul>
+<li><code>progresso_itens_pct</code> em <code>obras_com_valores</code> (007)</li>
+<li>a tabela <code>documentos_processamento</code> (008)</li>
+<li>a tabela <code>contatos_whatsapp</code> (009)</li>
+</ul>
+<p>Ou seja: foi gerado antes do commit e2dcc57 e antes do 007 chegar na view do
+projeto de onde foi gerado.</p>
+<p>Além disso, <code>package.json</code> fixa o projeto no script:</p>
+<pre><code class="language-json">&quot;db:types&quot;: &quot;npx --yes supabase gen types typescript --project-id gzbmhgnpoehormnidmgg &gt; src/lib/supabase/types.ts&quot;
+</code></pre>
+<p>O <code>--project-id</code> está hardcoded e o repositório não documenta se
+<code>gzbmhgnpoehormnidmgg</code> é gc-dev ou gc-prod. Não existe forma de gerar types
+do outro ambiente. Sugestão: <code>db:types:dev</code> / <code>db:types:prod</code>, ou
+<code>--project-id $SUPABASE_PROJECT_ID</code>.</p>
+<p><strong>Cuidado, e já mordeu:</strong> o script redireciona com <code>&gt;</code> direto pro arquivo
+final, e o shell trunca o destino <em>antes</em> de rodar o comando. Na primeira
+tentativa a CLI abortou por falta de token (<code>supabase login</code>) e o
+<code>src/lib/supabase/types.ts</code> ficou com <strong>0 bytes</strong> — foi restaurado do commit
+<code>e2dcc57</code> (blob <code>ab59e07</code>, 2267 linhas). O script agora gera num <code>.tmp</code> e só
+promove com <code>mv</code> se a geração der certo, então uma falha deixa o arquivo bom
+intacto.</p>
+<p>Com dev verificado, rodar <code>npm run db:types</code> agora responde essa pergunta de
+graça: se os três objetos ausentes aparecerem no diff, o id é gc-dev e o atraso
+era só falta de regenerar. Se não aparecerem — ou o comando falhar por projeto
+indisponível — o id aponta pra gc-prod, que está pausado, e o script precisa
+mudar antes de qualquer outra coisa.</p>
+<h2>5. <code>tsc</code> e <code>lint</code> já passam — e não provam nada</h2>
+<p>Rodados agora, nesta branch, com os types velhos:</p>
+<pre><code>npx tsc --noEmit   -&gt; sem erros
+npm run lint       -&gt; No ESLint warnings or errors
+</code></pre>
+<p>Os dois itens do checklist já estão verdes <strong>apesar</strong> do drift. Por quê:</p>
+<ul>
+<li><code>src/lib/types.ts:232</code> declara <code>progresso_itens_pct</code> à mão;</li>
+<li><code>src/app/(app)/obras/page.tsx:96</code> faz <code>(data ?? []) as unknown as ObraListItem[]</code>.</li>
+</ul>
+<p>O <code>as unknown as</code> apaga qualquer divergência entre o <code>select(...)</code> e o
+<code>Database</code> gerado. Enquanto esse cast existir, <code>tsc</code> nunca vai detectar
+coluna faltando — nem agora, nem numa próxima migration. O critério de
+aceite &quot;npx tsc --noEmit passando sem erro&quot; é, aqui, um teste que não
+pode falhar.</p>
+<hr>
+<h2>Checklist — estado em 2026-09-02</h2>
+<h3>Feito</h3>
+<ol>
+<li><input checked="" disabled="" type="checkbox"> Rodar <code>supabase/verificar_schema_aplicado.sql</code> em <strong>gc-dev</strong> — 21/21 OK</li>
+<li><input checked="" disabled="" type="checkbox"> Confirmar que 004–010 estão aplicadas em dev, por evidência de catálogo</li>
+</ol>
+<h3>Feito em dev (passos 3–6) e o que restou</h3>
+<ol start="3">
+<li><input checked="" disabled="" type="checkbox"> Autenticar a CLI — feito com personal access token via
+<code>SUPABASE_ACCESS_TOKEN</code> (o fluxo de navegador não roda sem TTY)</li>
+<li><input checked="" disabled="" type="checkbox"> <code>npm run db:types</code> — os três objetos apareceram; <code>gzbmhgnpoehormnidmgg</code>
+é o <strong>gc-dev</strong></li>
+<li><input checked="" disabled="" type="checkbox"> <code>npx tsc --noEmit</code> e <code>npm run lint</code> com os types novos — ambos limpos</li>
+<li><input checked="" disabled="" type="checkbox"> <code>db:types</code> blindado contra truncamento e aceitando
+<code>$SUPABASE_PROJECT_ID</code>, com <code>db:types:dev</code> ao lado</li>
+<li><input checked="" disabled="" type="checkbox"> Envolver 008 e 009 em <code>begin; ... commit;</code> — não afeta dev (já
+aplicadas), protege a aplicação futura em prod</li>
+</ol>
+<h3>Em espera — gc-prod pausado</h3>
+<ol start="8">
+<li>[—] Rodar o script de verificação em gc-prod e diffar contra a saída de dev</li>
+<li>[—] Backup + janela de manutenção antes de qualquer coisa em prod (a 004 é
+destrutiva: 13 colunas de <code>obras</code>)</li>
+<li>[—] Aplicar o que faltar em prod <strong>na ordem 004→010</strong> e revalidar</li>
+</ol>
+<h3>Estrutural — feito</h3>
+<ol start="11">
+<li><input checked="" disabled="" type="checkbox"> Removido o <code>as unknown as</code> das três páginas de listagem (<code>obras</code>, <code>fd</code>,
+<code>orcamentos</code>), trocado por um <code>as</code> só: mantém o narrowing dos campos NOT
+NULL e devolve ao <code>tsc</code> a comparação com o <code>Database</code> gerado. Verificado
+injetando uma coluna falsa no <code>select()</code> — o compilador acusa
+<code>column &#39;coluna_que_nao_existe&#39; does not exist on &#39;obras_com_valores&#39;</code></li>
+<li><input checked="" disabled="" type="checkbox"> Adotado <code>supabase/migrations</code> + CLI: as dez migrations viraram arquivos
+com timestamp (datas reais dos commits que as introduziram), <code>config.toml</code>
+criado e validado pela própria CLI, e o procedimento de adoção está em
+<code>supabase/README.md</code></li>
+</ol>
+<p><strong>Pendente de execução por quem tem acesso:</strong> o <code>migration repair</code> que marca as
+dez como já aplicadas em gc-dev. Sem ele o histórico remoto fica vazio e um
+<code>db push</code> tentaria reaplicar a <code>revisao_schema</code> (ex-004). Comandos exatos no
+<code>supabase/README.md</code>.</p>
+</main>
+</body>
+</html>
