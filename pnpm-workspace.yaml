@@ -1,2 +1,6 @@
+# unrs-resolver (via eslint-import-resolver-typescript) traz o binário nativo
+# como optionalDependency por plataforma, então o postinstall dele é só
+# fallback e não precisa rodar. Se algum dia o lint quebrar na resolução de
+# imports em ambiente novo, inverter pra true.
 allowBuilds:
-  unrs-resolver: set this to true or false
+  unrs-resolver: false
