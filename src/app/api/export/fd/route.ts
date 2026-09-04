@@ -8,22 +8,8 @@ import {
   todayStr,
 } from '@/lib/excel-export'
 import { computeStatusFd, formatStatusFdLabel } from '@/lib/fd'
+import { computePeriodoCutoff } from '@/lib/listagem'
 import { createClient } from '@/lib/supabase/server'
-
-function computePeriodoCutoff(periodo: string): string | null {
-  if (periodo === '30d') {
-    const d = new Date()
-    d.setDate(d.getDate() - 30)
-    return d.toISOString().slice(0, 10)
-  }
-  if (periodo === '90d') {
-    const d = new Date()
-    d.setDate(d.getDate() - 90)
-    return d.toISOString().slice(0, 10)
-  }
-  if (periodo === 'ano') return `${new Date().getFullYear()}-01-01`
-  return null
-}
 
 export async function GET(req: NextRequest) {
   const supabase = createClient()

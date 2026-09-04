@@ -7,6 +7,7 @@ import {
   buildWorkbookResponse,
   todayStr,
 } from '@/lib/excel-export'
+import { computePeriodoCutoff } from '@/lib/listagem'
 import { createClient } from '@/lib/supabase/server'
 import {
   MOTIVO_REJEICAO_LABELS,
@@ -24,21 +25,6 @@ const VALID_STATUS: readonly OrcamentoStatus[] = [
 
 function isValidStatus(v: string): v is OrcamentoStatus {
   return (VALID_STATUS as readonly string[]).includes(v)
-}
-
-function computePeriodoCutoff(periodo: string): string | null {
-  if (periodo === '30d') {
-    const d = new Date()
-    d.setDate(d.getDate() - 30)
-    return d.toISOString().slice(0, 10)
-  }
-  if (periodo === '90d') {
-    const d = new Date()
-    d.setDate(d.getDate() - 90)
-    return d.toISOString().slice(0, 10)
-  }
-  if (periodo === 'ano') return `${new Date().getFullYear()}-01-01`
-  return null
 }
 
 type Row = {

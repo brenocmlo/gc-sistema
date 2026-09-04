@@ -277,3 +277,48 @@ export function parcelasDaProposta(
     valorRestante: valorParcela(p.valor_final, restante),
   }
 }
+
+// ============================================================
+// Busca da listagem
+// ============================================================
+
+/** O que a listagem precisa de cada obra pra resolver a busca. */
+export type ObraBuscaRef = {
+  id: string
+  nome: string
+  codigo_obra: string
+  cliente_id: string
+}
+
+/**
+ * Resolve a busca por nome de obra e nome de cliente em IDs de obra.
+ *
+ * Propostas não tem `cliente_id` (o cliente vem por obra, ver
+ * `PropostaListItem`), então não existe `.or()` que alcance o nome do cliente
+ * numa consulta só: a listagem resolve os IDs antes, igual orçamentos já faz
+ * com cliente. A diferença é que aqui o passo de obra é feito em memória,
+ * reusando a lista que a página já carregou pro select de obra — só o match de
+ * cliente custa uma consulta.
+ *
+ * `clienteIds` são os clientes que casaram com o termo; passe vazio quando
+ * nenhum casou.
+ */
+export function obraIdsDaBusca(
+  obras: readonly ObraBuscaRef[],
+  busca: string,
+  clienteIds: readonly string[] = [],
+): string[] {
+  const termo = busca.trim().toLowerCase()
+  if (!termo) return []
+
+  const clientes = new Set(clienteIds)
+
+  return obras
+    .filter(
+      (o) =>
+        o.nome.toLowerCase().includes(termo) ||
+        o.codigo_obra.toLowerCase().includes(termo) ||
+        clientes.has(o.cliente_id),
+    )
+    .map((o) => o.id)
+}

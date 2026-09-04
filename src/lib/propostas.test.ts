@@ -15,6 +15,7 @@ import {
   isPctCompleto,
   isPropostaStatus,
   isPropostaVencida,
+  obraIdsDaBusca,
   parcelasDaProposta,
   pctRestante,
   pctToFraction,
@@ -293,4 +294,46 @@ test('parcelasDaProposta omite parcela zerada e devolve o restante', () => {
   const total =
     r.parcelas.reduce((acc, p) => acc + p.valor, 0) + r.valorRestante
   assert.equal(total, 10_000)
+})
+
+// ============================================================
+// Busca da listagem
+// ============================================================
+
+const OBRAS = [
+  { id: 'o1', nome: 'Edifício Aurora', codigo_obra: 'OB-2026-001', cliente_id: 'c1' },
+  { id: 'o2', nome: 'Galpão Norte', codigo_obra: 'OB-2026-002', cliente_id: 'c2' },
+  { id: 'o3', nome: 'Reforma Aurora Boreal', codigo_obra: 'OB-2025-010', cliente_id: 'c3' },
+]
+
+test('obraIdsDaBusca: casa nome da obra sem depender de caixa', () => {
+  assert.deepEqual(obraIdsDaBusca(OBRAS, 'aurora'), ['o1', 'o3'])
+})
+
+test('obraIdsDaBusca: casa código da obra', () => {
+  assert.deepEqual(obraIdsDaBusca(OBRAS, 'OB-2026'), ['o1', 'o2'])
+})
+
+test('obraIdsDaBusca: inclui as obras dos clientes que casaram', () => {
+  // O nome do cliente não está na obra: quem resolveu foi a consulta em
+  // clientes, e aqui só entram os IDs.
+  assert.deepEqual(obraIdsDaBusca(OBRAS, 'galpao', ['c3']), ['o3'])
+})
+
+test('obraIdsDaBusca: nome da obra e cliente são união, sem duplicar', () => {
+  assert.deepEqual(obraIdsDaBusca(OBRAS, 'aurora', ['c1', 'c2']), [
+    'o1',
+    'o2',
+    'o3',
+  ])
+})
+
+test('obraIdsDaBusca: busca vazia não devolve obra nenhuma', () => {
+  // Vazio significa "sem busca" — devolver tudo faria a listagem montar um
+  // obra_id.in.(...) gigante e inútil.
+  assert.deepEqual(obraIdsDaBusca(OBRAS, '   ', ['c1']), [])
+})
+
+test('obraIdsDaBusca: sem match devolve vazio', () => {
+  assert.deepEqual(obraIdsDaBusca(OBRAS, 'inexistente'), [])
 })

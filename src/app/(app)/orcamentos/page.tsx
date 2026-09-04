@@ -4,6 +4,7 @@ import Link from 'next/link'
 import EmptyState from '@/components/EmptyState'
 import ExportButton from '@/components/ExportButton'
 import Pagination from '@/components/Pagination'
+import { computePeriodoCutoff } from '@/lib/listagem'
 import { getCurrentProfile } from '@/lib/supabase/profile'
 import { createClient } from '@/lib/supabase/server'
 import type { OrcamentoListItem, OrcamentoStatus } from '@/lib/types'
@@ -24,24 +25,6 @@ const VALID_STATUS: readonly OrcamentoStatus[] = [
 
 function isValidStatus(v: string): v is OrcamentoStatus {
   return (VALID_STATUS as readonly string[]).includes(v)
-}
-
-// Retorna uma string YYYY-MM-DD (cutoff) ou null se o filtro for "todos".
-function computePeriodoCutoff(periodo: string): string | null {
-  if (periodo === '30d') {
-    const d = new Date()
-    d.setDate(d.getDate() - 30)
-    return d.toISOString().slice(0, 10)
-  }
-  if (periodo === '90d') {
-    const d = new Date()
-    d.setDate(d.getDate() - 90)
-    return d.toISOString().slice(0, 10)
-  }
-  if (periodo === 'ano') {
-    return `${new Date().getFullYear()}-01-01`
-  }
-  return null
 }
 
 type SearchParams = {
