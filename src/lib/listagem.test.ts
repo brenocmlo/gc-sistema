@@ -9,7 +9,9 @@ import test from 'node:test'
 import {
   PERIODO_OPTIONS,
   computePeriodoCutoff,
+  isRangeForaDoAlcance,
   sanitizeBusca,
+  urlSemPagina,
 } from './listagem.ts'
 
 const HOJE = new Date('2026-03-15T12:00:00Z')
@@ -58,4 +60,27 @@ test('sanitizeBusca: remove o que quebra o parser do .or()', () => {
 
 test('sanitizeBusca: preserva acento, hífen e barra', () => {
   assert.equal(sanitizeBusca('  Edifício São João / 2ª etapa  '), 'Edifício São João / 2ª etapa')
+})
+
+test('isRangeForaDoAlcance reconhece só o PGRST103', () => {
+  assert.equal(isRangeForaDoAlcance({ code: 'PGRST103' }), true)
+  assert.equal(isRangeForaDoAlcance({ code: 'PGRST116' }), false)
+  assert.equal(isRangeForaDoAlcance(null), false)
+  assert.equal(isRangeForaDoAlcance(undefined), false)
+})
+
+test('urlSemPagina preserva filtros e descarta a página', () => {
+  assert.equal(
+    urlSemPagina('/propostas', {
+      busca: 'aurora',
+      status: 'enviada',
+      page: '99',
+      periodo: '',
+    }),
+    '/propostas?busca=aurora&status=enviada',
+  )
+})
+
+test('urlSemPagina sem filtro nenhum devolve a rota limpa', () => {
+  assert.equal(urlSemPagina('/propostas', { page: '9' }), '/propostas')
 })

@@ -1,10 +1,12 @@
 import { Building2, Plus } from 'lucide-react'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 
 import EmptyState from '@/components/EmptyState'
 import ExportButton from '@/components/ExportButton'
 import Pagination from '@/components/Pagination'
 import { getCurrentProfile } from '@/lib/supabase/profile'
+import { isRangeForaDoAlcance, urlSemPagina } from '@/lib/listagem'
 import { createClient } from '@/lib/supabase/server'
 import type { ObraListItem, ObraStatus } from '@/lib/types'
 
@@ -82,6 +84,12 @@ export default async function ObrasPage({
   const { data, count, error } = await query.range(from, to)
 
   if (error) {
+    // Página além do último registro: o PostgREST devolve 416 sem `count`, e a
+    // tela mostraria erro de banco pra quem só abriu um link velho.
+    if (isRangeForaDoAlcance(error) && page > 1) {
+      redirect(urlSemPagina('/obras', { ...searchParams, page: undefined }))
+    }
+
     return (
       <div className="bg-red-50 border border-red-200 rounded-md p-4 text-sm text-red-700">
         Erro ao carregar obras: {error.message}

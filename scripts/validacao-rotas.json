@@ -1,0 +1,183 @@
+[
+  {
+    "path": "/",
+    "esperaHtml": [
+      "Dashboard"
+    ]
+  },
+  {
+    "path": "/propostas",
+    "esperaHtml": [
+      "Data emissão",
+      "Valor final",
+      "Nova proposta",
+      "Exportar XLSX",
+      "<table"
+    ]
+  },
+  {
+    "path": "/propostas?vencidas=1",
+    "esperaHtml": [
+      "Vencidas",
+      "SEED-VENCIDA-001",
+      "Vencida"
+    ]
+  },
+  {
+    "path": "/propostas?busca=SEED-VENCIDA",
+    "esperaHtml": [
+      "SEED-VENCIDA-001"
+    ]
+  },
+  {
+    "path": "/propostas?busca=zzz-inexistente",
+    "esperaHtml": [
+      "Nenhuma proposta encontrada com esses filtros"
+    ],
+    "naoEsperaHtml": [
+      "<table"
+    ]
+  },
+  {
+    "path": "/propostas/nova",
+    "esperaHtml": [
+      "Nova proposta",
+      "Condições de pagamento",
+      "Valor final"
+    ]
+  },
+  {
+    "path": "/propostas/{propostaSeed}",
+    "esperaHtml": [
+      "SEED-VENCIDA-001",
+      "Vencida",
+      "Pagamento",
+      "Itens",
+      "Anexos",
+      "Histórico",
+      "Financeiro",
+      "Mudar status",
+      "OBRA-2027-01"
+    ],
+    "nota": "trechos nunca atravessam interpolação de JSX: o SSR do React insere <!-- --> entre texto literal e {valor}, então \"Proposta X\" não existe como string contínua no HTML"
+  },
+  {
+    "path": "/propostas/{propostaSeed}/editar",
+    "esperaHtml": [],
+    "esperaStatus": 307,
+    "nota": "proposta enviada não é editável: a page redireciona pro detalhe"
+  },
+  {
+    "path": "/propostas",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Data emissão",
+      "Valor final",
+      "<table"
+    ],
+    "naoEsperaHtml": [
+      "Nova proposta"
+    ],
+    "nota": "visualizador lê a listagem mas não vê o botão de criar"
+  },
+  {
+    "path": "/propostas/nova",
+    "perfil": "visualizador",
+    "esperaStatus": 307,
+    "nota": "guard da rota de criação: o layout libera visualizador, a page não"
+  },
+  {
+    "path": "/propostas/{propostaSeed}",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "SEED-VENCIDA-001",
+      "Pagamento",
+      "Histórico"
+    ],
+    "naoEsperaHtml": [
+      "Mudar status",
+      "Excluir"
+    ],
+    "nota": "visualizador vê o detalhe, sem nenhuma ação de escrita"
+  },
+  {
+    "path": "/propostas/{propostaSeed}/editar",
+    "perfil": "visualizador",
+    "esperaStatus": 307,
+    "nota": "edição redireciona antes mesmo da regra de rascunho"
+  },
+  {
+    "path": "/propostas?page=99",
+    "esperaStatus": 307,
+    "nota": "página além do fim: PostgREST devolve 416 sem count; a tela redireciona pra primeira página em vez de mostrar erro de banco"
+  },
+  {
+    "path": "/propostas?busca=SEED&page=99",
+    "esperaStatus": 307,
+    "nota": "o redirect preserva os filtros — perder a busca junto seria pior que perder a página"
+  },
+  {
+    "path": "/orcamentos?page=2",
+    "esperaHtml": [
+      "Próxima",
+      "Anterior",
+      "<table"
+    ],
+    "nota": "28 orçamentos em gc-dev: é a única listagem que hoje exercita o Pagination de verdade"
+  },
+  {
+    "path": "/orcamentos?page=99",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/fd?page=99",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/obras?page=99",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/clientes?page=99",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/orcamentos",
+    "esperaHtml": [
+      "Todos os status"
+    ]
+  },
+  {
+    "path": "/fd",
+    "esperaHtml": [
+      "Todas as obras"
+    ]
+  },
+  {
+    "path": "/obras",
+    "esperaHtml": [
+      "Código",
+      "Progresso",
+      "<table"
+    ]
+  },
+  {
+    "path": "/obras/{obraPrimeira}",
+    "esperaHtml": [
+      "Obra",
+      "Valores"
+    ],
+    "nota": "o detalhe passa pela mesma obras_com_valores que derrubou a listagem em 2026-09-05"
+  },
+  {
+    "path": "/api/export/obras",
+    "esperaContentType": "spreadsheetml",
+    "nota": "a exportação de obras também lê a view; era a terceira superfície quebrada pelo mesmo bug"
+  },
+  {
+    "path": "/clientes",
+    "esperaHtml": [
+      "<table"
+    ]
+  }
+]

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Converte docs/*.md em .html e .pdf com a identidade visual dos relatórios
-# de entrega. Sem dependência no package.json: markdown via `npx marked` e
-# PDF via Chrome headless.
+# Converte docs/*.md em .pdf com a identidade visual dos relatórios de entrega.
+# Sem dependência no package.json: markdown via `npx marked` e PDF via Chrome
+# headless. O HTML é intermediário e vive só no diretório temporário — só o
+# .md (fonte) e o .pdf (entrega) ficam no repositório.
 #
 # Uso:
-#   bash scripts/docs-pdf.sh                      # todos os docs/*.md
+#   bash scripts/docs-pdf.sh                      # docs/*.md e docs/*/*.md
 #   bash scripts/docs-pdf.sh docs/4.2-status-entrega.md
 set -euo pipefail
 
@@ -23,11 +24,16 @@ trap 'rm -rf "$TMPDIR_RUN"' EXIT
 
 targets=("$@")
 if [[ ${#targets[@]} -eq 0 ]]; then
-  targets=(docs/*.md)
+  # docs/*.md são as entregas por bloco; docs/<subpasta>/*.md, o resto.
+  shopt -s nullglob
+  targets=(docs/*.md docs/*/*.md)
+  shopt -u nullglob
 fi
 
 for md in "${targets[@]}"; do
   [[ -f "$md" ]] || { echo "ignorado (não existe): $md" >&2; continue; }
+  # README é índice de pasta, não relatório: não vira PDF.
+  [[ "$(basename "$md")" == "README.md" ]] && continue
 
   base="${md%.md}"
   # Título = primeiro heading H1 do arquivo, sem o "# ".
@@ -46,10 +52,10 @@ for md in "${targets[@]}"; do
     printf '</style>\n</head>\n<body>\n<main>\n'
     cat "$body"
     printf '</main>\n</body>\n</html>\n'
-  } > "$base.html"
+  } > "$TMPDIR_RUN/page.html"
 
   "$CHROME" --headless --disable-gpu --no-pdf-header-footer --virtual-time-budget=4000 \
-    --print-to-pdf="$PWD/$base.pdf" "file://$PWD/$base.html" >/dev/null 2>&1
+    --print-to-pdf="$PWD/$base.pdf" "file://$TMPDIR_RUN/page.html" >/dev/null 2>&1
 
-  echo "gerado: $base.html e $base.pdf"
+  echo "gerado: $base.pdf"
 done

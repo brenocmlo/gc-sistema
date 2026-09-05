@@ -322,3 +322,159 @@ export function obraIdsDaBusca(
     )
     .map((o) => o.id)
 }
+
+// ============================================================
+// Regras do formulário (bloco 4.4)
+// ============================================================
+
+/**
+ * Espelha o CHECK propostas_desconto_valido (`desconto <= valor_total`) e os
+ * dois `check (>= 0)` das colunas. Fica aqui, e não no schema zod, pra ser
+ * testável por `node --test` — o schema chama esta função no superRefine.
+ */
+export function validarDesconto(
+  valorTotal: number,
+  desconto: number,
+): { ok: true } | { ok: false; error: string } {
+  if (!Number.isFinite(valorTotal) || valorTotal < 0) {
+    return { ok: false, error: 'Valor total não pode ser negativo' }
+  }
+  if (!Number.isFinite(desconto) || desconto < 0) {
+    return { ok: false, error: 'Desconto não pode ser negativo' }
+  }
+  if (round2(desconto) > round2(valorTotal)) {
+    return { ok: false, error: 'Desconto não pode ser maior que o valor total' }
+  }
+  return { ok: true }
+}
+
+// numeric(14,2) → duas casas. Mesmo motivo do round4: comparar float cru
+// recusaria um desconto igual ao total que o banco aceitaria.
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+/** Valor final que o banco vai gerar (`valor_total - desconto`). */
+export function calcularValorFinal(
+  valorTotal: number,
+  desconto: number,
+): number {
+  return round2((valorTotal || 0) - (desconto || 0))
+}
+
+/** Os quatro pct_* como o form os carrega: percentuais 0..100. */
+export type PctFormValues = Record<PctField, number>
+
+/** Form (0..100) → payload do banco (frações 0..1). */
+export function pctFormToPayload(
+  values: PctFormValues,
+): Record<PctField, number | null> {
+  return Object.fromEntries(
+    PCT_FIELDS.map((f) => [f, pctToFraction(values[f])]),
+  ) as Record<PctField, number | null>
+}
+
+/** Banco (frações 0..1) → form (0..100). */
+export function pctPayloadToForm(p: PctValues): PctFormValues {
+  return Object.fromEntries(
+    PCT_FIELDS.map((f) => [f, fractionToPct(p[f])]),
+  ) as PctFormValues
+}
+
+/**
+ * `validarSomaPct` para valores da UI. Converte antes de validar, porque o
+ * CHECK do banco fala em fração e o form fala em porcentagem — validar 0..100
+ * direto contra o limite 1.0 reprovaria tudo.
+ */
+export function validarSomaPctForm(values: PctFormValues): PctValidacao {
+  return validarSomaPct(pctFormToPayload(values))
+}
+
+/**
+ * Traduz a violação de constraint do Postgres pro que a pessoa precisa fazer.
+ * Sem isso a mais provável (número repetido) chega como "duplicate key value
+ * violates unique constraint propostas_empresa_id_numero_key".
+ */
+export function mensagemDeErroProposta(raw: string): string {
+  if (raw.includes('propostas_empresa_id_numero_key')) {
+    return 'Já existe uma proposta com esse número'
+  }
+  if (raw.includes('propostas_desconto_valido')) {
+    return 'Desconto não pode ser maior que o valor total'
+  }
+  if (raw.includes('propostas_pct_soma')) {
+    return 'A soma das parcelas não pode passar de 100%'
+  }
+  if (raw.includes('propostas_rejeitada_motivo')) {
+    return 'Motivo de rejeição só se aplica a proposta rejeitada'
+  }
+  if (raw.includes('propostas_obra_fk')) {
+    return 'Obra inválida para esta empresa'
+  }
+  // ON DELETE RESTRICT: obra com proposta não é deletável.
+  if (raw.includes('violates foreign key constraint') && raw.includes('propostas')) {
+    return 'Existe registro vinculado a esta proposta'
+  }
+  return raw
+}
+
+// ============================================================
+// Histórico de transições (bloco 4.6)
+// ============================================================
+
+/**
+ * Uma entrada do jsonb `propostas.historico`, gravado pela migration
+ * 20260905180000_propostas_historico.sql. Append-only: cada mudança de status
+ * acrescenta uma entrada, nada é reescrito.
+ */
+export type EntradaHistorico = {
+  de: PropostaStatus
+  para: PropostaStatus
+  em: string
+  por: string
+  motivo_rejeicao: MotivoRejeicao | null
+  detalhe_rejeicao: string | null
+}
+
+export function novaEntradaHistorico(input: {
+  de: PropostaStatus
+  para: PropostaStatus
+  por: string
+  motivo_rejeicao?: MotivoRejeicao | null
+  detalhe_rejeicao?: string | null
+  em?: string
+}): EntradaHistorico {
+  return {
+    de: input.de,
+    para: input.para,
+    em: input.em ?? new Date().toISOString(),
+    por: input.por,
+    // Motivo só faz sentido quando o destino é rejeitada — mesmo critério do
+    // CHECK propostas_rejeitada_motivo, pra o histórico não guardar um motivo
+    // que a linha não tem.
+    motivo_rejeicao:
+      input.para === 'rejeitada' ? (input.motivo_rejeicao ?? null) : null,
+    detalhe_rejeicao:
+      input.para === 'rejeitada' ? (input.detalhe_rejeicao ?? null) : null,
+  }
+}
+
+/**
+ * Acrescenta a entrada ao histórico existente. Tolera `null` e valor fora do
+ * formato (jsonb aceita qualquer coisa que tenha sido gravada antes do CHECK
+ * `propostas_historico_lista`) tratando como lista vazia — perder o append por
+ * causa de um registro velho seria pior que perder o registro velho.
+ */
+export function appendHistorico(
+  atual: unknown,
+  entrada: EntradaHistorico,
+): EntradaHistorico[] {
+  const lista = Array.isArray(atual) ? (atual as EntradaHistorico[]) : []
+  return [...lista, entrada]
+}
+
+/** Mais recente primeiro, para a aba de histórico da tela de detalhe. */
+export function historicoOrdenado(atual: unknown): EntradaHistorico[] {
+  const lista = Array.isArray(atual) ? (atual as EntradaHistorico[]) : []
+  return [...lista].sort((a, b) => (a.em < b.em ? 1 : a.em > b.em ? -1 : 0))
+}

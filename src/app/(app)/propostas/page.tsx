@@ -1,9 +1,16 @@
 import { FileSignature, Plus } from 'lucide-react'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 
 import EmptyState from '@/components/EmptyState'
+import ExportButton from '@/components/ExportButton'
 import Pagination from '@/components/Pagination'
-import { computePeriodoCutoff, sanitizeBusca } from '@/lib/listagem'
+import {
+  computePeriodoCutoff,
+  isRangeForaDoAlcance,
+  sanitizeBusca,
+  urlSemPagina,
+} from '@/lib/listagem'
 import { isPropostaStatus, obraIdsDaBusca } from '@/lib/propostas'
 import { getCurrentProfile } from '@/lib/supabase/profile'
 import { createClient } from '@/lib/supabase/server'
@@ -110,6 +117,14 @@ export default async function PropostasPage({
   const { data, count, error } = await query.range(from, to)
 
   if (error) {
+    // Página além do último registro: o PostgREST devolve 416 em vez de lista
+    // vazia, e sem `count` a tela não tem como se recompor. Volta pra primeira
+    // página com os filtros intactos, em vez de mostrar erro de banco pra quem
+    // só abriu um link velho.
+    if (isRangeForaDoAlcance(error) && page > 1) {
+      redirect(urlSemPagina('/propostas', { ...searchParams, page: undefined }))
+    }
+
     return (
       <div className="bg-red-50 border border-red-200 rounded-md p-4 text-sm text-red-700">
         Erro ao carregar propostas: {error.message}
@@ -139,15 +154,22 @@ export default async function PropostasPage({
         <div className="flex-1 min-w-[280px]">
           <PropostasFilters obraOptions={obraOptions} />
         </div>
-        {canCreate && (
-          <Link
-            href="/propostas/nova"
-            className="inline-flex items-center gap-2 bg-gray-900 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-800 transition-colors whitespace-nowrap"
-          >
-            <Plus size={16} />
-            Nova proposta
-          </Link>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          <ExportButton
+            endpoint="/api/export/propostas"
+            searchParams={extraParams}
+            filename={`propostas-${new Date().toISOString().slice(0, 10)}`}
+          />
+          {canCreate && (
+            <Link
+              href="/propostas/nova"
+              className="inline-flex items-center gap-2 bg-gray-900 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-800 transition-colors whitespace-nowrap"
+            >
+              <Plus size={16} />
+              Nova proposta
+            </Link>
+          )}
+        </div>
       </div>
 
       {isEmpty && !hasFilters ? (
@@ -155,7 +177,9 @@ export default async function PropostasPage({
           icon={FileSignature}
           title="Nenhuma proposta cadastrada ainda"
           action={
-            canCreate ? { label: 'Nova proposta', href: '/propostas/nova' } : null
+            canCreate
+              ? { label: 'Nova proposta', href: '/propostas/nova' }
+              : null
           }
         />
       ) : isEmpty ? (

@@ -53,3 +53,41 @@ export function computePeriodoCutoff(
 export function sanitizeBusca(v: string): string {
   return v.replace(/[,()"]/g, '').trim()
 }
+
+/**
+ * Código do PostgREST para "Requested range not satisfiable": acontece quando
+ * a página pedida começa depois do último registro (`?page=99` com 2 linhas).
+ *
+ * O detalhe que morde: o PostgREST **recusa** o range com 416 em vez de
+ * devolver lista vazia, e nesse caso não manda nem o `count` — então a tela
+ * não tem como se recompor sozinha e acaba mostrando erro de banco pra um
+ * usuário que só clicou num link velho.
+ */
+export const RANGE_FORA_DO_ALCANCE = 'PGRST103'
+
+export function isRangeForaDoAlcance(
+  error: { code?: string } | null | undefined,
+): boolean {
+  return error?.code === RANGE_FORA_DO_ALCANCE
+}
+
+/**
+ * Mesma URL, sem o `page` — pra onde a listagem manda quem pediu página fora
+ * do alcance. Os filtros são preservados: perder a busca junto seria pior que
+ * perder a página.
+ *
+ * Volta pra primeira página em vez da última porque descobrir a última exigiria
+ * uma segunda consulta com os mesmos filtros, e este é o caminho raro (link
+ * velho, registro apagado desde a última visita).
+ */
+export function urlSemPagina(
+  basePath: string,
+  params: Record<string, string | undefined>,
+): string {
+  const qs = new URLSearchParams()
+  for (const [chave, valor] of Object.entries(params)) {
+    if (valor && chave !== 'page') qs.set(chave, valor)
+  }
+  const s = qs.toString()
+  return s ? `${basePath}?${s}` : basePath
+}

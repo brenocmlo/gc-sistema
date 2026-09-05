@@ -14,8 +14,16 @@ import {
   isFinalizada,
   isPctCompleto,
   isPropostaStatus,
+  appendHistorico,
+  calcularValorFinal,
+  historicoOrdenado,
   isPropostaVencida,
+  novaEntradaHistorico,
   obraIdsDaBusca,
+  pctFormToPayload,
+  pctPayloadToForm,
+  validarDesconto,
+  validarSomaPctForm,
   parcelasDaProposta,
   pctRestante,
   pctToFraction,
@@ -336,4 +344,143 @@ test('obraIdsDaBusca: busca vazia não devolve obra nenhuma', () => {
 
 test('obraIdsDaBusca: sem match devolve vazio', () => {
   assert.deepEqual(obraIdsDaBusca(OBRAS, 'inexistente'), [])
+})
+
+// ============================================================
+// Regras do formulário
+// ============================================================
+
+test('validarDesconto: aceita desconto menor e igual ao total', () => {
+  assert.equal(validarDesconto(1000, 0).ok, true)
+  assert.equal(validarDesconto(1000, 999.99).ok, true)
+  // Igual ao total é válido: o CHECK do banco é <=, não <.
+  assert.equal(validarDesconto(1000, 1000).ok, true)
+})
+
+test('validarDesconto: recusa desconto maior que o total', () => {
+  const r = validarDesconto(1000, 1000.01)
+  assert.equal(r.ok, false)
+  assert.match(r.ok === false ? r.error : '', /maior que o valor total/)
+})
+
+test('validarDesconto: recusa negativos', () => {
+  assert.equal(validarDesconto(-1, 0).ok, false)
+  assert.equal(validarDesconto(100, -1).ok, false)
+})
+
+test('validarDesconto: não recusa por float de duas casas', () => {
+  // 0.1 + 0.2 = 0.30000000000000004; o banco guarda numeric(14,2) e aceitaria.
+  assert.equal(validarDesconto(0.1 + 0.2, 0.3).ok, true)
+})
+
+test('calcularValorFinal reproduz a coluna generated', () => {
+  assert.equal(calcularValorFinal(1000, 250), 750)
+  assert.equal(calcularValorFinal(0.1 + 0.2, 0.1), 0.2)
+})
+
+test('pct: form (0..100) vai e volta do payload (0..1)', () => {
+  const form = {
+    pct_sinal: 30,
+    pct_fd: 20,
+    pct_entrega_material: 12.5,
+    pct_medicao_instalacao: 37.5,
+  }
+  const payload = pctFormToPayload(form)
+  assert.deepEqual(payload, {
+    pct_sinal: 0.3,
+    pct_fd: 0.2,
+    pct_entrega_material: 0.125,
+    pct_medicao_instalacao: 0.375,
+  })
+  assert.deepEqual(pctPayloadToForm(payload), form)
+})
+
+test('validarSomaPctForm: 100% em percentual é aceito', () => {
+  // O ponto da função: 30+20+12.5+37.5 = 100 seria recusado contra o
+  // limite 1.0 se não convertesse antes.
+  const r = validarSomaPctForm({
+    pct_sinal: 30,
+    pct_fd: 20,
+    pct_entrega_material: 12.5,
+    pct_medicao_instalacao: 37.5,
+  })
+  assert.equal(r.ok, true)
+  assert.equal(r.restante, 0)
+})
+
+test('validarSomaPctForm: acima de 100% é recusado', () => {
+  const r = validarSomaPctForm({
+    pct_sinal: 50,
+    pct_fd: 50,
+    pct_entrega_material: 10,
+    pct_medicao_instalacao: 0,
+  })
+  assert.equal(r.ok, false)
+})
+
+// ============================================================
+// Histórico de transições
+// ============================================================
+
+test('novaEntradaHistorico registra de/para/quem/quando', () => {
+  const e = novaEntradaHistorico({
+    de: 'rascunho',
+    para: 'enviada',
+    por: 'user-1',
+    em: '2026-09-05T12:00:00.000Z',
+  })
+  assert.deepEqual(e, {
+    de: 'rascunho',
+    para: 'enviada',
+    em: '2026-09-05T12:00:00.000Z',
+    por: 'user-1',
+    motivo_rejeicao: null,
+    detalhe_rejeicao: null,
+  })
+})
+
+test('novaEntradaHistorico só guarda motivo quando o destino é rejeitada', () => {
+  const rejeitada = novaEntradaHistorico({
+    de: 'enviada',
+    para: 'rejeitada',
+    por: 'u',
+    motivo_rejeicao: 'preco_alto',
+    detalhe_rejeicao: 'acima do orçado',
+  })
+  assert.equal(rejeitada.motivo_rejeicao, 'preco_alto')
+
+  // Espelha o CHECK propostas_rejeitada_motivo: motivo fora de rejeitada é
+  // descartado em vez de virar registro que a linha não tem.
+  const voltou = novaEntradaHistorico({
+    de: 'enviada',
+    para: 'rascunho',
+    por: 'u',
+    motivo_rejeicao: 'preco_alto',
+  })
+  assert.equal(voltou.motivo_rejeicao, null)
+})
+
+test('appendHistorico é append-only e tolera valor inválido', () => {
+  const e1 = novaEntradaHistorico({
+    de: 'rascunho', para: 'enviada', por: 'u', em: '2026-01-01T00:00:00.000Z',
+  })
+  const e2 = novaEntradaHistorico({
+    de: 'enviada', para: 'aprovada', por: 'u', em: '2026-02-01T00:00:00.000Z',
+  })
+
+  assert.deepEqual(appendHistorico(null, e1), [e1])
+  assert.deepEqual(appendHistorico([e1], e2), [e1, e2])
+  // jsonb aceitaria um objeto solto gravado antes do CHECK; não pode derrubar
+  // o append.
+  assert.deepEqual(appendHistorico({ ruim: true }, e1), [e1])
+})
+
+test('historicoOrdenado devolve o mais recente primeiro', () => {
+  const antigo = novaEntradaHistorico({
+    de: 'rascunho', para: 'enviada', por: 'u', em: '2026-01-01T00:00:00.000Z',
+  })
+  const novo = novaEntradaHistorico({
+    de: 'enviada', para: 'aprovada', por: 'u', em: '2026-02-01T00:00:00.000Z',
+  })
+  assert.deepEqual(historicoOrdenado([antigo, novo]), [novo, antigo])
 })
