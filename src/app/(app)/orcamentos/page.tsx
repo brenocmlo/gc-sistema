@@ -1,9 +1,15 @@
 import { FileText, Plus } from 'lucide-react'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 
 import EmptyState from '@/components/EmptyState'
 import ExportButton from '@/components/ExportButton'
 import Pagination from '@/components/Pagination'
+import {
+  computePeriodoCutoff,
+  isRangeForaDoAlcance,
+  urlSemPagina,
+} from '@/lib/listagem'
 import { getCurrentProfile } from '@/lib/supabase/profile'
 import { createClient } from '@/lib/supabase/server'
 import type { OrcamentoListItem, OrcamentoStatus } from '@/lib/types'
@@ -24,24 +30,6 @@ const VALID_STATUS: readonly OrcamentoStatus[] = [
 
 function isValidStatus(v: string): v is OrcamentoStatus {
   return (VALID_STATUS as readonly string[]).includes(v)
-}
-
-// Retorna uma string YYYY-MM-DD (cutoff) ou null se o filtro for "todos".
-function computePeriodoCutoff(periodo: string): string | null {
-  if (periodo === '30d') {
-    const d = new Date()
-    d.setDate(d.getDate() - 30)
-    return d.toISOString().slice(0, 10)
-  }
-  if (periodo === '90d') {
-    const d = new Date()
-    d.setDate(d.getDate() - 90)
-    return d.toISOString().slice(0, 10)
-  }
-  if (periodo === 'ano') {
-    return `${new Date().getFullYear()}-01-01`
-  }
-  return null
 }
 
 type SearchParams = {
@@ -107,6 +95,12 @@ export default async function OrcamentosPage({
   const { data, count, error } = await query.range(from, to)
 
   if (error) {
+    // Página além do último registro: o PostgREST devolve 416 sem `count`, e a
+    // tela mostraria erro de banco pra quem só abriu um link velho.
+    if (isRangeForaDoAlcance(error) && page > 1) {
+      redirect(urlSemPagina('/orcamentos', { ...searchParams, page: undefined }))
+    }
+
     return (
       <div className="bg-red-50 border border-red-200 rounded-md p-4 text-sm text-red-700">
         Erro ao carregar orçamentos: {error.message}
@@ -115,7 +109,7 @@ export default async function OrcamentosPage({
   }
 
   // Cast: status vem como `string` do gen, mas o banco garante OrcamentoStatus.
-  const orcamentos = (data ?? []) as unknown as OrcamentoListItem[]
+  const orcamentos = (data ?? []) as OrcamentoListItem[]
   const total = count ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 

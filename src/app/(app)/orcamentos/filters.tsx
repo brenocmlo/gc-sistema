@@ -4,6 +4,8 @@ import { Search } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
+import { PERIODO_OPTIONS } from '@/lib/listagem'
+
 const STATUS_OPTIONS = [
   { value: '', label: 'Todos os status' },
   { value: 'pendente', label: 'Pendente' },
@@ -12,13 +14,6 @@ const STATUS_OPTIONS = [
   { value: 'aprovado', label: 'Aprovado' },
   { value: 'rejeitado', label: 'Rejeitado' },
   { value: 'expirado', label: 'Expirado' },
-]
-
-const PERIODO_OPTIONS = [
-  { value: '', label: 'Todos os períodos' },
-  { value: '30d', label: 'Últimos 30 dias' },
-  { value: '90d', label: 'Últimos 90 dias' },
-  { value: 'ano', label: 'Este ano' },
 ]
 
 export default function OrcamentosFilters() {

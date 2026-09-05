@@ -1,10 +1,12 @@
 import { Building2, Plus } from 'lucide-react'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 
 import EmptyState from '@/components/EmptyState'
 import ExportButton from '@/components/ExportButton'
 import Pagination from '@/components/Pagination'
 import { getCurrentProfile } from '@/lib/supabase/profile'
+import { isRangeForaDoAlcance, urlSemPagina } from '@/lib/listagem'
 import { createClient } from '@/lib/supabase/server'
 import type { ObraListItem, ObraStatus } from '@/lib/types'
 
@@ -82,6 +84,12 @@ export default async function ObrasPage({
   const { data, count, error } = await query.range(from, to)
 
   if (error) {
+    // Página além do último registro: o PostgREST devolve 416 sem `count`, e a
+    // tela mostraria erro de banco pra quem só abriu um link velho.
+    if (isRangeForaDoAlcance(error) && page > 1) {
+      redirect(urlSemPagina('/obras', { ...searchParams, page: undefined }))
+    }
+
     return (
       <div className="bg-red-50 border border-red-200 rounded-md p-4 text-sm text-red-700">
         Erro ao carregar obras: {error.message}
@@ -91,7 +99,9 @@ export default async function ObrasPage({
 
   // Cast: narrowing de campos NOT NULL da tabela obras que a view marca como
   // nullable (id, empresa_id, codigo_obra, nome, status) — ver lib/types.ts.
-  const obras = (data ?? []) as unknown as ObraListItem[]
+  // Um `as` só, nunca `as unknown as`: assim o tsc ainda compara o resultado do
+  // select() com o Database gerado e acusa coluna que deixou de existir.
+  const obras = (data ?? []) as ObraListItem[]
   const total = count ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 

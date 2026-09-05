@@ -4,18 +4,13 @@ import { Search } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
+import { PERIODO_OPTIONS } from '@/lib/listagem'
+
 const STATUS_OPTIONS = [
   { value: '', label: 'Todos os status' },
   { value: 'pendente', label: 'Pendente' },
   { value: 'pago', label: 'Pago' },
   { value: 'vencido', label: 'Vencido' },
-]
-
-const PERIODO_OPTIONS = [
-  { value: '', label: 'Todos os períodos' },
-  { value: '30d', label: 'Últimos 30 dias' },
-  { value: '90d', label: 'Últimos 90 dias' },
-  { value: 'ano', label: 'Este ano' },
 ]
 
 type FdFiltersProps = {

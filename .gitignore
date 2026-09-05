@@ -26,7 +26,11 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
-.env*.local
+# Nenhum .env e versionado, nem o .env.local.example: ele chegou a ser
+# rastreado com credenciais reais na copia de trabalho. As variaveis
+# obrigatorias estao documentadas no README.
+.env
+.env.*
 
 # vercel
 .vercel
@@ -40,3 +44,5 @@ next-env.d.ts
 
 # arquivo gerado por concatenação das migrations (não versionar)
 /supabase/reset_e_aplicar_tudo.sql
+
+.token-optimizer/

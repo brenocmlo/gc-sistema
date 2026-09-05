@@ -1,9 +1,15 @@
 import { HandCoins, Plus } from 'lucide-react'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 
 import EmptyState from '@/components/EmptyState'
 import ExportButton from '@/components/ExportButton'
 import Pagination from '@/components/Pagination'
+import {
+  computePeriodoCutoff,
+  isRangeForaDoAlcance,
+  urlSemPagina,
+} from '@/lib/listagem'
 import { getCurrentProfile } from '@/lib/supabase/profile'
 import { createClient } from '@/lib/supabase/server'
 
@@ -18,23 +24,6 @@ type SearchParams = {
   status?: string
   periodo?: string
   page?: string
-}
-
-function computePeriodoCutoff(periodo: string): string | null {
-  if (periodo === '30d') {
-    const d = new Date()
-    d.setDate(d.getDate() - 30)
-    return d.toISOString().slice(0, 10)
-  }
-  if (periodo === '90d') {
-    const d = new Date()
-    d.setDate(d.getDate() - 90)
-    return d.toISOString().slice(0, 10)
-  }
-  if (periodo === 'ano') {
-    return `${new Date().getFullYear()}-01-01`
-  }
-  return null
 }
 
 export default async function FdPage({
@@ -105,6 +94,12 @@ export default async function FdPage({
   const { data, count, error } = await query.range(from, to)
 
   if (error) {
+    // Página além do último registro: o PostgREST devolve 416 sem `count`, e a
+    // tela mostraria erro de banco pra quem só abriu um link velho.
+    if (isRangeForaDoAlcance(error) && page > 1) {
+      redirect(urlSemPagina('/fd', { ...searchParams, page: undefined }))
+    }
+
     return (
       <div className="bg-red-50 border border-red-200 rounded-md p-4 text-sm text-red-700">
         Erro ao carregar FDs: {error.message}
@@ -112,7 +107,7 @@ export default async function FdPage({
     )
   }
 
-  const fds = (data ?? []) as unknown as FdListItem[]
+  const fds = (data ?? []) as FdListItem[]
   const total = count ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 

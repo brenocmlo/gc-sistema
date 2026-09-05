@@ -1,8 +1,10 @@
 import { Plus, Users } from 'lucide-react'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 
 import EmptyState from '@/components/EmptyState'
 import Pagination from '@/components/Pagination'
+import { isRangeForaDoAlcance, urlSemPagina } from '@/lib/listagem'
 import { getCurrentProfile } from '@/lib/supabase/profile'
 import { createClient } from '@/lib/supabase/server'
 
@@ -49,6 +51,12 @@ export default async function ClientesPage({
   const { data, count, error } = await query.range(from, to)
 
   if (error) {
+    // Página além do último registro: o PostgREST devolve 416 sem `count`, e a
+    // tela mostraria erro de banco pra quem só abriu um link velho.
+    if (isRangeForaDoAlcance(error) && page > 1) {
+      redirect(urlSemPagina('/clientes', { ...searchParams, page: undefined }))
+    }
+
     return (
       <div className="bg-red-50 border border-red-200 rounded-md p-4 text-sm text-red-700">
         Erro ao carregar clientes: {error.message}
