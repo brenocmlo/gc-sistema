@@ -1338,6 +1338,7 @@ export type Database = {
           detalhe_rejeicao: string | null
           empresa_id: string
           escopo_resumo: string | null
+          historico: Json
           id: string
           motivo_rejeicao: string | null
           numero: string | null
@@ -1361,6 +1362,7 @@ export type Database = {
           detalhe_rejeicao?: string | null
           empresa_id: string
           escopo_resumo?: string | null
+          historico?: Json
           id?: string
           motivo_rejeicao?: string | null
           numero?: string | null
@@ -1384,6 +1386,7 @@ export type Database = {
           detalhe_rejeicao?: string | null
           empresa_id?: string
           escopo_resumo?: string | null
+          historico?: Json
           id?: string
           motivo_rejeicao?: string | null
           numero?: string | null

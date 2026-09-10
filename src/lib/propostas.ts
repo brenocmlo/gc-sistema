@@ -1,3 +1,11 @@
+// Extensão explícita porque este é import de VALOR: o type stripping do
+// `node --test` apaga `import type`, mas um import de runtime precisa que o
+// Node resolva o arquivo, e ele não completa extensão. Aceito no tsc pelo
+// `allowImportingTsExtensions`, que o projeto já liga.
+import {
+  novaEntradaHistorico,
+  type EntradaHistorico,
+} from './historico.ts'
 import type { MotivoRejeicao, Proposta, PropostaStatus } from './types'
 
 // ============================================================
@@ -423,58 +431,22 @@ export function mensagemDeErroProposta(raw: string): string {
 // ============================================================
 
 /**
- * Uma entrada do jsonb `propostas.historico`, gravado pela migration
- * 20260905180000_propostas_historico.sql. Append-only: cada mudança de status
- * acrescenta uma entrada, nada é reescrito.
+ * O formato mora em `./historico`, genérico, desde que Orçamentos passou a usar
+ * o mesmo. Aqui ficam só os atalhos com o status de proposta já preenchido, pra
+ * quem chama não repetir `statusDeRejeicao` em cada uso.
  */
-export type EntradaHistorico = {
-  de: PropostaStatus
-  para: PropostaStatus
-  em: string
-  por: string
-  motivo_rejeicao: MotivoRejeicao | null
-  detalhe_rejeicao: string | null
-}
+export type EntradaHistoricoProposta = EntradaHistorico<PropostaStatus>
 
-export function novaEntradaHistorico(input: {
+export function novaEntradaHistoricoProposta(input: {
   de: PropostaStatus
   para: PropostaStatus
   por: string
   motivo_rejeicao?: MotivoRejeicao | null
   detalhe_rejeicao?: string | null
   em?: string
-}): EntradaHistorico {
-  return {
-    de: input.de,
-    para: input.para,
-    em: input.em ?? new Date().toISOString(),
-    por: input.por,
-    // Motivo só faz sentido quando o destino é rejeitada — mesmo critério do
-    // CHECK propostas_rejeitada_motivo, pra o histórico não guardar um motivo
-    // que a linha não tem.
-    motivo_rejeicao:
-      input.para === 'rejeitada' ? (input.motivo_rejeicao ?? null) : null,
-    detalhe_rejeicao:
-      input.para === 'rejeitada' ? (input.detalhe_rejeicao ?? null) : null,
-  }
+}): EntradaHistoricoProposta {
+  return novaEntradaHistorico({ ...input, statusDeRejeicao: 'rejeitada' })
 }
 
-/**
- * Acrescenta a entrada ao histórico existente. Tolera `null` e valor fora do
- * formato (jsonb aceita qualquer coisa que tenha sido gravada antes do CHECK
- * `propostas_historico_lista`) tratando como lista vazia — perder o append por
- * causa de um registro velho seria pior que perder o registro velho.
- */
-export function appendHistorico(
-  atual: unknown,
-  entrada: EntradaHistorico,
-): EntradaHistorico[] {
-  const lista = Array.isArray(atual) ? (atual as EntradaHistorico[]) : []
-  return [...lista, entrada]
-}
-
-/** Mais recente primeiro, para a aba de histórico da tela de detalhe. */
-export function historicoOrdenado(atual: unknown): EntradaHistorico[] {
-  const lista = Array.isArray(atual) ? (atual as EntradaHistorico[]) : []
-  return [...lista].sort((a, b) => (a.em < b.em ? 1 : a.em > b.em ? -1 : 0))
-}
+export { appendHistorico, historicoOrdenado } from './historico.ts'
+export type { EntradaHistorico } from './historico.ts'

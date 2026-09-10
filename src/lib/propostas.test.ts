@@ -18,7 +18,7 @@ import {
   calcularValorFinal,
   historicoOrdenado,
   isPropostaVencida,
-  novaEntradaHistorico,
+  novaEntradaHistoricoProposta,
   obraIdsDaBusca,
   pctFormToPayload,
   pctPayloadToForm,
@@ -423,7 +423,7 @@ test('validarSomaPctForm: acima de 100% é recusado', () => {
 // ============================================================
 
 test('novaEntradaHistorico registra de/para/quem/quando', () => {
-  const e = novaEntradaHistorico({
+  const e = novaEntradaHistoricoProposta({
     de: 'rascunho',
     para: 'enviada',
     por: 'user-1',
@@ -440,7 +440,7 @@ test('novaEntradaHistorico registra de/para/quem/quando', () => {
 })
 
 test('novaEntradaHistorico só guarda motivo quando o destino é rejeitada', () => {
-  const rejeitada = novaEntradaHistorico({
+  const rejeitada = novaEntradaHistoricoProposta({
     de: 'enviada',
     para: 'rejeitada',
     por: 'u',
@@ -451,7 +451,7 @@ test('novaEntradaHistorico só guarda motivo quando o destino é rejeitada', () 
 
   // Espelha o CHECK propostas_rejeitada_motivo: motivo fora de rejeitada é
   // descartado em vez de virar registro que a linha não tem.
-  const voltou = novaEntradaHistorico({
+  const voltou = novaEntradaHistoricoProposta({
     de: 'enviada',
     para: 'rascunho',
     por: 'u',
@@ -461,10 +461,10 @@ test('novaEntradaHistorico só guarda motivo quando o destino é rejeitada', () 
 })
 
 test('appendHistorico é append-only e tolera valor inválido', () => {
-  const e1 = novaEntradaHistorico({
+  const e1 = novaEntradaHistoricoProposta({
     de: 'rascunho', para: 'enviada', por: 'u', em: '2026-01-01T00:00:00.000Z',
   })
-  const e2 = novaEntradaHistorico({
+  const e2 = novaEntradaHistoricoProposta({
     de: 'enviada', para: 'aprovada', por: 'u', em: '2026-02-01T00:00:00.000Z',
   })
 
@@ -476,10 +476,10 @@ test('appendHistorico é append-only e tolera valor inválido', () => {
 })
 
 test('historicoOrdenado devolve o mais recente primeiro', () => {
-  const antigo = novaEntradaHistorico({
+  const antigo = novaEntradaHistoricoProposta({
     de: 'rascunho', para: 'enviada', por: 'u', em: '2026-01-01T00:00:00.000Z',
   })
-  const novo = novaEntradaHistorico({
+  const novo = novaEntradaHistoricoProposta({
     de: 'enviada', para: 'aprovada', por: 'u', em: '2026-02-01T00:00:00.000Z',
   })
   assert.deepEqual(historicoOrdenado([antigo, novo]), [novo, antigo])

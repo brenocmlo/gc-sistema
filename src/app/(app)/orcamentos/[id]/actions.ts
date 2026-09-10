@@ -3,6 +3,10 @@
 import { revalidatePath } from 'next/cache'
 
 import { buildStoragePath, validateFile, fileErrorMessage } from '@/lib/files'
+import {
+  appendHistorico,
+  novaEntradaHistoricoOrcamento,
+} from '@/lib/historico'
 import { createClient } from '@/lib/supabase/server'
 import type {
   Anexo,
@@ -95,6 +99,19 @@ export async function changeOrcamentoStatus(
     return { ok: false, error: 'Sem permissão pra mudar status' }
   }
 
+  // Estado atual, pra registrar de-onde-pra-onde no histórico. Lido do banco e
+  // não da tela: entre abrir o detalhe e salvar, alguém pode ter mudado.
+  const { data: atual, error: readErr } = await supabase
+    .from('orcamentos')
+    .select('status, historico')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (readErr) return { ok: false, error: readErr.message }
+  if (!atual) return { ok: false, error: 'Orçamento não encontrado' }
+
+  const statusAtual = atual.status as OrcamentoStatus
+
   // Monta o update baseado no status escolhido. Campos não aplicáveis ao
   // novo status são limpos pra não ficar lixo (ex: motivo_rejeicao se voltar
   // pra pendente).
@@ -118,6 +135,23 @@ export async function changeOrcamentoStatus(
 
   if (input.novo_status === 'aprovado' && input.vincular_obra) {
     update.obra_id = input.obra_id_vinculada
+  }
+
+  // Histórico append-only, no mesmo update do status: sem janela em que o
+  // status mudou e o registro não. Mesmo formato de propostas.
+  if (statusAtual !== input.novo_status) {
+    const entrada = novaEntradaHistoricoOrcamento({
+      de: statusAtual,
+      para: input.novo_status,
+      por: user.id,
+      motivo_rejeicao: input.motivo_rejeicao,
+      detalhe_rejeicao: input.detalhe_rejeicao,
+    })
+
+    update.historico = appendHistorico(
+      atual.historico,
+      entrada,
+    ) as unknown as OrcamentoUpdate['historico']
   }
 
   const { error } = await supabase

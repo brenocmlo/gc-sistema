@@ -21,8 +21,12 @@
 do $$
 declare
   -- ---------- PARÂMETROS ----------
+  -- ATENÇÃO: NÃO comite senha aqui. Este arquivo é versionado, e o
+  -- repositório é público — senha em texto claro neste campo já vazou uma
+  -- vez (2026-09-05) e continua no histórico do git. Preencha, rode no SQL
+  -- Editor, e desfaça a alteração local (`git checkout -- <arquivo>`).
   v_email   text := 'breno@obraminds.com';
-  v_senha   text := 'breno1206';
+  v_senha   text := 'TROQUE-ANTES-DE-RODAR';
   v_nome    text := 'Breno Camelo';
   v_perfil  text := 'admin';   -- admin | comercial | producao | medicao | financeiro | visualizador
   v_empresa text := null;      -- nome da empresa; null = usa a que já tem profiles

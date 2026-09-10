@@ -83,6 +83,10 @@ const NECESSARIAS = [
   'deleteProposta',
   'uploadAnexo',
   'deleteAnexo',
+  // Orçamentos: só o que o histórico uniformizado (migration 013) exige.
+  'createOrcamento',
+  'changeOrcamentoStatus',
+  'deleteOrcamento',
 ]
 
 const faltando = NECESSARIAS.filter((n) => !ACTIONS[n])
@@ -188,6 +192,7 @@ function checar(descricao, condicao, detalhe = '') {
 
 const NUMERO = `VALIDA-ESCRITA-${Date.now()}`
 let propostaId = null
+let orcamentoId = null
 
 try {
   const { data: obra } = await supabase
@@ -438,8 +443,99 @@ try {
       console.log('  PULOU checagens de perfil — VALIDACAO_*_VISUALIZADOR ausente')
     }
   }
+  // ============================================================
+  // Orçamentos: o histórico uniformizado (migration 013)
+  // ============================================================
+
+  const { data: cliente } = await supabase
+    .from('clientes')
+    .select('id')
+    .order('nome')
+    .limit(1)
+    .maybeSingle()
+
+  if (!cliente) {
+    console.log('  PULOU histórico de orçamento — gc-dev não tem cliente')
+  } else {
+    const hoje = new Date().toISOString().slice(0, 10)
+
+    const criadoOrc = await chamar('createOrcamento', [
+      {
+        numero: `${NUMERO}-ORC`,
+        data_solicitacao: hoje,
+        cliente_id: cliente.id,
+        descricao: 'Orçamento criado pela camada de escrita.',
+        escopo_resumo: null,
+        valor_estimado: 500,
+        prazo_estimado: null,
+        responsavel: null,
+        obra_id: null,
+        observacao: null,
+      },
+    ], { rota: '/orcamentos/novo' })
+    checar('createOrcamento cria o orçamento', criadoOrc.ok === true, criadoOrc.error)
+    orcamentoId = criadoOrc.id ?? null
+
+    if (orcamentoId) {
+      const enviadoOrc = await chamar('changeOrcamentoStatus', [
+        orcamentoId,
+        {
+          novo_status: 'enviado',
+          data_envio: hoje,
+          data_decisao: null,
+          motivo_rejeicao: null,
+          detalhe_rejeicao: null,
+          obra_id_vinculada: null,
+          vincular_obra: false,
+        },
+      ], { rota: `/orcamentos/${orcamentoId}` })
+      checar('changeOrcamentoStatus muda pra enviado', enviadoOrc.ok === true, enviadoOrc.error)
+
+      const rejeitadoOrc = await chamar('changeOrcamentoStatus', [
+        orcamentoId,
+        {
+          novo_status: 'rejeitado',
+          data_envio: null,
+          data_decisao: hoje,
+          motivo_rejeicao: 'preco_alto',
+          detalhe_rejeicao: null,
+          obra_id_vinculada: null,
+          vincular_obra: false,
+        },
+      ], { rota: `/orcamentos/${orcamentoId}` })
+      checar('changeOrcamentoStatus rejeita com motivo', rejeitadoOrc.ok === true, rejeitadoOrc.error)
+
+      const { data: orcComHist } = await supabase
+        .from('orcamentos')
+        .select('status, historico')
+        .eq('id', orcamentoId)
+        .maybeSingle()
+
+      const histOrc = Array.isArray(orcComHist?.historico) ? orcComHist.historico : []
+      checar('histórico de orçamento tem as 2 transições', histOrc.length === 2, `entradas=${histOrc.length}`)
+      checar(
+        'primeira entrada é pendente → enviado',
+        histOrc[0]?.de === 'pendente' && histOrc[0]?.para === 'enviado',
+        JSON.stringify(histOrc[0] ?? null),
+      )
+      // O status de rejeição de orçamento é masculino: se o atalho errado for
+      // usado, o motivo vem null e este passo pega.
+      checar(
+        'segunda entrada guarda o motivo (statusDeRejeicao masculino)',
+        histOrc[1]?.para === 'rejeitado' && histOrc[1]?.motivo_rejeicao === 'preco_alto',
+        JSON.stringify(histOrc[1] ?? null),
+      )
+    }
+  }
 } finally {
-  // Limpeza: a proposta de teste não fica em gc-dev, mesmo se algo falhou.
+  // Limpeza: nem a proposta nem o orçamento de teste ficam em gc-dev, mesmo se
+  // algo falhou no meio.
+  if (orcamentoId) {
+    const excluido = await chamar('deleteOrcamento', [orcamentoId], {
+      rota: `/orcamentos/${orcamentoId}`,
+    })
+    checar('deleteOrcamento apaga o orçamento de teste', excluido.ok === true, excluido.error)
+  }
   if (propostaId) {
     const excluida = await chamar('deleteProposta', [propostaId], {
       rota: `/propostas/${propostaId}`,

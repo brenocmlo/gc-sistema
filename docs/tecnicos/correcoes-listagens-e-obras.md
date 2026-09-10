@@ -128,9 +128,9 @@ estava escrito no código:
 | estático | `tsc --noEmit` limpo, lint sem warnings |
 | unitário | 46 casos, `fail 0` |
 | build | 31 rotas, iguais à baseline |
-| runtime | 25/25 rotas, incluindo 4 como visualizador |
-| dados | 11/11 checagens sob RLS em gc-dev |
-| escrita | 28/28 passos exercitando as Server Actions, com limpeza |
+| runtime | 39/39 rotas, incluindo 16 em perfil não-admin |
+| dados | 12/12 checagens sob RLS em gc-dev |
+| escrita | 35/35 passos exercitando as Server Actions, com limpeza |
 
 ## Pendências
 
