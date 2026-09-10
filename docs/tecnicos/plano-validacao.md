@@ -7,6 +7,9 @@ Data: 2026-09-04. Vale a partir do bloco 4.3 (aplicado retroativamente a ele).
 **Nenhuma task é declarada pronta antes de `bash scripts/validar.sh` passar, e
 o que o plano não cobre entra como pendência escrita no documento do bloco.**
 
+São **sete camadas**, da mais barata à mais cara: estático, unitário, build,
+runtime, dados, escrita e navegador.
+
 Comando: `npm run validar` (ou `bash scripts/validar.sh`). Camada isolada:
 `bash scripts/validar.sh escrita`. O que cada uma faz: `bash scripts/validar.sh --lista`.
 
@@ -107,10 +110,31 @@ Quatro detalhes de quem escreve as asserções:
   a rota é pulada com instrução, não falha.
 - **Redirect por regra de negócio é asserção legítima.** `esperaStatus: 307` em
   `/propostas/{id}/editar` prova que proposta enviada não é editável.
-- **Regra de permissão se prova com outro login.** `"perfil": "visualizador"`
-  numa rota faz o validador entrar com o segundo usuário
-  (`VALIDACAO_EMAIL_VISUALIZADOR` no `.env.local`) — é assim que "visualizador
-  não vê o botão Nova proposta" deixa de ser só uma linha de código.
+- **Regra de permissão se prova com outro login.** `"perfil": "visualizador"`,
+  `"comercial"` ou `"financeiro"` numa rota faz o validador entrar com aquele
+  usuário (`VALIDACAO_EMAIL_<PERFIL>` no `.env.local`) — é assim que
+  "visualizador não vê o botão Nova proposta" deixa de ser só uma linha de
+  código. Senha desconhecida se resolve com `scripts/resetar-senha-dev.mjs`,
+  que só aceita `@teste.com` e só roda contra gc-dev.
+- **Ausência precisa de contraprova.** Ao afirmar "perfil X não acessa Y",
+  acrescente uma rota que o perfil X **acessa** — sem ela, um erro de sessão
+  passa como sucesso do teste de permissão. É por isso que financeiro, produção
+  e medição têm `/fd` ou `/execucao` na lista, ao lado do `/propostas` que
+  redireciona.
+- **Perfil de teste não precisa de senha.** `scripts/sessao-dev.mjs` gera sessão
+  pelo Admin API (`generateLink` + `verifyOtp`) com o service role que o
+  `.env.local` já tem. Perfil novo é **uma linha** em `PERFIS_DE_TESTE`, sem
+  reset de senha nem variável nova — e nenhuma senha de teste fica guardada.
+- **Export tem asserção de conteúdo, não só de `content-type`.** `esperaXlsx`
+  numa rota faz o validador abrir a planilha com o `exceljs` e conferir colunas,
+  quantidade de linhas e textos de célula. Um `content-type` correto com colunas
+  trocadas passaria batido.
+- **Upload pela tela precisa de `DOM.setFileInputFiles`.** `input.files` é
+  read-only em JS; `anexarArquivo` no driver é o único caminho pra exercitar o
+  seletor de arquivo. E cuidado com o que se afere: o `FileUpload` mostra o nome
+  na fila **antes** de terminar e a mantém **depois** do sucesso, então o sinal
+  confiável é a lista salva ("Nenhum anexo ainda" saindo e voltando), não o
+  texto do nome.
 
 ### 5. Dados — queries reais contra gc-dev, sob RLS
 
@@ -160,20 +184,67 @@ acrescentar uma action:
    inversa a action recebe um FormData vazio e responde "Arquivo ausente no
    upload", que parece bug da aplicação e não é.
 
-**A camada limpa o que cria.** A proposta de teste nasce com número
-`VALIDA-ESCRITA-<timestamp>` e é apagada no fim, inclusive quando um passo falha
-— a exclusão está em `finally`, e a última asserção confere que não sobrou linha.
+**A camada limpa o que cria.** A proposta e o orçamento de teste nascem com
+número `VALIDA-ESCRITA-<timestamp>` e são apagados no fim, inclusive quando um
+passo falha — as exclusões estão em `finally`, e a última asserção confere que
+não sobrou linha.
+
+**Regra de negócio que não quebra o build entra aqui.** O status de rejeição é
+`rejeitada` em propostas e `rejeitado` em orçamentos; usar o errado só faz o
+histórico deixar de gravar o motivo, silenciosamente. A camada tem um passo por
+entidade que reprova nesse caso — é o tipo de erro que `tsc` não vê e teste
+unitário sozinho não pega, porque depende do valor real gravado.
+
+### 7. Navegador — Chrome headless por CDP, sobre o `next dev`
+
+| | |
+|---|---|
+| **Prova** | O que só existe no cliente: login pelo formulário, o zod do react-hook-form barrando submit inválido, o valor final calculado ao vivo, o aviso de soma acima de 100%, a lógica condicional do diálogo de status, o toast, a navegação pós-sucesso, o botão desabilitado por regra e o `ConfirmDialog`. Deixa screenshots — é a conferência visual, virada asserção. |
+| **Não prova** | Aparência em si. Um screenshot prova que renderizou, não que está bonito; e nenhuma asserção pega "feio mas funcional". Também não cobre teclado, leitor de tela e outros navegadores. |
+| **Passou** | `N/N passos ok`, sem erro de console, e nada sobra em gc-dev. |
+| **Falhou** | Qualquer passo. **Olhe o screenshot antes de mexer no código** — costuma ser a asserção que está errada, não a tela. |
+| **Custo** | ~35s |
+
+**Sem dependência nova.** Playwright resolveria, mas o projeto já usa o Chrome
+local em `scripts/docs-pdf.sh` e o Node 24 tem WebSocket embutido — então o
+driver CDP em `scripts/navegador-cdp.mjs` custa um arquivo e zero pacote. Roda
+sobre `next dev` (porta `PORTA+1`), porque a camada exercita o cliente e o dev
+server dá erro legível.
+
+**Para dirigir o app fora deste roteiro** — "mudei X, quero ver X na tela" — use
+a skill `/run-gc-sistema` (`.claude/skills/run-gc-sistema/`), que aceita comandos
+pelo stdin (`ir`, `clicar`, `preencher`, `shot`, `medir`) em cima do mesmo
+driver. Os gotchas de CDP estão documentados lá.
+
+Três coisas que custaram tentativa e ficam de aviso:
+
+1. **O perfil do Chrome guarda cookie entre execuções.** Sem
+   `Network.clearBrowserCookies` no começo, a segunda rodada já está logada e a
+   asserção "sem sessão redireciona pro login" falha sem motivo.
+2. **`Emulation.setDeviceMetricsOverride` com `mobile: true` impõe um viewport
+   mínimo (~552px)** e mascara justamente a largura estreita que se quer medir.
+   Use `mobile: false`. E espere dois frames antes de medir, senão o número sai
+   do layout antigo.
+3. **Texto repetido precisa de escopo.** "Excluir" existe no header e no
+   `ConfirmDialog`; sem `[role="dialog"] button`, o clique volta pro header e o
+   diálogo nunca confirma.
+
+E um aviso sobre o toast: em `next dev` a primeira compilação de uma rota leva
+mais que os ~4s de vida do toast, então o de criação já expirou quando a página
+aparece. Aferir o toast numa navegação já compilada — o de mudança de status,
+por exemplo.
 
 ## O que continua manual
 
 Duas coisas, deliberadamente. Não há automação disso hoje, e finge-la seria pior
 que a ausência:
 
-1. **Conferência visual.** Abrir a tela no navegador (`npm run dev`) e olhar:
-   alinhamento, quebra em telas estreitas, ordem das colunas, cor do badge. A
-   camada runtime prova que o HTML tem "Data emissão"; não prova que a tabela
-   não estourou a largura. **Passo mínimo:** abrir a rota alterada em uma
-   largura de desktop e uma de celular, e dizer no doc do bloco que foi feito.
+1. **Julgamento visual.** A camada 7 clica, mede largura e guarda screenshot —
+   mas quem decide se o resultado está aceitável é uma pessoa olhando. Ela
+   provou que a tabela rola no próprio container em 768px, e mediu que em 390px
+   sobram 150px de conteúdo; **que isso seja inaceitável é conclusão humana**,
+   não asserção. **Passo mínimo:** ao mexer em layout, olhar os screenshots que
+   a camada deixa em `/tmp/gc-validacao/shots`.
 2. ~~Escrita no banco.~~ **Deixou de ser manual em 2026-09-05**, com a camada 6.
    O que sobrou de manual é menor e mais específico: **o clique**. Nenhum
    formulário é preenchido, nenhum diálogo é aberto, nenhum arquivo é escolhido
@@ -217,7 +288,7 @@ A seção "Verificação" passa a ter as cinco camadas com **números reais**, n
 | unitário | 46 casos, `fail 0` |
 | build | 31 rotas, iguais à baseline |
 | runtime | 23/23 rotas, 4 delas como visualizador |
-| dados | 11/11 checagens sob RLS |
+| dados | 12/12 checagens sob RLS |
 | manual | telas conferidas no navegador: `/propostas` (desktop e 390px) |
 
 E logo abaixo, **o que não foi validado**, nominalmente. Camada que não rodou
@@ -252,6 +323,11 @@ real de gc-dev.
 | `scripts/validar-runtime.mjs` | camada 4: sessão real + fetch das rotas |
 | `scripts/validar-dados.mjs` | camada 5: queries da aplicação sob RLS |
 | `scripts/validar-escrita.mjs` | camada 6: Server Actions por HTTP, com limpeza |
+| `scripts/validar-navegador.mjs` | camada 7: o roteiro clicado no Chrome |
+| `scripts/navegador-cdp.mjs` | driver CDP sem dependência nova |
+| `.claude/skills/run-gc-sistema/` | skill `/run-gc-sistema`: dirige o app ad-hoc, fora do roteiro fixo |
+| `scripts/sessao-dev.mjs` | sessão de perfil de teste sem senha, via service role |
+| `scripts/aplicar-seed.sh` | `npm run seed`: aplica um `supabase/seed_*.sql` em gc-dev |
 | `scripts/gc-dev-guard.mjs` | trava de ambiente: nada roda fora de gc-dev |
 | `scripts/validacao-rotas.json` | rotas e trechos de HTML esperados — cada bloco acrescenta |
 | `scripts/rotas-esperadas.txt` | baseline das 29 rotas do build |

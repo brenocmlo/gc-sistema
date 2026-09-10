@@ -107,6 +107,115 @@
     "nota": "edição redireciona antes mesmo da regra de rascunho"
   },
   {
+    "path": "/propostas",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "Nova proposta",
+      "Data emissão",
+      "<table"
+    ],
+    "nota": "comercial cria: o botão aparece"
+  },
+  {
+    "path": "/propostas/nova",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "Nova proposta",
+      "Condições de pagamento"
+    ],
+    "nota": "comercial abre o formulário — 200, não redirect"
+  },
+  {
+    "path": "/propostas/{propostaSeed}",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "SEED-VENCIDA-001",
+      "Mudar status"
+    ],
+    "naoEsperaHtml": [
+      "Excluir"
+    ],
+    "nota": "comercial muda status mas NÃO vê Excluir — só admin exclui"
+  },
+  {
+    "path": "/",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "Dashboard",
+      "Financeiro"
+    ],
+    "naoEsperaHtml": [
+      ">Propostas<"
+    ],
+    "nota": "o item Propostas não aparece no menu do financeiro (nav.ts)"
+  },
+  {
+    "path": "/propostas",
+    "perfil": "financeiro",
+    "esperaStatus": 307,
+    "nota": "o layout de /propostas não libera financeiro: redireciona"
+  },
+  {
+    "path": "/fd",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "Todas as obras"
+    ],
+    "nota": "financeiro tem a sua área — o redirect acima não é falta de acesso geral"
+  },
+  {
+    "path": "/",
+    "perfil": "producao",
+    "esperaHtml": [
+      "Dashboard",
+      "Execução"
+    ],
+    "naoEsperaHtml": [
+      ">Propostas<"
+    ],
+    "nota": "produção não tem Propostas no menu (nav.ts)"
+  },
+  {
+    "path": "/propostas",
+    "perfil": "producao",
+    "esperaStatus": 307,
+    "nota": "o layout de /propostas não libera producao"
+  },
+  {
+    "path": "/execucao",
+    "perfil": "producao",
+    "esperaHtml": [
+      "Execução"
+    ],
+    "nota": "contraprova: a área de produção abre — o 307 acima não é falta de sessão"
+  },
+  {
+    "path": "/",
+    "perfil": "medicao",
+    "esperaHtml": [
+      "Dashboard",
+      "Execução"
+    ],
+    "naoEsperaHtml": [
+      ">Propostas<"
+    ],
+    "nota": "medição também não tem Propostas no menu"
+  },
+  {
+    "path": "/propostas",
+    "perfil": "medicao",
+    "esperaStatus": 307,
+    "nota": "o layout de /propostas não libera medicao"
+  },
+  {
+    "path": "/execucao",
+    "perfil": "medicao",
+    "esperaHtml": [
+      "Execução"
+    ],
+    "nota": "contraprova da sessão de medição"
+  },
+  {
     "path": "/propostas?page=99",
     "esperaStatus": 307,
     "nota": "página além do fim: PostgREST devolve 416 sem count; a tela redireciona pra primeira página em vez de mostrar erro de banco"
@@ -148,6 +257,15 @@
     ]
   },
   {
+    "path": "/orcamentos/{orcamentoPrimeiro}",
+    "esperaHtml": [
+      "Histórico",
+      "Detalhes",
+      "Anexos"
+    ],
+    "nota": "a aba Histórico deixou de ser placeholder na uniformização de 2026-09-08"
+  },
+  {
     "path": "/fd",
     "esperaHtml": [
       "Todas as obras"
@@ -170,9 +288,43 @@
     "nota": "o detalhe passa pela mesma obras_com_valores que derrubou a listagem em 2026-09-05"
   },
   {
+    "path": "/api/export/propostas",
+    "esperaContentType": "spreadsheetml",
+    "esperaXlsx": {
+      "colunas": [
+        "Número",
+        "Obra",
+        "Cliente",
+        "Emissão",
+        "Validade",
+        "Status",
+        "Vencida",
+        "Valor total",
+        "Desconto",
+        "Valor final",
+        "Condições",
+        "Motivo rejeição"
+      ],
+      "minLinhas": 12,
+      "contem": [
+        "SEED-VENCIDA-001",
+        "PROP-2026-005",
+        "Sim"
+      ]
+    },
+    "nota": "confere as 12 colunas, que há linha de dado, e que a coluna derivada Vencida sai 'Sim' pra proposta vencida"
+  },
+  {
     "path": "/api/export/obras",
     "esperaContentType": "spreadsheetml",
-    "nota": "a exportação de obras também lê a view; era a terceira superfície quebrada pelo mesmo bug"
+    "nota": "a exportação de obras também lê a view; era a terceira superfície quebrada pelo mesmo bug",
+    "esperaXlsx": {
+      "colunas": [
+        "Código",
+        "Nome"
+      ],
+      "minLinhas": 1
+    }
   },
   {
     "path": "/clientes",

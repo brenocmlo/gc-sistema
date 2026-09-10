@@ -187,6 +187,23 @@ const CHECKS = [
         : null,
   },
   {
+    nome: 'orcamentos: coluna historico (migration 013, mesmo formato de propostas)',
+    bloco: '4.x (uniformização)',
+    query: (sb) =>
+      sb
+        .from('orcamentos')
+        .select('id, historico')
+        .order('data_solicitacao', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    valida: (r) =>
+      !r.data
+        ? 'nenhum orçamento em gc-dev'
+        : !Array.isArray(r.data.historico)
+          ? `historico não é lista: ${JSON.stringify(r.data.historico)}`
+          : null,
+  },
+  {
     nome: 'obras_com_valores: view da listagem (LATERAL calcular_valores_obra)',
     bloco: '4.x (regressão)',
     query: (sb) =>

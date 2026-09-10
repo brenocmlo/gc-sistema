@@ -7,7 +7,7 @@
 #   bash scripts/validar.sh estatico unit    # só as camadas pedidas
 #   bash scripts/validar.sh --lista          # o que cada camada faz
 #
-# Camadas: estatico | unit | build | runtime | dados | escrita
+# Camadas: estatico | unit | build | runtime | dados | escrita | navegador
 #
 # Para no primeiro erro: camada barata que falha invalida as caras, e seguir
 # em frente só produz ruído. O resumo final diz o que passou e o que não rodou.
@@ -20,13 +20,20 @@ cd "$(dirname "$0")/.."
 GC_DEV_REF="gzbmhgnpoehormnidmgg"
 
 PORTA="${VALIDACAO_PORTA:-3111}"
+PORTA_CDP="${VALIDACAO_PORTA_CDP:-9222}"
 BASE_URL="http://127.0.0.1:$PORTA"
 BUILD_LOG="$(mktemp)"
 ROTAS_BASELINE="scripts/rotas-esperadas.txt"
 SERVER_PID=""
+CHROME_PID=""
 
 limpar() {
   [[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null || true
+  [[ -n "$CHROME_PID" ]] && kill "$CHROME_PID" 2>/dev/null || true
+  # npm/npx não repassam SIGTERM ao servidor que criam: matar o listener da
+  # porta é o que de fato a libera pra próxima execução.
+  lsof -ti:"$PORTA" -sTCP:LISTEN 2>/dev/null | xargs -r kill 2>/dev/null || true
+  lsof -ti:$((PORTA + 1)) -sTCP:LISTEN 2>/dev/null | xargs -r kill 2>/dev/null || true
   rm -f "$BUILD_LOG"
 }
 trap limpar EXIT
@@ -56,8 +63,11 @@ dados     queries reais da aplicação contra gc-dev, sob RLS (scripts/validar-d
           Prova select, JOIN e policy. NÃO prova a tela.
 escrita   Server Actions chamadas por HTTP, contra gc-dev (scripts/validar-escrita.mjs).
           Prova criar, editar, mudar status, histórico, anexo e excluir, com as
-          regras de perfil. Limpa o que cria. NÃO prova o clique — o formulário
-          da tela e o diálogo não são acionados.
+          regras de perfil. Limpa o que cria. NÃO prova o clique.
+navegador Chrome headless dirigido por CDP sobre o `next dev`
+          (scripts/validar-navegador.mjs). Prova o que só roda no cliente: zod
+          do formulário, cálculo ao vivo, diálogo condicional, toast, navegação
+          e o ConfirmDialog. Deixa screenshots. Mais lenta que as outras.
 TXT
 }
 
@@ -75,7 +85,7 @@ exigir_gc_dev() {
 
 # ---------- camadas ----------
 camada_estatico() {
-  titulo "1/6 estático — tsc + lint"
+  titulo "1/7 estático — tsc + lint"
   local t0=$SECONDS
   if npx tsc --noEmit && npm run lint; then
     ok estatico "$((SECONDS - t0))s"
@@ -85,7 +95,7 @@ camada_estatico() {
 }
 
 camada_unit() {
-  titulo "2/6 unitário — npm test"
+  titulo "2/7 unitário — npm test"
   local t0=$SECONDS
   local saida limpa casos
   if saida="$(npm test 2>&1)"; then
@@ -100,7 +110,7 @@ camada_unit() {
 }
 
 camada_build() {
-  titulo "3/6 build — next build + rotas"
+  titulo "3/7 build — next build + rotas"
   local t0=$SECONDS
   if ! npm run build > "$BUILD_LOG" 2>&1; then
     tail -30 "$BUILD_LOG"
@@ -137,7 +147,7 @@ camada_build() {
 }
 
 camada_runtime() {
-  titulo "4/6 runtime — next start + fetch autenticado"
+  titulo "4/7 runtime — next start + fetch autenticado"
   local t0=$SECONDS
 
   if ! exigir_gc_dev; then
@@ -152,7 +162,10 @@ camada_runtime() {
   # `next dev` sobrescreve o .next de produção, e aí o `next start` sobe mas
   # devolve 500 em toda rota. Detectar aqui evita caçar o erro no lugar errado.
   if [[ -d .next/static/development ]]; then
-    echo "  .next é de um 'next dev' — rode a camada build antes."
+    echo "  .next é de um 'next dev' — rode a camada build antes:"
+    echo "    bash scripts/validar.sh build runtime"
+    echo "  (a camada 'navegador' roda next dev e deixa o .next assim; rodando"
+    echo "   o plano inteiro isso não acontece, porque build vem antes.)"
     falhou runtime "0s, build de dev"; return 1
   fi
 
@@ -188,7 +201,7 @@ camada_runtime() {
 }
 
 camada_dados() {
-  titulo "5/6 dados — queries reais contra gc-dev (RLS)"
+  titulo "5/7 dados — queries reais contra gc-dev (RLS)"
   local t0=$SECONDS
 
   if ! exigir_gc_dev; then
@@ -202,7 +215,7 @@ camada_dados() {
 }
 
 camada_escrita() {
-  titulo "6/6 escrita — Server Actions contra gc-dev"
+  titulo "6/7 escrita — Server Actions contra gc-dev"
   local t0=$SECONDS
 
   if ! exigir_gc_dev; then
@@ -237,8 +250,56 @@ camada_escrita() {
   fi
 }
 
+camada_navegador() {
+  titulo "7/7 navegador — Chrome headless sobre o next dev"
+  local t0=$SECONDS
+
+  if ! exigir_gc_dev; then
+    falhou navegador "0s, banco errado"; return 1
+  fi
+
+  local chrome="${CHROME_BIN:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+  if [[ ! -x "$chrome" ]]; then
+    echo "  Chrome não encontrado em: $chrome (defina CHROME_BIN)."
+    falhou navegador "0s, sem Chrome"; return 1
+  fi
+
+  # `next dev` de propósito: a camada exercita o cliente, e o dev server dá erro
+  # legível. Porta própria pra não colidir com a camada runtime.
+  local porta_dev=$((PORTA + 1))
+  npx next dev -p "$porta_dev" > /tmp/validar-next-dev.log 2>&1 &
+  SERVER_PID=$!
+
+  "$chrome" --headless=new --remote-debugging-port="$PORTA_CDP" --no-first-run     --user-data-dir=/tmp/gc-validacao/chrome-profile about:blank     > /tmp/validar-chrome.log 2>&1 &
+  CHROME_PID=$!
+
+  local i codigo=000
+  for i in $(seq 1 90); do
+    codigo="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$porta_dev/login")"
+    [[ "$codigo" == "200" ]] && break
+    sleep 1
+  done
+
+  if [[ "$codigo" != "200" ]]; then
+    echo "  /login devolveu $codigo no next dev."
+    tail -20 /tmp/validar-next-dev.log
+    falhou navegador "$((SECONDS - t0))s, dev server não respondeu"; return 1
+  fi
+
+  for i in $(seq 1 30); do
+    curl -sf -o /dev/null "http://127.0.0.1:$PORTA_CDP/json/version" && break
+    sleep 1
+  done
+
+  if BASE_URL="http://127.0.0.1:$porta_dev" node --env-file=.env.local scripts/validar-navegador.mjs; then
+    ok navegador "$((SECONDS - t0))s"
+  else
+    falhou navegador "$((SECONDS - t0))s"; return 1
+  fi
+}
+
 # ---------- orquestração ----------
-TODAS=(estatico unit build runtime dados escrita)
+TODAS=(estatico unit build runtime dados escrita navegador)
 ACEITAR_ROTAS=0
 PEDIDAS=()
 
@@ -246,7 +307,7 @@ for arg in "$@"; do
   case "$arg" in
     --lista|-l) lista; exit 0 ;;
     --aceitar-rotas) ACEITAR_ROTAS=1 ;;
-    estatico|unit|build|runtime|dados|escrita) PEDIDAS+=("$arg") ;;
+    estatico|unit|build|runtime|dados|escrita|navegador) PEDIDAS+=("$arg") ;;
     *) echo "camada desconhecida: $arg (use --lista)" >&2; exit 2 ;;
   esac
 done

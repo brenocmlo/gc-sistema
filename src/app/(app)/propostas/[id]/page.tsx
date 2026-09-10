@@ -2,7 +2,7 @@ import { notFound, redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
 
 import DetailField from '@/components/DetailField'
-import StatusBadge from '@/components/StatusBadge'
+import HistoricoTab from '@/components/HistoricoTab'
 import Tabs from '@/components/Tabs'
 import { formatCurrency, formatDate } from '@/lib/format'
 import {
@@ -11,7 +11,6 @@ import {
   isPropostaVencida,
   parcelasDaProposta,
   pctRestante,
-  type EntradaHistorico,
 } from '@/lib/propostas'
 import { getCurrentProfile } from '@/lib/supabase/profile'
 import { createClient } from '@/lib/supabase/server'
@@ -133,7 +132,13 @@ export default async function PropostaDetalhePage({ params }: PageProps) {
           {
             value: 'historico',
             label: `Histórico${historico.length > 0 ? ` (${historico.length})` : ''}`,
-            content: <HistoricoTab entradas={historico} autores={autores} />,
+            content: (
+              <HistoricoTab
+                entradas={historico}
+                autores={autores}
+                entidade="proposta"
+              />
+            ),
           },
           {
             value: 'financeiro',
@@ -395,56 +400,6 @@ function FinanceiroTab({
       </p>
     </div>
   )
-}
-
-function HistoricoTab({
-  entradas,
-  autores,
-}: {
-  entradas: EntradaHistorico[]
-  autores: Map<string, string>
-}) {
-  if (entradas.length === 0) {
-    return (
-      <Placeholder message="Nenhuma mudança de status registrada ainda. O histórico começa na primeira transição." />
-    )
-  }
-
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
-      {entradas.map((e, i) => (
-        <div
-          key={`${e.em}-${i}`}
-          className="flex items-start gap-3 p-4 flex-wrap"
-        >
-          <div className="flex items-center gap-2 shrink-0">
-            <StatusBadge status={e.de} />
-            <span className="text-gray-400">→</span>
-            <StatusBadge status={e.para} />
-          </div>
-          <div className="flex-1 min-w-[200px] text-sm text-gray-600">
-            <p>
-              {formatDateTime(e.em)}
-              {e.por ? ` · ${autores.get(e.por) ?? 'usuário removido'}` : ''}
-            </p>
-            {e.motivo_rejeicao && (
-              <p className="text-gray-500 mt-1">
-                Motivo: {motivoRejeicaoLabel(e.motivo_rejeicao)}
-                {e.detalhe_rejeicao ? ` — ${e.detalhe_rejeicao}` : ''}
-              </p>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-/** Data e hora do carimbo ISO do histórico, em pt-BR. */
-function formatDateTime(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 }
 
 function Placeholder({ message }: { message: string }) {

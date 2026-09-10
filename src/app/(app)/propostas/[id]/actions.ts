@@ -7,7 +7,7 @@ import {
   appendHistorico,
   canChangePropostaStatus,
   mensagemDeErroProposta,
-  novaEntradaHistorico,
+  novaEntradaHistoricoProposta,
   requiresDataDecisao,
   requiresDataEnvio,
   validarMotivoRejeicao,
@@ -162,7 +162,7 @@ export async function changePropostaStatus(
   // migration 20260905180000. Vai no mesmo update do status pra não existir
   // janela em que o status mudou e o registro não.
   if (statusAtual !== input.novo_status) {
-    const entrada = novaEntradaHistorico({
+    const entrada = novaEntradaHistoricoProposta({
       de: statusAtual,
       para: input.novo_status,
       por: auth.userId,

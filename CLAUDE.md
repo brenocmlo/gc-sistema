@@ -5,7 +5,7 @@ UI e nos documentos.
 
 ## Regra de validação — obrigatória ao concluir qualquer task
 
-**Antes de declarar uma task pronta, rode `npm run validar`.** São seis
+**Antes de declarar uma task pronta, rode `npm run validar`.** São sete
 camadas, do mais barato ao mais caro, parando no primeiro erro:
 
 | Camada | Comando | O que prova |
@@ -16,6 +16,7 @@ camadas, do mais barato ao mais caro, parando no primeiro erro:
 | runtime | `next start` + fetch autenticado | a rota abre com sessão real e o HTML tem o esperado |
 | dados | queries da aplicação sob RLS em gc-dev | select, JOIN e policy funcionam |
 | escrita | Server Actions por HTTP contra gc-dev | criar, editar, status, histórico, anexo e excluir, com as regras de perfil |
+| navegador | Chrome headless por CDP sobre o `next dev` | o que só roda no cliente: zod do formulário, diálogo condicional, toast, navegação; deixa screenshots |
 
 Camada isolada: `bash scripts/validar.sh dados`. Detalhe do que cada uma prova
 e **não** prova: `bash scripts/validar.sh --lista` e `docs/tecnicos/plano-validacao.md`.
@@ -26,7 +27,10 @@ Três obrigações que vêm com a regra:
    `scripts/validacao-rotas.json` (rota + trechos de HTML que provam o render).
    Query nova entra em `scripts/validar-dados.mjs`, **copiada do `page.tsx`**.
    Server Action nova entra em `scripts/validar-escrita.mjs`, com limpeza do que
-   criar.
+   criar. Tela ou diálogo novo entra em `scripts/validar-navegador.mjs`.
+   Regra de permissão por perfil entra como rota com `"perfil": "<nome>"` em
+   `scripts/validacao-rotas.json` — a sessão é gerada sem senha por
+   `scripts/sessao-dev.mjs`, e perfil novo é uma linha em `PERFIS_DE_TESTE`.
    Rota nova exige `bash scripts/validar.sh build --aceitar-rotas` pra regravar
    `scripts/rotas-esperadas.txt`.
 2. **Registrar os números reais** no documento de status do bloco

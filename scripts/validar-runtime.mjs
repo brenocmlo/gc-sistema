@@ -23,6 +23,7 @@ import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
 
 import { exigirGcDev } from './gc-dev-guard.mjs'
+import { PERFIS_DE_TESTE, sessaoDePerfil } from './sessao-dev.mjs'
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3111'
 const URL_SUPABASE = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -30,14 +31,8 @@ const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 const EMAIL = process.env.VALIDACAO_EMAIL
 const SENHA = process.env.VALIDACAO_SENHA
 
-// Segundo usuário, perfil visualizador: prova as regras de permissão da UI.
-// Rota com `"perfil": "visualizador"` entra por este login.
-const PERFIS_EXTRA = {
-  visualizador: {
-    email: process.env.VALIDACAO_EMAIL_VISUALIZADOR,
-    senha: process.env.VALIDACAO_SENHA_VISUALIZADOR,
-  },
-}
+// Perfis de teste: a rota com `"perfil": "<nome>"` entra por sessão gerada
+// sem senha (ver scripts/sessao-dev.mjs). Perfil novo é só uma linha lá.
 
 // Limite do @supabase/ssr: acima disso o cookie é partido em .0, .1, ...
 const MAX_CHUNK = 3180
@@ -68,6 +63,72 @@ const rotas = JSON.parse(
  * nada — sem esta checagem, uma tela quebrada passa como "ok".
  */
 const PROIBIDO_EM_TODA_ROTA = ['Erro ao carregar', 'Application error']
+
+/**
+ * Abre o XLSX e confere as células. Sem isso, a asserção de `content-type`
+ * prova que a rota devolve uma planilha, não que a planilha está certa — e uma
+ * coluna trocada passaria batido.
+ *
+ * `espera` aceita: `colunas` (cabeçalhos, na ordem), `minLinhas` e `contem`
+ * (textos que precisam aparecer em alguma célula).
+ */
+async function conferirXlsx(buffer, espera) {
+  const problemas = []
+  const { default: ExcelJS } = await import('exceljs')
+
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(buffer)
+  const ws = wb.worksheets[0]
+
+  if (!ws) return ['a planilha não tem nenhuma aba']
+
+  // O cabeçalho não está na linha 1: os exports abrem com metaRows (título,
+  // data de emissão, filtros, total). Acha a linha que casa com a 1ª coluna.
+  let linhaCab = null
+  const primeira = espera.colunas?.[0]
+  if (primeira) {
+    ws.eachRow((row, n) => {
+      if (linhaCab) return
+      if (row.values.some((v) => String(v ?? '').trim() === primeira)) linhaCab = n
+    })
+    if (!linhaCab) {
+      return [`não achei a linha de cabeçalho (procurei "${primeira}")`]
+    }
+
+    const cabecalhos = (ws.getRow(linhaCab).values ?? [])
+      .slice(1)
+      .map((v) => String(v ?? '').trim())
+      .filter(Boolean)
+
+    for (const col of espera.colunas) {
+      if (!cabecalhos.includes(col)) problemas.push(`planilha sem a coluna "${col}"`)
+    }
+  }
+
+  if (espera.minLinhas != null) {
+    // Linhas de dado = total menos metaRows menos o cabeçalho. Aproxima por
+    // rowCount, que é o que basta pra pegar planilha vazia.
+    const dados = ws.rowCount - (linhaCab ?? 0)
+    if (dados < espera.minLinhas) {
+      problemas.push(`planilha com ${dados} linha(s) de dado, esperado >= ${espera.minLinhas}`)
+    }
+  }
+
+  if (espera.contem?.length) {
+    const texto = []
+    ws.eachRow((row) => {
+      for (const v of row.values ?? []) {
+        if (v != null) texto.push(String(typeof v === 'object' ? (v.text ?? v.result ?? '') : v))
+      }
+    })
+    const tudo = texto.join(' | ')
+    for (const t of espera.contem) {
+      if (!tudo.includes(t)) problemas.push(`planilha sem "${t}" em nenhuma célula`)
+    }
+  }
+
+  return problemas
+}
 
 const supabase = createClient(URL_SUPABASE, ANON)
 const { data, error } = await supabase.auth.signInWithPassword({
@@ -101,31 +162,21 @@ if (encodeURIComponent(valor).length > MAX_CHUNK) {
 
 const cookie = `sb-${ref}-auth-token=${valor}`
 
-// Logins extras, sob demanda: só entra quem alguma rota pedir.
+// Sessões extras, sob demanda: só entra o perfil que alguma rota pedir.
 const cookiesPorPerfil = { admin: cookie }
 
-for (const [nome, cred] of Object.entries(PERFIS_EXTRA)) {
+for (const nome of Object.keys(PERFIS_DE_TESTE)) {
   if (!rotas.some((r) => r.perfil === nome)) continue
 
-  if (!cred.email || !cred.senha) {
-    console.error(
-      `FALHA: rota pede perfil "${nome}", mas VALIDACAO_EMAIL_${nome.toUpperCase()} / ` +
-        `VALIDACAO_SENHA_${nome.toUpperCase()} não estão no .env.local.`,
-    )
+  let sessao
+  try {
+    sessao = await sessaoDePerfil(nome)
+  } catch (e) {
+    console.error(`FALHA ao abrir sessão de ${nome}: ${e.message}`)
     process.exit(1)
   }
 
-  const sessao = await createClient(URL_SUPABASE, ANON).auth.signInWithPassword({
-    email: cred.email,
-    password: cred.senha,
-  })
-
-  if (sessao.error) {
-    console.error(`FALHA no login de ${cred.email} (${nome}): ${sessao.error.message}`)
-    process.exit(1)
-  }
-
-  const c = cookieDaSessao(sessao.data.session)
+  const c = cookieDaSessao(sessao.session)
   if (!c) {
     console.error(`FALHA: sessão de ${nome} maior que um cookie.`)
     process.exit(1)
@@ -147,6 +198,13 @@ const { data: obraPrimeira } = await supabase
   .from('obras')
   .select('id')
   .order('codigo_obra', { ascending: false })
+  .limit(1)
+  .maybeSingle()
+
+const { data: orcamentoPrimeiro } = await supabase
+  .from('orcamentos')
+  .select('id')
+  .order('data_solicitacao', { ascending: false })
   .limit(1)
   .maybeSingle()
 
@@ -175,9 +233,16 @@ for (const rota of rotas) {
     continue
   }
 
+  if (rota.path.includes('{orcamentoPrimeiro}') && !orcamentoPrimeiro) {
+    pulados += 1
+    console.log(`  PULOU ${rota.path} — gc-dev não tem nenhum orçamento`)
+    continue
+  }
+
   const path = rota.path
     .replace('{propostaSeed}', seed?.id ?? '')
     .replace('{obraPrimeira}', obraPrimeira?.id ?? '')
+    .replace('{orcamentoPrimeiro}', orcamentoPrimeiro?.id ?? '')
   const cookieDaRota = cookiesPorPerfil[perfil ?? 'admin']
   const problemas = []
 
@@ -219,11 +284,16 @@ for (const rota of rotas) {
     }
   }
 
-  // Rota de API não devolve HTML — a asserção positiva é o content-type.
+  // Rota de API não devolve HTML — a asserção positiva é o content-type e,
+  // quando é planilha, o conteúdo das células.
   if (path.startsWith('/api/') && res.status === esperaStatus) {
     const tipo = res.headers.get('content-type') ?? ''
     if (rota.esperaContentType && !tipo.includes(rota.esperaContentType)) {
       problemas.push(`content-type "${tipo}", esperado ${rota.esperaContentType}`)
+    }
+
+    if (rota.esperaXlsx) {
+      problemas.push(...(await conferirXlsx(await res.arrayBuffer(), rota.esperaXlsx)))
     }
   }
 

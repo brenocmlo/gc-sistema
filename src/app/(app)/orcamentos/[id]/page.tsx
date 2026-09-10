@@ -2,8 +2,10 @@ import { notFound, redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
 
 import DetailField from '@/components/DetailField'
+import HistoricoTab from '@/components/HistoricoTab'
 import Tabs from '@/components/Tabs'
 import { formatCurrency, formatDate } from '@/lib/format'
+import { historicoOrdenado } from '@/lib/historico'
 import { getCurrentProfile } from '@/lib/supabase/profile'
 import { createClient } from '@/lib/supabase/server'
 import {
@@ -68,6 +70,19 @@ export default async function OrcamentoDetalhePage({ params }: PageProps) {
   // anexos é jsonb no banco — casto pro tipo do domínio.
   const anexos = (orcamento.anexos as Anexo[] | null) ?? []
 
+  // Histórico de transições (jsonb append-only, migration 013). Os autores
+  // viram nome numa consulta só — sem isso a aba mostraria uuid.
+  const historico = historicoOrdenado(orcamento.historico)
+  const autoresIds = Array.from(
+    new Set(historico.map((h) => h.por).filter(Boolean)),
+  )
+
+  const { data: perfis } = autoresIds.length
+    ? await supabase.from('profiles').select('id, nome').in('id', autoresIds)
+    : { data: [] }
+
+  const autores = new Map((perfis ?? []).map((p) => [p.id, p.nome]))
+
   return (
     <div className="space-y-6">
       <DetailHeader
@@ -102,8 +117,14 @@ export default async function OrcamentoDetalhePage({ params }: PageProps) {
           },
           {
             value: 'historico',
-            label: 'Histórico',
-            content: <Placeholder message="Histórico virá em breve." />,
+            label: `Histórico${historico.length > 0 ? ` (${historico.length})` : ''}`,
+            content: (
+              <HistoricoTab
+                entradas={historico}
+                autores={autores}
+                entidade="orçamento"
+              />
+            ),
           },
         ]}
       />
@@ -249,13 +270,6 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-function Placeholder({ message }: { message: string }) {
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
-      {message}
-    </div>
-  )
-}
 
 /** Tradução do slug do motivo pra label amigável, com fallback. */
 function motivoRejeicaoLabel(raw: string | null): string | null {
