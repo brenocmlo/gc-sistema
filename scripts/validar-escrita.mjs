@@ -31,14 +31,13 @@ import { join } from 'node:path'
 import { createClient } from '@supabase/supabase-js'
 
 import { exigirGcDev } from './gc-dev-guard.mjs'
+import { sessaoDePerfil } from './sessao-dev.mjs'
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3111'
 const URL_SUPABASE = process.env.NEXT_PUBLIC_SUPABASE_URL
 const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 const EMAIL = process.env.VALIDACAO_EMAIL
 const SENHA = process.env.VALIDACAO_SENHA
-const EMAIL_VIS = process.env.VALIDACAO_EMAIL_VISUALIZADOR
-const SENHA_VIS = process.env.VALIDACAO_SENHA_VISUALIZADOR
 
 if (!URL_SUPABASE || !ANON || !EMAIL || !SENHA) {
   console.error('FALHA: camada escrita precisa das variáveis de validação em .env.local.')
@@ -82,6 +81,7 @@ const NECESSARIAS = [
   'changePropostaStatus',
   'deleteProposta',
   'uploadAnexo',
+  'getAnexoUrl',
   'deleteAnexo',
   // Orçamentos: só o que o histórico uniformizado (migration 013) exige.
   'createOrcamento',
@@ -103,6 +103,12 @@ if (faltando.length > 0) {
 // ============================================================
 
 const ref = new URL(URL_SUPABASE).hostname.split('.')[0]
+
+/** O mesmo cookie, a partir de uma sessão já pronta (sem senha). */
+function cookieDeSessao(session) {
+  const valor = `base64-${Buffer.from(JSON.stringify(session)).toString('base64url')}`
+  return `sb-${ref}-auth-token=${valor}`
+}
 
 async function cookieDe(email, senha) {
   const sb = createClient(URL_SUPABASE, ANON)
@@ -390,6 +396,29 @@ try {
       `objetos=${(naStorage ?? []).length}`,
     )
 
+    // 12b. URL assinada: o bucket é privado, então visualizar depende dela
+    const assinada = await chamar('getAnexoUrl', [path], {
+      rota: `/propostas/${propostaId}`,
+    })
+    checar('getAnexoUrl devolve URL assinada', assinada.ok === true, assinada.error)
+
+    if (assinada.ok) {
+      checar(
+        'a URL traz token de assinatura',
+        /[?&]token=/.test(assinada.url),
+        assinada.url.slice(0, 100),
+      )
+      // A string sozinha não prova nada: assinatura errada ou path errado
+      // devolvem 400 do Storage. Baixar é o que prova que o link abre.
+      const baixado = await fetch(assinada.url)
+      const bytes = new Uint8Array(await baixado.arrayBuffer())
+      checar(
+        'a URL assinada baixa o PDF (200 e começa com %PDF)',
+        baixado.status === 200 && bytes[0] === 0x25 && bytes[1] === 0x50,
+        `HTTP ${baixado.status}, ${bytes.length} bytes`,
+      )
+    }
+
     // 13. Remover o anexo
     const removido = await chamar('deleteAnexo', [propostaId, path], {
       rota: `/propostas/${propostaId}`,
@@ -408,8 +437,14 @@ try {
     )
 
     // 14. Permissão: visualizador não escreve
-    if (EMAIL_VIS && SENHA_VIS) {
-      const vis = await cookieDe(EMAIL_VIS, SENHA_VIS)
+    // Sem gate de env: até 2026-09-10 este bloco dependia de
+    // VALIDACAO_*_VISUALIZADOR, que saiu do .env.local quando o 4.8 eliminou as
+    // senhas de perfil — as três checagens passaram a ser puladas em silêncio,
+    // com um "PULOU" no output e exit 0. Sessão sem senha, como o resto do
+    // plano: se falhar, estoura, e é o que se quer.
+    {
+      const sessaoVis = await sessaoDePerfil('visualizador')
+      const vis = { cookie: cookieDeSessao(sessaoVis.session) }
 
       const criarComoVis = await chamar('createProposta', [
         { ...base, numero: `${NUMERO}-VIS` },
@@ -439,8 +474,6 @@ try {
         excluirComoVis.ok === false && /permissão/i.test(excluirComoVis.error ?? ''),
         excluirComoVis.error,
       )
-    } else {
-      console.log('  PULOU checagens de perfil — VALIDACAO_*_VISUALIZADOR ausente')
     }
   }
   // ============================================================

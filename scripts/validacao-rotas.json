@@ -327,6 +327,34 @@
     }
   },
   {
+    "path": "/api/export/orcamentos",
+    "esperaContentType": "spreadsheetml",
+    "nota": "tocado na sprint 4: o computePeriodoCutoff local saiu pro helper de @/lib/listagem. Sem esta linha, a rota nunca era buscada",
+    "esperaXlsx": {
+      "colunas": [
+        "Número",
+        "Cliente",
+        "Status",
+        "Motivo rejeição"
+      ],
+      "minLinhas": 1
+    }
+  },
+  {
+    "path": "/api/export/fd",
+    "esperaContentType": "spreadsheetml",
+    "nota": "mesma troca de helper que a de orçamentos. 'Diferença a favor' é coluna derivada: só sai certa se o cálculo estiver na exportação também",
+    "esperaXlsx": {
+      "colunas": [
+        "Obra (código)",
+        "Fornecedor",
+        "Valor (cliente)",
+        "Diferença a favor"
+      ],
+      "minLinhas": 1
+    }
+  },
+  {
     "path": "/clientes",
     "esperaHtml": [
       "<table"

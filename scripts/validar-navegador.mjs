@@ -217,6 +217,16 @@ try {
   )
 
   // 12. Excluir pela tela, com o ConfirmDialog
+  //
+  // Esperar o toast sair não é enfeite: ele aparece no canto superior direito,
+  // sobre a faixa do botão "Excluir" do header, e o clique daqui é evento de
+  // mouse em coordenada — acerta o que está por cima. Com o next dev frio o
+  // toast já tinha expirado quando o roteiro chegava aqui; com ele quente, não,
+  // e o passo falhava sem nada errado na aplicação.
+  await b.esperar('!document.body.innerText.includes("Anexo excluído")', {
+    rotulo: 'toast do anexo sair da tela',
+    ms: 15000,
+  })
   await b.clicar('button', { texto: 'Excluir' })
   await b.esperar('document.body.innerText.includes("Excluir proposta?")', { rotulo: 'ConfirmDialog' })
   await b.screenshot(`${SHOTS}/09-confirm-excluir.png`)
@@ -227,6 +237,41 @@ try {
   const depois = await b.texto()
   checar('exclusão pela tela funciona e nada sobra', !depois.includes(NUMERO), NUMERO)
   await b.screenshot(`${SHOTS}/10-final.png`)
+
+  // 13. Orçamentos: o HistoricoTab é compartilhado com Propostas, mas nunca
+  //     tinha sido montado nesta rota num navegador — a camada runtime só prova
+  //     que o rótulo "Histórico" sai no HTML do servidor.
+  await b.ir(`${BASE}/orcamentos`)
+  // A linha da tabela não é um link: o DataTable navega por onClick com
+  // router.push no <tr>. Então o alvo é a linha, e o clique de quebra exercita
+  // a navegação client-side, que nenhuma outra camada toca (o único
+  // a[href^="/orcamentos/"] da tela é o botão "Novo orçamento").
+  await b.esperar('document.querySelector("table tbody tr")', {
+    rotulo: 'linha na listagem de orçamentos',
+  })
+  await b.clicar('table tbody tr')
+  await b.esperar('/^\\/orcamentos\\/[0-9a-f-]{36}$/.test(location.pathname)', {
+    rotulo: 'detalhe do orçamento', ms: 20000,
+  })
+  const detalheOrc = await b.texto()
+  checar('detalhe do orçamento abre com as abas', detalheOrc.includes('Histórico'), await b.url())
+
+  await b.clicar('button[role="tab"]', { texto: 'Histórico' })
+  // Nenhum dos 28 orçamentos de gc-dev tem transição (a migration 013 é
+  // aditiva, então o histórico deles nasceu vazio). O que este passo prova é
+  // que o componente monta nesta rota, no estado vazio — a renderização das
+  // entradas está provada na tela de Propostas, no passo 10, e no banco pela
+  // camada de escrita.
+  await b.esperar('document.body.innerText.includes("Nenhuma mudança de status registrada")', {
+    rotulo: 'estado vazio do HistoricoTab',
+  })
+  const histOrc = await b.texto()
+  checar(
+    'aba Histórico do orçamento monta e diz "deste orçamento"',
+    /histórico deste orçamento/i.test(histOrc),
+    histOrc.match(/Nenhuma mudança[^.]{0,80}/)?.[0],
+  )
+  await b.screenshot(`${SHOTS}/11-orcamento-historico.png`)
 
   const errosReais = b.erros.filter((e) => !/favicon|Download the React DevTools/i.test(e))
   checar('nenhum erro de console', errosReais.length === 0, errosReais.join(' | '))
