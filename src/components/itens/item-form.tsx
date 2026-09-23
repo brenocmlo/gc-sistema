@@ -12,7 +12,14 @@ import Input from '@/components/form/Input'
 import Select from '@/components/form/Select'
 import Textarea from '@/components/form/Textarea'
 import { formatCurrency } from '@/lib/format'
-import { UNIDADES, UNIDADE_LABELS, areaDoItem, valorTotalDoItem } from '@/lib/itens'
+import {
+  TEXTOS_PAI,
+  UNIDADES,
+  UNIDADE_LABELS,
+  areaDoItem,
+  valorTotalDoItem,
+  type PaiItem,
+} from '@/lib/itens'
 import {
   criarItemFormSchema,
   itemFormParaPayload,
@@ -30,7 +37,8 @@ const UNIDADE_OPTIONS = UNIDADES.map((u) => ({
 type ItemFormProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  propostaId: string
+  /** Proposta ou contrato dono do item (bloco 6.4). */
+  pai: PaiItem
   /** null = criar; item = editar. */
   item: Item | null
   defaultValues: ItemFormValues
@@ -61,7 +69,7 @@ type ItemFormProps = {
 export default function ItemForm({
   open,
   onOpenChange,
-  propostaId,
+  pai,
   item,
   defaultValues,
   numerosEmUso,
@@ -115,8 +123,8 @@ export default function ItemForm({
     const payload = itemFormParaPayload(parsed.data)
 
     const r = item
-      ? await updateItem(propostaId, item.id, payload, item.updated_at)
-      : await createItem(propostaId, payload)
+      ? await updateItem(pai, item.id, payload, item.updated_at)
+      : await createItem(pai, payload)
 
     if (!r.ok) {
       toast.error(r.error, { duration: 8000 })
@@ -153,7 +161,7 @@ export default function ItemForm({
           <FormField
             label="Número"
             htmlFor="item_numero"
-            hint="Inteiro, único nesta proposta. Em branco se o documento não numera."
+            hint={`Inteiro, único ${TEXTOS_PAI[pai.tipo].neste}. Em branco se o documento não numera.`}
             error={errors.numero?.message}
           >
             <Input

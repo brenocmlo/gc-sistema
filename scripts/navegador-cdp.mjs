@@ -62,6 +62,8 @@ export async function conectar({ porta = 9222 } = {}) {
     avaliar,
     /** Sessão anterior não pode vazar entre execuções: o perfil do Chrome persiste. */
     limparSessao: () => cmd('Network.clearBrowserCookies'),
+    /** Põe um cookie no Chrome, para trocar de perfil sem passar pelo login. */
+    definirCookie: (nome, valor, url) => cmd('Network.setCookie', { name: nome, value: valor, url }),
     async ir(url) {
       await cmd('Page.navigate', { url })
       await this.esperar('document.readyState === "complete"')

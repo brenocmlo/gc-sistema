@@ -437,5 +437,627 @@
       "Soma dos 12 itens",
       "Travada: os itens desta proposta"
     ]
+  },
+  {
+    "path": "/logs",
+    "esperaHtml": [
+      "Buscar na mensagem ou colar o id do registro",
+      "Todas as origens",
+      "Sucesso e erro",
+      "Todas as entidades",
+      "Mudança de status"
+    ],
+    "nota": "13.2: filtros da tela; 'Mudança de status' vem do select de ação"
+  },
+  {
+    "path": "/logs?busca=SEED-AUDITORIA",
+    "esperaHtml": [
+      "<table",
+      "SEED-AUDITORIA-ERRO: documento ilegível",
+      "status: rascunho → enviada",
+      "Automação",
+      "Erro",
+      "Sucesso",
+      "desconto",
+      "5000"
+    ],
+    "nota": "13.2: os dois eventos de supabase/seed_auditoria.sql — erro da automação e diff de status; o diff está no <details>, que o SSR entrega fechado mas presente"
+  },
+  {
+    "path": "/logs?busca=SEED-AUDITORIA&resultado=erro",
+    "esperaHtml": [
+      "SEED-AUDITORIA-ERRO"
+    ],
+    "naoEsperaHtml": [
+      "status: rascunho → enviada"
+    ],
+    "nota": "13.2: filtro de resultado tira o evento de sucesso"
+  },
+  {
+    "path": "/logs?busca=SEED-VENCIDA-001",
+    "esperaHtml": [
+      "SEED-VENCIDA-001",
+      "status: rascunho → enviada"
+    ],
+    "naoEsperaHtml": [
+      "SEED-AUDITORIA-ERRO"
+    ],
+    "nota": "13.2: busca pelo número da proposta, via coluna referencia (migration 020)"
+  },
+  {
+    "path": "/logs?busca=zzz-inexistente",
+    "esperaHtml": [
+      "Nenhum evento encontrado com esses filtros"
+    ],
+    "naoEsperaHtml": [
+      "<table"
+    ]
+  },
+  {
+    "path": "/",
+    "esperaHtml": [
+      "Logs e auditoria"
+    ],
+    "nota": "13.2: admin vê o item no menu lateral"
+  },
+  {
+    "path": "/",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "Dashboard"
+    ],
+    "naoEsperaHtml": [
+      "Logs e auditoria"
+    ],
+    "nota": "13.2: item do menu é só de admin"
+  },
+  {
+    "path": "/logs",
+    "perfil": "comercial",
+    "esperaStatus": 307,
+    "nota": "13.2: guard do layout manda perfil não-admin pro dashboard"
+  },
+  {
+    "path": "/logs",
+    "perfil": "visualizador",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/logs",
+    "perfil": "financeiro",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/contratos",
+    "esperaHtml": [
+      "Data assinatura",
+      "Valor total",
+      "Todos os status",
+      "SEED-CT-001",
+      "SEED-CT-004",
+      "Suspenso",
+      "Rescindido",
+      "Concluído",
+      "final",
+      "<table",
+      "Novo contrato"
+    ],
+    "naoEsperaHtml": [
+      "Em construção"
+    ],
+    "nota": "bloco 6.1: a listagem substituiu o EmConstrucao. \"final\" é a linha do valor final, que só aparece em contrato com desconto (SEED-CT-001)"
+  },
+  {
+    "path": "/contratos?status=suspenso",
+    "esperaHtml": [
+      "SEED-CT-002"
+    ],
+    "naoEsperaHtml": [
+      "SEED-CT-001",
+      "SEED-CT-003",
+      "TESTE-FASE2-001"
+    ],
+    "nota": "filtro de status"
+  },
+  {
+    "path": "/contratos?periodo=90d",
+    "esperaHtml": [
+      "SEED-CT-001"
+    ],
+    "naoEsperaHtml": [
+      "SEED-CT-002",
+      "SEED-CT-003",
+      "SEED-CT-004"
+    ],
+    "nota": "período sobre data_assinatura: 200 e 400 dias ficam fora, e contrato sem data (SEED-CT-004) não entra em período nenhum"
+  },
+  {
+    "path": "/contratos?busca=SEED-CT-003",
+    "esperaHtml": [
+      "SEED-CT-003"
+    ],
+    "naoEsperaHtml": [
+      "SEED-CT-001",
+      "TESTE-FASE2-001"
+    ],
+    "nota": "busca por número"
+  },
+  {
+    "path": "/contratos?busca=OBRA-2025-03",
+    "esperaHtml": [
+      "SEED-CT-001",
+      "TESTE-FASE2-001"
+    ],
+    "nota": "busca pelo código da obra (obraIdsDaBusca, mesmo caminho de /propostas)"
+  },
+  {
+    "path": "/contratos?busca=zzz-inexistente",
+    "esperaHtml": [
+      "Nenhum contrato encontrado com esses filtros"
+    ],
+    "naoEsperaHtml": [
+      "<table"
+    ]
+  },
+  {
+    "path": "/contratos?page=99",
+    "esperaStatus": 307,
+    "nota": "página além do fim redireciona pra primeira, como /propostas"
+  },
+  {
+    "path": "/contratos",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Data assinatura",
+      "SEED-CT-001",
+      "<table"
+    ],
+    "nota": "o layout de /contratos libera visualizador (bloco 6.1)",
+    "naoEsperaHtml": [
+      "Novo contrato"
+    ]
+  },
+  {
+    "path": "/contratos",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "Data assinatura",
+      "SEED-CT-001",
+      "<table",
+      "Novo contrato"
+    ],
+    "nota": "comercial cria contrato avulso: o botão aparece (6.3)"
+  },
+  {
+    "path": "/contratos",
+    "perfil": "financeiro",
+    "esperaStatus": 307,
+    "nota": "guard do layout: financeiro não entra em /contratos"
+  },
+  {
+    "path": "/contratos",
+    "perfil": "producao",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/contratos",
+    "perfil": "medicao",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/propostas/{propostaAprovada}",
+    "esperaHtml": [
+      "PROP-2026-008",
+      "Gerar contrato"
+    ],
+    "naoEsperaHtml": [
+      "Mudar status"
+    ],
+    "nota": "bloco 6.2: proposta aprovada mostra o botão de gerar contrato (e não muda mais de status)"
+  },
+  {
+    "path": "/propostas/{propostaSeed}",
+    "esperaHtml": [
+      "SEED-VENCIDA-001"
+    ],
+    "naoEsperaHtml": [
+      "Gerar contrato"
+    ],
+    "nota": "proposta enviada não gera contrato: o botão não aparece"
+  },
+  {
+    "path": "/propostas/{propostaAprovada}",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "PROP-2026-008"
+    ],
+    "naoEsperaHtml": [
+      "Gerar contrato"
+    ],
+    "nota": "visualizador não vê o botão"
+  },
+  {
+    "path": "/propostas/{propostaAprovada}/gerar-contrato",
+    "esperaHtml": [
+      "Gerar contrato",
+      "Itens e origem",
+      "A proposta não tem itens",
+      "PROP-2026-008",
+      "Data de assinatura",
+      "Prazo de execução",
+      "A obra da proposta"
+    ],
+    "nota": "o form do 6.2 com a obra travada na da proposta"
+  },
+  {
+    "path": "/propostas/{propostaAprovada}/gerar-contrato",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "Itens e origem"
+    ],
+    "nota": "comercial gera contrato"
+  },
+  {
+    "path": "/propostas/{propostaAprovada}/gerar-contrato",
+    "perfil": "visualizador",
+    "esperaStatus": 307,
+    "nota": "a page recusa visualizador antes de qualquer consulta"
+  },
+  {
+    "path": "/propostas/{propostaSeed}/gerar-contrato",
+    "esperaStatus": 307,
+    "nota": "proposta que não está aprovada redireciona pro detalhe"
+  },
+  {
+    "path": "/contratos/novo",
+    "esperaHtml": [
+      "Novo contrato",
+      "Identificação",
+      "Obra",
+      "Data de assinatura",
+      "Prazo de execução",
+      "Valores",
+      "Condições de pagamento",
+      "Soma das parcelas",
+      "Observações",
+      "Criar contrato"
+    ],
+    "naoEsperaHtml": [
+      "Itens e origem"
+    ],
+    "nota": "bloco 6.3: o form avulso tem as quatro seções do enunciado e não tem a seção de itens do 6.2"
+  },
+  {
+    "path": "/contratos/novo",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "Novo contrato",
+      "Criar contrato"
+    ]
+  },
+  {
+    "path": "/contratos/novo",
+    "perfil": "visualizador",
+    "esperaStatus": 307,
+    "nota": "o layout libera visualizador, a page de criação não"
+  },
+  {
+    "path": "/contratos/novo",
+    "perfil": "financeiro",
+    "esperaStatus": 307,
+    "nota": "o layout de /contratos já barra financeiro"
+  },
+  {
+    "path": "/contratos",
+    "esperaHtml": [
+      "cursor-pointer hover:bg-gray-50"
+    ],
+    "nota": "bloco 6.4: a linha da listagem ficou clicável (rowHref); o clique até o detalhe é da camada navegador"
+  },
+  {
+    "path": "/contratos/{contratoAtivo}",
+    "esperaHtml": [
+      "SEED-CT-001",
+      "Esquadrias do bloco A",
+      "60 dias corridos",
+      "Contrato avulso",
+      "Valor final",
+      "Condições de pagamento",
+      "Detalhes",
+      "Anexos",
+      "Financeiro",
+      "Sprint 12",
+      "Nenhum item ainda.",
+      "Adicionar item",
+      "Nenhum anexo ainda",
+      "Adicionar anexos",
+      "Editar</a>",
+      "Mudar status",
+      "Histórico"
+    ],
+    "naoEsperaHtml": [
+      "Gerado da proposta",
+      "Só contrato ativo é editável"
+    ],
+    "nota": "bloco 6.4: detalhe do contrato ativo avulso — abas Detalhes, Itens (editável), Anexos e Financeiro (placeholder), com Editar. Bloco 6.5: \"Mudar status\" e a aba Histórico. Vazia e editável, a aba mostra \"Nenhum item ainda.\"; \"Este contrato não tem itens.\" é o texto da aba somente-leitura (visualizador)"
+  },
+  {
+    "path": "/contratos/{contratoAtivo}",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "SEED-CT-001",
+      "Adicionar item",
+      "Adicionar anexos",
+      "Editar</a>",
+      "Mudar status"
+    ]
+  },
+  {
+    "path": "/contratos/{contratoAtivo}",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "SEED-CT-001",
+      "Esquadrias do bloco A",
+      "Este contrato não tem itens."
+    ],
+    "naoEsperaHtml": [
+      "Editar</a>",
+      "Adicionar item",
+      "Adicionar anexos",
+      "Mudar status"
+    ],
+    "nota": "visualizador lê o contrato sem nenhuma ação de escrita"
+  },
+  {
+    "path": "/contratos/{contratoAtivo}",
+    "perfil": "financeiro",
+    "esperaStatus": 307,
+    "nota": "o layout de /contratos barra financeiro também no detalhe"
+  },
+  {
+    "path": "/contratos/{contratoSuspenso}",
+    "esperaHtml": [
+      "SEED-CT-002",
+      "Só contrato ativo é editável",
+      "Mudar status"
+    ],
+    "naoEsperaHtml": [
+      "Editar</a>",
+      "Adicionar item"
+    ],
+    "nota": "contrato suspenso: Editar desabilitado e itens somente-leitura; suspenso ainda muda de status (retomada ou rescisão, 6.5)"
+  },
+  {
+    "path": "/contratos/00000000-0000-0000-0000-000000000000",
+    "esperaStatus": 404,
+    "nota": "id inexistente cai no notFound"
+  },
+  {
+    "path": "/contratos/{contratoAtivo}/editar",
+    "esperaHtml": [
+      "Editar contrato",
+      "SEED-CT-001",
+      "Esquadrias do bloco A",
+      "Soma das parcelas",
+      "Salvar alterações"
+    ],
+    "naoEsperaHtml": [
+      "Itens e origem"
+    ],
+    "nota": "bloco 6.4: a edição reusa o form do 6.3, preenchido com o contrato"
+  },
+  {
+    "path": "/contratos/{contratoAtivo}/editar",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "Editar contrato",
+      "Salvar alterações"
+    ]
+  },
+  {
+    "path": "/contratos/{contratoAtivo}/editar",
+    "perfil": "visualizador",
+    "esperaStatus": 307,
+    "nota": "a page de edição recusa visualizador"
+  },
+  {
+    "path": "/contratos/{contratoSuspenso}/editar",
+    "esperaStatus": 307,
+    "nota": "fora de ativo, o form nem abre: volta pro detalhe"
+  },
+  {
+    "path": "/contratos/{contratoRescindido}",
+    "esperaHtml": [
+      "SEED-CT-004",
+      "Rescindido",
+      "Rescisão",
+      "Inadimplência",
+      "Sinal não pago",
+      "Contrato encerrado não é editável"
+    ],
+    "naoEsperaHtml": [
+      "Mudar status",
+      "Editar</a>",
+      "Adicionar item"
+    ],
+    "nota": "bloco 6.5: rescindido é terminal — sem Mudar status, com o motivo e o detalhamento nos detalhes"
+  },
+  {
+    "path": "/contratos",
+    "esperaHtml": [
+      "Exportar XLSX"
+    ],
+    "nota": "bloco 6.6: a listagem ganhou o botão de exportação"
+  },
+  {
+    "path": "/contratos",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Exportar XLSX"
+    ],
+    "nota": "visualizador exporta (lê a listagem)"
+  },
+  {
+    "path": "/api/export/contratos",
+    "esperaContentType": "spreadsheetml",
+    "esperaXlsx": {
+      "colunas": [
+        "Número",
+        "Obra",
+        "Cliente",
+        "Assinatura",
+        "Prazo",
+        "Status",
+        "Origem",
+        "Valor total",
+        "Desconto",
+        "Valor final",
+        "Condições",
+        "Motivo rescisão"
+      ],
+      "minLinhas": 4,
+      "contem": [
+        "SEED-CT-001",
+        "SEED-CT-004",
+        "Rescindido",
+        "Inadimplência — Sinal não pago",
+        "Avulso"
+      ]
+    },
+    "nota": "bloco 6.6: as 12 colunas, os contratos do seed, o motivo com detalhamento e a origem 'Avulso'"
+  },
+  {
+    "path": "/api/export/contratos?status=suspenso",
+    "esperaContentType": "spreadsheetml",
+    "esperaXlsx": {
+      "colunas": [
+        "Número",
+        "Obra",
+        "Cliente",
+        "Assinatura",
+        "Prazo",
+        "Status",
+        "Origem",
+        "Valor total",
+        "Desconto",
+        "Valor final",
+        "Condições",
+        "Motivo rescisão"
+      ],
+      "minLinhas": 1,
+      "contem": [
+        "SEED-CT-002",
+        "Suspenso",
+        "status=suspenso"
+      ]
+    },
+    "nota": "o filtro da listagem chega ao XLSX e aparece na linha de metadados"
+  },
+  {
+    "path": "/api/export/contratos",
+    "perfil": "visualizador",
+    "esperaContentType": "spreadsheetml",
+    "esperaXlsx": {
+      "colunas": [
+        "Número",
+        "Obra",
+        "Cliente",
+        "Assinatura",
+        "Prazo",
+        "Status",
+        "Origem",
+        "Valor total",
+        "Desconto",
+        "Valor final",
+        "Condições",
+        "Motivo rescisão"
+      ],
+      "minLinhas": 4
+    }
+  },
+  {
+    "path": "/api/export/contratos",
+    "perfil": "financeiro",
+    "esperaStatus": 403,
+    "nota": "a rota de API repete a regra do layout: financeiro não exporta contratos"
+  },
+  {
+    "path": "/api/export/contratos",
+    "perfil": "medicao",
+    "esperaStatus": 403
+  },
+  {
+    "path": "/api/export/propostas",
+    "perfil": "financeiro",
+    "esperaStatus": 403,
+    "nota": "pendência da sprint 6: o export de propostas repete a regra do layout"
+  },
+  {
+    "path": "/api/export/propostas",
+    "perfil": "medicao",
+    "esperaStatus": 403
+  },
+  {
+    "path": "/api/export/orcamentos",
+    "perfil": "financeiro",
+    "esperaStatus": 403,
+    "nota": "pendência da sprint 6: o export de orcamentos repete a regra do layout"
+  },
+  {
+    "path": "/api/export/orcamentos",
+    "perfil": "medicao",
+    "esperaStatus": 403
+  },
+  {
+    "path": "/api/export/propostas",
+    "perfil": "visualizador",
+    "esperaContentType": "spreadsheetml",
+    "esperaXlsx": {
+      "colunas": [
+        "Número"
+      ],
+      "minLinhas": 1
+    },
+    "nota": "visualizador continua exportando"
+  },
+  {
+    "path": "/api/export/orcamentos",
+    "perfil": "visualizador",
+    "esperaContentType": "spreadsheetml",
+    "esperaXlsx": {
+      "colunas": [
+        "Número"
+      ],
+      "minLinhas": 1
+    },
+    "nota": "visualizador continua exportando"
+  },
+  {
+    "path": "/contratos?obra={obraDosContratos}",
+    "esperaHtml": [
+      "SEED-CT-001",
+      "SEED-CT-004"
+    ],
+    "naoEsperaHtml": [
+      "Nenhum contrato encontrado"
+    ],
+    "nota": "pendência do 6.1: o filtro por obra traz os contratos daquela obra"
+  },
+  {
+    "path": "/contratos?obra={obraSemContrato}",
+    "esperaHtml": [
+      "Nenhum contrato encontrado com esses filtros."
+    ],
+    "naoEsperaHtml": [
+      "SEED-CT-001"
+    ],
+    "nota": "obra sem contrato: lista vazia com a mensagem de filtro"
+  },
+  {
+    "path": "/contratos?busca={clienteDosContratos}",
+    "esperaHtml": [
+      "SEED-CT-001"
+    ],
+    "nota": "pendência do 6.1: a busca pelo nome do cliente acha o contrato pela obra (obraIdsDaBusca)"
   }
 ]

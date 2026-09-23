@@ -590,3 +590,63 @@ export function previaAjuste(
     depois: Math.round(depois * 100) / 100,
   }
 }
+
+// ============================================================
+// Pai do item: proposta ou contrato (bloco 6.4)
+// ============================================================
+
+/**
+ * A quem o item pertence. Até o sprint 5 só existia proposta, e as actions de
+ * item recebiam o id dela como string; desde o 6.4 o contrato reusa a mesma
+ * aba, então as actions recebem o pai.
+ */
+export type TipoPaiItem = 'proposta' | 'contrato'
+export type PaiItem = { tipo: TipoPaiItem; id: string }
+
+/**
+ * Aceita o formato novo e o antigo. **String continua valendo como proposta**:
+ * é o que a camada escrita e qualquer chamador de antes do 6.4 mandam, e a
+ * Server Action é um POST que qualquer um pode chamar — o formato velho não
+ * pode virar erro. Qualquer outra coisa (tipo desconhecido, id vazio) é
+ * recusada: `null`.
+ */
+export function normalizarPai(pai: unknown): PaiItem | null {
+  if (typeof pai === 'string') return pai ? { tipo: 'proposta', id: pai } : null
+  if (!pai || typeof pai !== 'object') return null
+  const { tipo, id } = pai as Record<string, unknown>
+  if ((tipo !== 'proposta' && tipo !== 'contrato') || typeof id !== 'string' || !id) {
+    return null
+  }
+  return { tipo, id }
+}
+
+/** A coluna de `itens` que aponta para o pai. O XOR garante que é uma só. */
+export function colunaDoPai(tipo: TipoPaiItem): 'proposta_id' | 'contrato_id' {
+  return tipo === 'proposta' ? 'proposta_id' : 'contrato_id'
+}
+
+/** A rota de detalhe do pai — o que as actions revalidam. */
+export function rotaDoPai(pai: PaiItem): string {
+  return `/${pai.tipo === 'proposta' ? 'propostas' : 'contratos'}/${pai.id}`
+}
+
+/** Os textos que mudam com o pai, pra aba falar "desta proposta" ou "deste contrato". */
+export const TEXTOS_PAI: Record<
+  TipoPaiItem,
+  { nome: string; o: string; deste: string; neste: string; foraDeEdicao: string }
+> = {
+  proposta: {
+    nome: 'proposta',
+    o: 'a',
+    deste: 'desta proposta',
+    neste: 'nesta proposta',
+    foraDeEdicao: 'Proposta fora de rascunho: os itens não podem mais ser alterados',
+  },
+  contrato: {
+    nome: 'contrato',
+    o: 'o',
+    deste: 'deste contrato',
+    neste: 'neste contrato',
+    foraDeEdicao: 'Contrato não está ativo: os itens não podem mais ser alterados',
+  },
+}

@@ -3,10 +3,16 @@
 Next.js 14 (App Router) + Supabase. Português nos comentários, nas mensagens de
 UI e nos documentos.
 
-## Regra de validação — obrigatória ao concluir qualquer task
+## Regra de validação — só no fim da sprint ou sob pedido
 
-**Antes de declarar uma task pronta, rode `npm run validar`.** São sete
-camadas, do mais barato ao mais caro, parando no primeiro erro:
+**`npm run validar` e `npm test` rodam só em dois momentos:** no fechamento
+da sprint (depois do último bloco) ou quando o Breno pedir explicitamente.
+Bloco intermediário **não** roda o plano: o código fica no working tree, o
+plano é estendido junto (obrigação 1 abaixo continua valendo) e o documento do
+bloco registra "validação: não rodou — fica para o fechamento da sprint".
+
+Quando roda, são sete camadas, do mais barato ao mais caro, parando no
+primeiro erro:
 
 | Camada | Comando | O que prova |
 |---|---|---|
@@ -42,7 +48,9 @@ Três obrigações que vêm com a regra:
    "não exercitada". Conferência visual e escrita no banco continuam manuais —
    se não foram feitas, isso é escrito.
 
-Nunca marcar uma task como concluída com o plano reprovando ou sem tê-lo rodado.
+Bloco sem validação é entregue como "implementado, validação pendente para o
+fechamento da sprint" — nunca como validado. A sprint só fecha com o plano
+rodado e passando.
 
 ## Documentação
 

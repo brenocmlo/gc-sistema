@@ -1,5 +1,6 @@
 /
 /_not-found
+/api/export/contratos
 /api/export/fd
 /api/export/obras
 /api/export/orcamentos
@@ -12,6 +13,9 @@
 /clientes/novo
 /configuracoes
 /contratos
+/contratos/[id]
+/contratos/[id]/editar
+/contratos/novo
 /execucao
 /fd
 /fd/[id]
@@ -19,6 +23,7 @@
 /fd/novo
 /financeiro
 /login
+/logs
 /obras
 /obras/[id]
 /obras/[id]/editar
@@ -30,4 +35,5 @@
 /propostas
 /propostas/[id]
 /propostas/[id]/editar
+/propostas/[id]/gerar-contrato
 /propostas/nova

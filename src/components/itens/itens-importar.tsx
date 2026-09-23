@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 
 import Modal from '@/components/Modal'
 import { formatCurrency } from '@/lib/format'
-import { valorTotalDoItem } from '@/lib/itens'
+import { valorTotalDoItem, type PaiItem } from '@/lib/itens'
 import {
   itemFormParaPayload,
   resumoDaPlanilha,
@@ -22,7 +22,8 @@ import { importarItens } from './itens-actions'
 type ItensImportarProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  propostaId: string
+  /** Proposta ou contrato dono do item (bloco 6.4). */
+  pai: PaiItem
   itens: Item[]
   onImportado: () => void
 }
@@ -47,7 +48,7 @@ type ItensImportarProps = {
 export default function ItensImportar({
   open,
   onOpenChange,
-  propostaId,
+  pai,
   itens,
   onImportado,
 }: ItensImportarProps) {
@@ -111,7 +112,7 @@ export default function ItensImportar({
     )
     const naoImportadas = (linhas ?? []).length - paraGravar.length
 
-    const r = await importarItens(propostaId, payloads, naoImportadas)
+    const r = await importarItens(pai, payloads, naoImportadas)
     setGravando(false)
 
     if (!r.ok) {

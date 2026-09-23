@@ -37,6 +37,8 @@ import {
   validarPercentual,
   valorTotalDoItem,
   vizinhoParaMover,
+  TEXTOS_PAI,
+  type PaiItem,
 } from '@/lib/itens'
 import {
   itemFormVazio,
@@ -61,14 +63,18 @@ import {
 } from './itens-actions'
 
 type ItensTabProps = {
-  propostaId: string
+  /** Dono dos itens: proposta (sprint 5) ou contrato (bloco 6.4). */
+  pai: PaiItem
   itens: Item[]
-  /** `valor_total` da proposta, para o aviso de divergência (bloco 5.6). */
-  valorTotalProposta: number | null
-  /** Desconto da proposta: soma abaixo dele é divergência esperada. */
-  descontoProposta: number | null
+  /** `valor_total` do pai, para o aviso de divergência (bloco 5.6). */
+  valorTotalPai: number | null
+  /** Desconto do pai: soma abaixo dele é divergência esperada. */
+  descontoPai: number | null
   perfil: Perfil
-  /** Proposta fora de rascunho vira somente-leitura, como o botão Editar. */
+  /**
+   * Proposta fora de rascunho, ou contrato que não está ativo, vira
+   * somente-leitura — a mesma regra que as actions conferem no servidor.
+   */
   editavel: boolean
 }
 
@@ -76,14 +82,17 @@ type ItensTabProps = {
 type EstadoLinha = 'parado' | 'salvando' | 'salvo' | 'erro'
 
 export default function ItensTab({
-  propostaId,
+  pai,
   itens,
-  valorTotalProposta,
-  descontoProposta,
+  valorTotalPai,
+  descontoPai,
   perfil,
   editavel,
 }: ItensTabProps) {
   const router = useRouter()
+  const t = TEXTOS_PAI[pai.tipo]
+  /** "da proposta" / "do contrato" */
+  const doPai = `${t.o === 'a' ? 'da' : 'do'} ${t.nome}`
   const [excluindo, setExcluindo] = useState<Item | null>(null)
   /** null = fechado; { item: null } = criar; { item } = editar. */
   const [formulario, setFormulario] = useState<{
@@ -123,7 +132,7 @@ export default function ItensTab({
 
   async function duplicar(item: Item) {
     setOcupado(item.id)
-    const r = await duplicarItem(propostaId, item.id)
+    const r = await duplicarItem(pai, item.id)
     setOcupado(null)
     if (!r.ok) {
       toast.error(r.error)
@@ -135,7 +144,7 @@ export default function ItensTab({
 
   async function mover(item: Item, direcao: 'subir' | 'descer') {
     setOcupado(item.id)
-    const r = await moverItem(propostaId, item.id, direcao)
+    const r = await moverItem(pai, item.id, direcao)
     setOcupado(null)
     if (!r.ok) {
       toast.error(r.error)
@@ -146,7 +155,7 @@ export default function ItensTab({
 
   async function confirmarExclusaoLote() {
     const ids = Array.from(selecionados)
-    const r = await excluirItensEmLote(propostaId, ids)
+    const r = await excluirItensEmLote(pai, ids)
     if (!r.ok) {
       toast.error(r.error, { duration: 8000 })
       return
@@ -168,7 +177,7 @@ export default function ItensTab({
   async function aplicarAjuste() {
     if (validarPercentual(percentual)) return
     setAplicandoAjuste(true)
-    const r = await ajustarValorEmLote(propostaId, Array.from(selecionados), percentualNumero)
+    const r = await ajustarValorEmLote(pai, Array.from(selecionados), percentualNumero)
     setAplicandoAjuste(false)
     if (!r.ok) {
       toast.error(r.error, { duration: 8000 })
@@ -232,7 +241,7 @@ export default function ItensTab({
     // A versão conhecida vem do ref (atualizada pela resposta anterior) e cai
     // no que a tela renderizou na primeira vez.
     const visto = versoes.current[item.id] ?? item.updated_at
-    const r = await updateItem(propostaId, item.id, campos, visto)
+    const r = await updateItem(pai, item.id, campos, visto)
 
     if (!r.ok) {
       marcar(item.id, 'erro')
@@ -254,7 +263,7 @@ export default function ItensTab({
 
   async function adicionar() {
     setAdicionando(true)
-    const r = await createItem(propostaId, {
+    const r = await createItem(pai, {
       numero: proximoNumeroItem(itens),
       tipo: null,
       descricao: null,
@@ -299,7 +308,7 @@ export default function ItensTab({
 
   async function confirmarExclusao() {
     if (!excluindo) return
-    const r = await deleteItem(propostaId, excluindo.id)
+    const r = await deleteItem(pai, excluindo.id)
     if (!r.ok) {
       toast.error(r.error)
       return
@@ -313,25 +322,27 @@ export default function ItensTab({
   // isto era um `reduce` por coluna aqui dentro, e a soma passava a existir em
   // dois lugares, um testado e outro não.
   const totais = totaisDosItens(itens)
-  const divergencia = divergenciaDeValor(valorTotalProposta, itens, descontoProposta)
+  const divergencia = divergenciaDeValor(valorTotalPai, itens, descontoPai)
   const [sincronizando, setSincronizando] = useState(false)
 
   async function sincronizar() {
     setSincronizando(true)
-    const r = await sincronizarValorComItens(propostaId)
+    const r = await sincronizarValorComItens(pai)
     setSincronizando(false)
     if (!r.ok) {
       toast.error(r.error, { duration: 8000 })
       return
     }
-    toast.success('Valor total da proposta ajustado para a soma dos itens')
+    toast.success(`Valor total ${doPai} ajustado para a soma dos itens`)
     router.refresh()
   }
 
   if (itens.length === 0 && !podeEditar) {
     return (
       <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
-        Esta proposta não tem itens.
+        {/* Uma string só: texto literal ao lado de {expressão} ganha um <!-- -->
+            no SSR, e a frase deixaria de existir inteira no HTML. */}
+        {pai.tipo === 'proposta' ? 'Esta proposta não tem itens.' : 'Este contrato não tem itens.'}
       </div>
     )
   }
@@ -347,19 +358,19 @@ export default function ItensTab({
           {divergencia.somaAbaixoDoDesconto ? (
             <p>
               A soma dos itens ({formatCurrency(divergencia.soma)}) ainda não
-              alcança o desconto da proposta ({formatCurrency(descontoProposta)}).
+              alcança o desconto {doPai} ({formatCurrency(descontoPai)}).
               Enquanto isso, vale o valor digitado (
-              {formatCurrency(valorTotalProposta)}); quando a soma passar do
+              {formatCurrency(valorTotalPai)}); quando a soma passar do
               desconto, o valor total passa a acompanhá-la sozinho.
             </p>
           ) : (
             <p>
-              O valor total da proposta ({formatCurrency(valorTotalProposta)}) é
+              O valor total {doPai} ({formatCurrency(valorTotalPai)}) é
               diferente da soma dos itens ({formatCurrency(divergencia.soma)}):{' '}
               {divergencia.diferenca > 0 ? 'sobram' : 'faltam'}{' '}
               {formatCurrency(Math.abs(divergencia.diferenca))}. Isto acontece
-              com proposta anterior ao recálculo automático ou alterada fora do
-              sistema.
+              com {t.nome} anterior ao recálculo automático ou alterad{t.o} fora
+              do sistema.
             </p>
           )}
           {podeEditar && !divergencia.somaAbaixoDoDesconto && (
@@ -414,7 +425,7 @@ export default function ItensTab({
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
         <table
-          aria-label="Itens da proposta"
+          aria-label={`Itens ${doPai}`}
           className="w-full min-w-[1108px] table-fixed text-sm"
         >
           {/*
@@ -573,7 +584,9 @@ export default function ItensTab({
 
       {!editavel && itens.length > 0 && (
         <p className="text-sm text-gray-500">
-          A proposta saiu de rascunho: os itens ficam somente leitura.
+          {pai.tipo === 'proposta'
+            ? 'A proposta saiu de rascunho: os itens ficam somente leitura.'
+            : 'O contrato não está ativo: os itens ficam somente leitura.'}
         </p>
       )}
 
@@ -585,7 +598,7 @@ export default function ItensTab({
           excluindo
             ? `O item ${excluindo.numero ?? ''} ${
                 excluindo.descricao ? `"${excluindo.descricao}"` : ''
-              } será removido permanentemente da proposta.`.replace(/\s+/g, ' ')
+              } será removido permanentemente ${doPai}.`.replace(/\s+/g, ' ')
             : ''
         }
         variant="danger"
@@ -598,7 +611,7 @@ export default function ItensTab({
         open={excluindoLote}
         onOpenChange={setExcluindoLote}
         title={`Excluir ${selecionados.size} ${selecionados.size === 1 ? 'item' : 'itens'}?`}
-        description="Os itens selecionados e as fotos deles serão removidos permanentemente da proposta."
+        description={`Os itens selecionados e as fotos deles serão removidos permanentemente ${doPai}.`}
         variant="danger"
         confirmLabel="Sim, excluir"
         onConfirm={confirmarExclusaoLote}
@@ -672,7 +685,7 @@ export default function ItensTab({
       <ItensImportar
         open={importando}
         onOpenChange={setImportando}
-        propostaId={propostaId}
+        pai={pai}
         itens={itens}
         onImportado={() => router.refresh()}
       />
@@ -681,7 +694,7 @@ export default function ItensTab({
         <ItemForm
           open
           onOpenChange={(o) => !o && setFormulario(null)}
-          propostaId={propostaId}
+          pai={pai}
           item={formulario.item}
           defaultValues={formulario.defaults}
           numerosEmUso={numerosEmUsoPara(formulario.item)}

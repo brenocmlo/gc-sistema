@@ -21,6 +21,7 @@
 import { createClient } from '@supabase/supabase-js'
 
 import { exigirGcDev } from './gc-dev-guard.mjs'
+import { sessaoDePerfil } from './sessao-dev.mjs'
 
 const URL_SUPABASE = process.env.NEXT_PUBLIC_SUPABASE_URL
 const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -454,6 +455,275 @@ const CHECKS = [
           return `${c.numero}: valor_total ${c.valor_total} != soma dos itens ${soma}`
         }
       }
+      return null
+    },
+  },
+  {
+    // Query de src/app/(app)/logs/page.tsx, com a busca que a camada runtime
+    // também usa. O seed (supabase/seed_auditoria.sql) garante as duas linhas.
+    nome: 'auditoria_eventos: listagem de /logs com busca (admin)',
+    bloco: '13.2',
+    query: (sb) =>
+      sb
+        .from('auditoria_eventos')
+        .select(
+          'id, em, origem, entidade, registro_id, referencia, acao, resultado, mensagem, autor_id, autor_descricao, detalhe',
+          { count: 'exact' },
+        )
+        .order('em', { ascending: false })
+        .order('id', { ascending: false })
+        .or('referencia.ilike.%SEED-AUDITORIA%,mensagem.ilike.%SEED-AUDITORIA%,autor_descricao.ilike.%SEED-AUDITORIA%')
+        .range(0, 19),
+    valida: (r) => {
+      const linhas = r.data ?? []
+      const erro = linhas.find((e) => e.resultado === 'erro' && e.origem === 'automacao')
+      const status = linhas.find((e) => e.acao === 'status')
+      if (!erro || !status) {
+        return 'eventos do seed ausentes — rode bash scripts/aplicar-seed.sh supabase/seed_auditoria.sql'
+      }
+      if (status.detalhe?.campos?.status?.para !== 'enviada') {
+        return `detalhe do evento de status fora do formato: ${JSON.stringify(status.detalhe)}`
+      }
+      return null
+    },
+  },
+  {
+    nome: 'profiles: autores do filtro de /logs',
+    bloco: '13.2',
+    query: (sb) => sb.from('profiles').select('id, nome').order('nome'),
+    valida: (r) => ((r.data ?? []).length === 0 ? 'nenhum profile visível pro admin' : null),
+  },
+  {
+    // Contraprova da policy: há eventos (a checagem acima viu), e mesmo assim
+    // um perfil não-admin tem de ver zero. Devolve a contagem como objeto pra
+    // o loop não reportar "não exercitada" — zero aqui é o resultado certo.
+    nome: 'auditoria_eventos: comercial não lê nada (RLS só admin)',
+    bloco: '13.2',
+    query: async () => {
+      const { session } = await sessaoDePerfil('comercial')
+      const sb = createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+      await sb.auth.setSession(session)
+      const r = await sb.from('auditoria_eventos').select('id', { count: 'exact' })
+      return r.error ? r : { data: { vistas: r.count } }
+    },
+    valida: (r) => (r.data.vistas === 0 ? null : `comercial viu ${r.data.vistas} evento(s)`),
+  },
+  {
+    // Query de src/app/(app)/contratos/page.tsx, sem filtro.
+    nome: 'contratos: listagem com JOIN aninhado obra → cliente',
+    bloco: '6.1',
+    query: (sb) =>
+      sb
+        .from('contratos')
+        .select(
+          'id, numero, data_assinatura, obra_id, status, valor_total, desconto, valor_final, obra:obras(codigo_obra, nome, cliente:clientes(nome))',
+          { count: 'exact' },
+        )
+        .order('data_assinatura', { ascending: false, nullsFirst: false })
+        .order('numero', { ascending: false })
+        .range(0, 19),
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.length === 0) return null
+      const l = linhas[0]
+      if (Array.isArray(l.obra)) return 'obra veio como array, esperado objeto'
+      if (l.obra && Array.isArray(l.obra.cliente)) return 'obra.cliente veio como array, esperado objeto'
+      if (l.valor_final === undefined) return 'valor_final ausente (coluna generated de 20260923160000)'
+      // Ordem da tela: com data primeiro, mais recente no topo; sem data no fim.
+      const datas = linhas.map((c) => c.data_assinatura)
+      const primeiraNula = datas.indexOf(null)
+      if (primeiraNula >= 0 && datas.slice(primeiraNula).some((d) => d !== null)) {
+        return 'contrato sem data de assinatura apareceu antes de um com data'
+      }
+      const comData = datas.filter((d) => d !== null)
+      if (comData.some((d, i) => i > 0 && d > comData[i - 1])) return 'datas fora da ordem decrescente'
+      return null
+    },
+  },
+  {
+    // O filtro de status da tela: `.eq('status', ...)` com um valor de isContratoStatus.
+    nome: 'contratos: filtro de status (suspenso)',
+    bloco: '6.1',
+    query: (sb) =>
+      sb
+        .from('contratos')
+        .select('id, numero, status', { count: 'exact' })
+        .eq('status', 'suspenso')
+        .range(0, 19),
+    valida: (r) => {
+      const errado = (r.data ?? []).find((c) => c.status !== 'suspenso')
+      return errado ? `${errado.numero} veio com status ${errado.status}` : null
+    },
+  },
+  {
+    // Período sobre data_assinatura: contrato sem data fica fora (gte descarta null).
+    nome: 'contratos: filtro de período (últimos 90 dias, por data de assinatura)',
+    bloco: '6.1',
+    query: (sb) => {
+      const d = new Date()
+      d.setDate(d.getDate() - 90)
+      return sb
+        .from('contratos')
+        .select('id, numero, data_assinatura', { count: 'exact' })
+        .gte('data_assinatura', d.toISOString().slice(0, 10))
+        .range(0, 19)
+    },
+    valida: (r) => {
+      const semData = (r.data ?? []).find((c) => c.data_assinatura === null)
+      return semData ? `${semData.numero} sem data entrou no período` : null
+    },
+  },
+  {
+    // O layout de /contratos libera visualizador: a policy de leitura tem de
+    // deixar ele ver as mesmas linhas que o admin.
+    nome: 'contratos: visualizador lê a listagem (RLS tenant isolation)',
+    bloco: '6.1',
+    query: async (sbAdmin) => {
+      const admin = await sbAdmin.from('contratos').select('id', { count: 'exact', head: true })
+      const { session } = await sessaoDePerfil('visualizador')
+      const sb = createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+      await sb.auth.setSession(session)
+      const r = await sb.from('contratos').select('id', { count: 'exact', head: true })
+      return r.error ? r : { data: { admin: admin.count, visualizador: r.count } }
+    },
+    valida: (r) =>
+      r.data.admin === r.data.visualizador
+        ? null
+        : `admin vê ${r.data.admin}, visualizador vê ${r.data.visualizador}`,
+  },
+  {
+    // Query de src/app/(app)/propostas/[id]/gerar-contrato/page.tsx: os
+    // contratos vigentes já gerados de uma proposta. Os 3 TESTE-FASE2-* da
+    // automação vêm todos da EB-25-08-0048, então a query volta linha.
+    nome: 'contratos: vigentes gerados de uma proposta (aviso de duplicado do 6.2)',
+    bloco: '6.2',
+    query: async (sb) => {
+      const { data: origem } = await sb
+        .from('contratos').select('proposta_origem_id').not('proposta_origem_id', 'is', null).limit(1).maybeSingle()
+      if (!origem) return { data: [] }
+      return sb
+        .from('contratos')
+        .select('numero, status')
+        .eq('proposta_origem_id', origem.proposta_origem_id)
+        .neq('status', 'rescindido')
+        .order('numero')
+    },
+    valida: (r) => {
+      const rescindido = (r.data ?? []).find((c) => c.status === 'rescindido')
+      return rescindido ? `${rescindido.numero} rescindido contou como vigente` : null
+    },
+  },
+  {
+    // Query de src/app/(app)/contratos/novo/page.tsx: as obras do select, com
+    // o cliente no rótulo. O JOIN tem de vir objeto, senão o rótulo perde o nome.
+    nome: 'contratos/novo: obras do select com cliente',
+    bloco: '6.3',
+    query: (sb) =>
+      sb
+        .from('obras')
+        .select('id, codigo_obra, nome, cliente:clientes(nome)')
+        .order('codigo_obra', { ascending: false }),
+    valida: (r) => {
+      const l = (r.data ?? [])[0]
+      if (!l) return null
+      return Array.isArray(l.cliente) ? 'cliente veio como array, esperado objeto' : null
+    },
+  },
+  {
+    // Query de src/app/(app)/contratos/[id]/page.tsx, sobre um contrato gerado
+    // de proposta (os TESTE-FASE2-* da automação): obra → cliente e a proposta
+    // de origem pela FK composta contratos_proposta_fk, os dois como objeto.
+    nome: 'contratos/[id]: detalhe com obra → cliente e proposta de origem',
+    bloco: '6.4',
+    query: async (sb) => {
+      const { data: alvo } = await sb
+        .from('contratos').select('id').not('proposta_origem_id', 'is', null).limit(1).maybeSingle()
+      if (!alvo) return { data: [] }
+      const r = await sb
+        .from('contratos')
+        .select(
+          '*, obra:obras(codigo_obra, nome, cidade, cliente:clientes(nome, contato, telefone)), proposta_origem:propostas(id, numero)',
+        )
+        .eq('id', alvo.id)
+        .maybeSingle()
+      return r.error ? r : { data: r.data ? [r.data] : [] }
+    },
+    valida: (r) => {
+      const l = (r.data ?? [])[0]
+      if (!l) return null
+      if (Array.isArray(l.obra)) return 'obra veio como array, esperado objeto'
+      if (l.obra && Array.isArray(l.obra.cliente)) return 'obra.cliente veio como array, esperado objeto'
+      if (!l.proposta_origem) return 'proposta_origem nula num contrato com proposta_origem_id'
+      if (Array.isArray(l.proposta_origem)) return 'proposta_origem veio como array, esperado objeto'
+      if (l.proposta_origem.id !== l.proposta_origem_id) return 'proposta_origem não é a do proposta_origem_id'
+      if (!l.proposta_origem.numero) return 'proposta_origem sem número (o link do cabeçalho ficaria vazio)'
+      return null
+    },
+  },
+  {
+    // Query de itens de src/app/(app)/contratos/[id]/page.tsx: a aba Itens do
+    // contrato, na ordem do documento, com número nulo no fim.
+    nome: 'contratos/[id]: itens do contrato na ordem do documento',
+    bloco: '6.4',
+    query: async (sb) => {
+      const { data: comItem } = await sb
+        .from('itens').select('contrato_id').not('contrato_id', 'is', null).limit(1).maybeSingle()
+      if (!comItem) return { data: [] }
+      return sb
+        .from('itens')
+        .select(
+          'id, empresa_id, obra_id, proposta_id, contrato_id, numero, tipo, descricao, linha, acabamento, largura, altura, quantidade, unidade, valor_unit, valor_total, area_m2, vidros, localizacao, observacao, foto_url, created_at, updated_at, created_by',
+        )
+        .eq('contrato_id', comItem.contrato_id)
+        .order('numero', { ascending: true, nullsFirst: false })
+        .order('created_at', { ascending: true })
+    },
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.some((i) => i.proposta_id !== null)) return 'item de contrato com proposta_id preenchido (XOR)'
+      const nums = linhas.map((i) => i.numero)
+      const primeiroNulo = nums.indexOf(null)
+      if (primeiroNulo >= 0 && nums.slice(primeiroNulo).some((n) => n !== null)) {
+        return 'item sem número apareceu antes de um numerado'
+      }
+      const numerados = nums.filter((n) => n !== null)
+      if (numerados.some((n, k) => k > 0 && n < numerados[k - 1])) return 'números fora da ordem crescente'
+      return null
+    },
+  },
+  {
+    // Bloco 6.5: o que o Detalhes e a aba Histórico leem da rescisão. Espelha
+    // o CHECK contratos_rescindido_motivo sobre as linhas reais de gc-dev, e o
+    // histórico tem de ser lista (contratos_historico_lista).
+    nome: 'contratos: motivo de rescisão só em rescindido, histórico como lista',
+    bloco: '6.5',
+    query: (sb) => sb.from('contratos').select('numero, status, motivo_rescisao, detalhe_rescisao, historico'),
+    valida: (r) => {
+      for (const c of r.data ?? []) {
+        if (c.status === 'rescindido' && !c.motivo_rescisao) return `${c.numero} rescindido sem motivo`
+        if (c.status !== 'rescindido' && c.motivo_rescisao) return `${c.numero} ${c.status} com motivo de rescisão`
+        if (!Array.isArray(c.historico)) return `${c.numero}: historico não é lista`
+      }
+      return null
+    },
+  },
+  {
+    // Query de src/app/api/export/contratos/route.ts: dois JOINs (obra →
+    // cliente e a proposta de origem) na mesma linha, que o XLSX lê como objeto.
+    nome: 'api/export/contratos: JOIN de obra → cliente e proposta de origem',
+    bloco: '6.6',
+    query: (sb) =>
+      sb
+        .from('contratos')
+        .select(
+          'numero, data_assinatura, prazo_execucao, status, valor_total, desconto, valor_final, condicoes_pagamento, motivo_rescisao, detalhe_rescisao, pct_sinal, pct_fd, pct_entrega_material, pct_medicao_instalacao, obra:obras(codigo_obra, nome, cliente:clientes(nome)), proposta_origem:propostas(numero)',
+        )
+        .order('data_assinatura', { ascending: false, nullsFirst: false })
+        .order('numero', { ascending: false }),
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.some((l) => Array.isArray(l.obra))) return 'obra veio como array, esperado objeto'
+      if (linhas.some((l) => Array.isArray(l.proposta_origem))) return 'proposta_origem veio como array, esperado objeto'
       return null
     },
   },

@@ -234,6 +234,69 @@ export type Database = {
           },
         ]
       }
+      auditoria_eventos: {
+        Row: {
+          acao: string
+          autor_descricao: string | null
+          autor_id: string | null
+          detalhe: Json | null
+          em: string
+          empresa_id: string
+          entidade: string
+          id: number
+          mensagem: string | null
+          origem: string
+          referencia: string | null
+          registro_id: string | null
+          resultado: string
+        }
+        Insert: {
+          acao: string
+          autor_descricao?: string | null
+          autor_id?: string | null
+          detalhe?: Json | null
+          em?: string
+          empresa_id: string
+          entidade: string
+          id?: never
+          mensagem?: string | null
+          origem: string
+          referencia?: string | null
+          registro_id?: string | null
+          resultado?: string
+        }
+        Update: {
+          acao?: string
+          autor_descricao?: string | null
+          autor_id?: string | null
+          detalhe?: Json | null
+          em?: string
+          empresa_id?: string
+          entidade?: string
+          id?: never
+          mensagem?: string | null
+          origem?: string
+          referencia?: string | null
+          registro_id?: string | null
+          resultado?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auditoria_eventos_autor_id_fkey"
+            columns: ["autor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "auditoria_eventos_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clientes: {
         Row: {
           cep: string | null
@@ -389,9 +452,11 @@ export type Database = {
           created_at: string | null
           created_by: string | null
           data_assinatura: string | null
+          desconto: number
           descricao: string | null
           detalhe_rescisao: string | null
           empresa_id: string
+          historico: Json
           id: string
           motivo_rescisao: string | null
           numero: string
@@ -405,6 +470,7 @@ export type Database = {
           proposta_origem_id: string | null
           status: string
           updated_at: string | null
+          valor_final: number | null
           valor_total: number
         }
         Insert: {
@@ -413,9 +479,11 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           data_assinatura?: string | null
+          desconto?: number
           descricao?: string | null
           detalhe_rescisao?: string | null
           empresa_id: string
+          historico?: Json
           id?: string
           motivo_rescisao?: string | null
           numero: string
@@ -429,6 +497,7 @@ export type Database = {
           proposta_origem_id?: string | null
           status?: string
           updated_at?: string | null
+          valor_final?: number | null
           valor_total?: number
         }
         Update: {
@@ -437,9 +506,11 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           data_assinatura?: string | null
+          desconto?: number
           descricao?: string | null
           detalhe_rescisao?: string | null
           empresa_id?: string
+          historico?: Json
           id?: string
           motivo_rescisao?: string | null
           numero?: string
@@ -453,6 +524,7 @@ export type Database = {
           proposta_origem_id?: string | null
           status?: string
           updated_at?: string | null
+          valor_final?: number | null
           valor_total?: number
         }
         Relationships: [
@@ -1770,9 +1842,11 @@ export type Database = {
           created_at: string | null
           created_by: string | null
           data_assinatura: string | null
+          desconto: number | null
           descricao: string | null
           detalhe_rescisao: string | null
           empresa_id: string | null
+          historico: Json | null
           id: string | null
           motivo_rescisao: string | null
           numero: string | null
@@ -1791,6 +1865,7 @@ export type Database = {
           total_acordos: number | null
           total_nfs: number | null
           updated_at: string | null
+          valor_final: number | null
           valor_total: number | null
         }
         Insert: {
@@ -1799,9 +1874,11 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           data_assinatura?: string | null
+          desconto?: number | null
           descricao?: string | null
           detalhe_rescisao?: string | null
           empresa_id?: string | null
+          historico?: Json | null
           id?: string | null
           motivo_rescisao?: string | null
           numero?: string | null
@@ -1820,6 +1897,7 @@ export type Database = {
           total_acordos?: never
           total_nfs?: never
           updated_at?: string | null
+          valor_final?: number | null
           valor_total?: number | null
         }
         Update: {
@@ -1828,9 +1906,11 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           data_assinatura?: string | null
+          desconto?: number | null
           descricao?: string | null
           detalhe_rescisao?: string | null
           empresa_id?: string | null
+          historico?: Json | null
           id?: string | null
           motivo_rescisao?: string | null
           numero?: string | null
@@ -1849,6 +1929,7 @@ export type Database = {
           total_acordos?: never
           total_nfs?: never
           updated_at?: string | null
+          valor_final?: number | null
           valor_total?: number | null
         }
         Relationships: [
@@ -2352,6 +2433,10 @@ export type Database = {
         Args: { p_itens: string[]; p_percentual: number; p_proposta: string }
         Returns: number
       }
+      ajustar_valor_itens_contrato: {
+        Args: { p_contrato: string; p_itens: string[]; p_percentual: number }
+        Returns: number
+      }
       atualizar_parcelas_atrasadas: { Args: never; Returns: number }
       atualizar_status_nf_by_id: {
         Args: { p_nota_id: string }
@@ -2361,6 +2446,7 @@ export type Database = {
         Args: { p_parcela_id: string }
         Returns: undefined
       }
+      auditoria_origem: { Args: never; Returns: string }
       calcular_valores_obra: {
         Args: { p_obra_id: string }
         Returns: {
@@ -2377,7 +2463,30 @@ export type Database = {
       }
       current_empresa_id: { Args: never; Returns: string }
       current_perfil: { Args: never; Returns: string }
+      gerar_contrato_de_proposta: {
+        Args: {
+          p_confirmar_duplicado?: boolean
+          p_contrato: Json
+          p_copiar_itens?: boolean
+          p_proposta: string
+        }
+        Returns: string
+      }
       has_perfil: { Args: { perfis: string[] }; Returns: boolean }
+      registrar_evento: {
+        Args: {
+          p_acao: string
+          p_autor_descricao?: string
+          p_detalhe?: Json
+          p_empresa_id?: string
+          p_entidade: string
+          p_mensagem?: string
+          p_referencia?: string
+          p_registro_id?: string
+          p_resultado: string
+        }
+        Returns: number
+      }
       storage_empresa_id_from_path: { Args: { path: string }; Returns: string }
       trocar_numero_itens: {
         Args: { p_item_a: string; p_item_b: string }

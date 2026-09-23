@@ -11,10 +11,11 @@ Fase 5 e decisões 10 e 11.
 
 ## Resumo
 
-**Construída e testada offline contra o gabarito (12/12). O teste com o Gemini de verdade
-está pendente: a cota da chave está esgotada até renovar** (~04:00 de Brasília, decisão do
-Breno de esperar em vez de trocar a chave). Um reenvio pelo Telegram fecha esta fase e a
-Fase 4 juntas.
+**Construída e testada.** Offline contra o gabarito: **16/16** casos. Com o **Gemini real**
+(23/09, cota renovada): a proposta `PROP-2026-0117` saiu com os **4 itens iguais ao
+gabarito**, unidades literais. Ganhou uma **reserva pela Groq** (decisão 20, seção 5). Falta o
+PDF de 16 itens pelo Gemini real e o reenvio pelo Telegram — travados pelo limite de execuções
+do n8n (seção 5.4).
 
 A Fase 5 **extrai** os itens; quem os **grava** em `itens` é a Fase 6. Até lá, os itens
 ficam em `documentos_processamento.dados_extraidos`.
@@ -139,3 +140,56 @@ decisão 11 manda o helper tratar (vira `QTD`, com o original em `observacao`).
 4. **Numeração composta (`1.1`, `1A`) não aparece em nenhum PDF disponível.** O caminho segue
    coberto só pelo teste unitário da sprint 5.
 5. **`npm run validar` não rodou**: nenhum arquivo da aplicação foi tocado.
+
+---
+
+## 5. Reserva pela Groq (decisão 20) — 23/09
+
+### 5.1 Como ficou
+
+`Gemini` falha → `Reserva - PDF de volta` → `Extrair texto do PDF` (nativo do n8n) →
+`Preparar pedido Groq` → `Groq - Extrair dados` → `Groq no formato do Gemini` → o mesmo
+`Analisar e decidir`. Qualquer falha nesse caminho → `Registrar falha` → revisão, com o motivo
+da Groq **e** o do Gemini. O prompt saiu do nó do Gemini e mora no `PDF para base64`, usado
+pelos dois. Credential da Groq criada pelo Breno (`Zzs75Rx6S260C0Ci`). Gemini com 2
+tentativas, Groq com 2.
+
+### 5.2 A escolha do modelo — medida, não suposta
+
+A chave enxerga 11 modelos. Testados com o prompt de produção, fora do fluxo:
+
+| Modelo | Resultado |
+|---|---|
+| `qwen/qwen3.8-27b` | 16/16 no gabarito com texto do `pdftotext` — **mas o plano gratuito limita a 1.000 tokens de saída por minuto** e a proposta de 16 itens pede ~2.700. Nunca serviria para documento grande |
+| `openai/gpt-oss-20b` | devolveu **18 itens** (inventou dois). Descartado |
+| `openai/gpt-oss-120b` | limite de 8.000 tokens/minuto; com raciocínio padrão pediu 8.748. Com **`reasoning_effort: low` e teto de 4.500** coube: cabeçalho certo, **valor certo no banco em 16/16** itens |
+| modo JSON estrito da Groq | recusou a proposta de 16 itens ("Failed to generate JSON"); o JSON é recortado da resposta |
+
+### 5.3 Teste de ponta a ponta, com o Gemini forçado a falhar
+
+Modelo do Gemini trocado por um inexistente só durante o teste e **restaurado logo depois**
+(conferido: a versão publicada aponta para `gemini-3.6-flash`).
+
+- **Vista Verde pela reserva:** proposta criada, `extrator: groq`, **4/4 itens iguais ao
+  gabarito**, motivo do Gemini registrado. **Mas com o número errado: `CT-2026-0042`** — o
+  contrato *de referência* citado no documento, não o da proposta (`PROP-2026-0117`). O Gemini
+  e o Qwen acertaram. O prompt ganhou uma regra explícita para isso; **ainda não retestada**.
+- **Achado — o extrator de texto do n8n embaralha PDF em duas colunas.** No `EB-25-08-0048`,
+  o valor e a localização do item 6 caem dentro do 7, e os do 8 dentro do 9. Os dois modelos
+  gpt-oss seguiram o texto e repetiram os itens 7 e 9. Com o `pdftotext` isso não acontece. Não
+  há como trocar o extrator no n8n Cloud; a saída foi uma **trava**: número de item repetido
+  (ou soma divergente) marca `itensConfiaveis: false` e o grupo recebe "itens NÃO confiáveis,
+  conferir no PDF". O cabeçalho segue valendo. Testada offline (4 casos novos, 16/16).
+
+### 5.4 Pendências nominais da reserva
+
+1. **O n8n Cloud atingiu o limite de execuções do plano** durante o teste da proposta de 16
+   itens ("Execution limit reached"). Enquanto não renovar ou o plano não mudar, **nenhum
+   workflow roda — o bot inclusive**. Os testes pararam aí.
+2. **A regra nova do número da proposta não foi retestada** (item 1).
+3. **Pela reserva, só um documento por minuto** cabe no limite gratuito da Groq; o segundo no
+   mesmo minuto vai para revisão com o erro. Documento muito grande (o contrato de 8 páginas)
+   passa do limite sempre.
+4. **A trava cobre repetição e soma, não troca silenciosa** entre dois itens com o mesmo total.
+5. **PDF escaneado não tem reserva**: vai para revisão pedindo o PDF original.
+6. **Para o Gemini real, falta o PDF de 16 itens** (a Vista Verde passou).

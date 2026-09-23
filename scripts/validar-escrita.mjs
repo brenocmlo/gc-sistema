@@ -32,6 +32,7 @@ import { createClient } from '@supabase/supabase-js'
 
 import { exigirGcDev } from './gc-dev-guard.mjs'
 import { sessaoDePerfil } from './sessao-dev.mjs'
+import { limparAuditoriaDoRoteiro } from './auditoria-limpeza.mjs'
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3111'
 const URL_SUPABASE = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -96,10 +97,23 @@ const NECESSARIAS = [
   'moverItem',
   'excluirItensEmLote',
   'ajustarValorEmLote',
+  // Gerar contrato de proposta aprovada (6.2)
+  'gerarContratoDeProposta',
+  // Contrato avulso (6.3)
+  'createContrato',
+  // Detalhe e edição do contrato (6.4)
+  'updateContrato',
+  'uploadAnexoContrato',
+  'deleteAnexoContrato',
+  // Mudança de status e rescisão (6.5)
+  'changeContratoStatus',
   // Orçamentos: só o que o histórico uniformizado (migration 013) exige.
   'createOrcamento',
   'changeOrcamentoStatus',
   'deleteOrcamento',
+  // Anexos do orçamento, renomeados para não colidirem com os da proposta
+  'uploadAnexoOrcamento',
+  'deleteAnexoOrcamento',
 ]
 
 const faltando = NECESSARIAS.filter((n) => !ACTIONS[n])
@@ -212,6 +226,8 @@ function checar(descricao, condicao, detalhe = '') {
 const NUMERO = `VALIDA-ESCRITA-${Date.now()}`
 let propostaId = null
 let orcamentoId = null
+/** Quantas mudanças de status venceram na corrida do orçamento — entram na conta da auditoria. */
+let orcCorridaVenceram = 0
 /** Ids dos itens criados no roteiro — limpos no finally. */
 const itensCriados = []
 /** Proposta isolada dos passos do 5.6 — apagada no finally. */
@@ -222,9 +238,21 @@ let propostaCargaId = null
 /** Propostas do 5.7 e da matriz de perfis do 5.8 — apagadas no finally. */
 let proposta57Id = null
 let propostaPerfisId = null
+/** Bloco 6.2: proposta aprovada de teste e os contratos gerados dela — apagados no finally. */
+let proposta62Id = null
+const contratos62 = []
 /** Fase 6 da automação: proposta criada pela rota de ingestão e os documentos de teste — apagados no finally. */
 let propostaIngestaoId = null
 const documentosIngestao = []
+/**
+ * Início do roteiro, com folga de 1 min pro relógio do banco. A limpeza da
+ * auditoria (13.2) só apaga eventos daqui pra frente cujo registro já não
+ * existe — os que o próprio roteiro criou e apagou.
+ */
+const INICIO_AUDITORIA = new Date(Date.now() - 60_000).toISOString()
+const svc = createClient(URL_SUPABASE, process.env.SUPABASE_SERVICE_ROLE_KEY ?? '', {
+  auth: { persistSession: false },
+})
 
 
 try {
@@ -1203,6 +1231,22 @@ try {
       )
     }
 
+    // 12c. Pendências da sprint 6: o path vem do corpo, e o Storage só deixa
+    // o admin ou quem subiu apagar. Nos dois casos o anexo tem de ficar.
+    const alheio = await chamar('deleteAnexo', [propostaId, `${perfilAdmin?.empresa_id}/contratos/x/1_outro.pdf`], {
+      rota: `/propostas/${propostaId}`,
+    })
+    checar('deleteAnexo recusa path que não é anexo da proposta',
+      alheio.ok === false && /não encontrado/.test(alheio.error ?? ''), alheio.error)
+    const cookieCom12 = cookieDeSessao((await sessaoDePerfil('comercial')).session)
+    const doAdmin = await chamar('deleteAnexo', [propostaId, path], { rota: `/propostas/${propostaId}`, cookie: cookieCom12 })
+    const { data: aindaNaProposta } = await supabase.from('propostas').select('anexos').eq('id', propostaId).maybeSingle()
+    const { data: aindaNoBucket } = await supabase.storage.from('anexos').list(`${perfilAdmin?.empresa_id}/propostas/${propostaId}`)
+    checar('comercial não apaga o anexo que o admin subiu: fica no jsonb e no bucket',
+      doAdmin.ok === false && /admin ou quem enviou/.test(doAdmin.error ?? '') &&
+        (aindaNaProposta?.anexos ?? []).length === 1 && (aindaNoBucket ?? []).length === 1,
+      `${doAdmin.error ?? 'passou'} · jsonb=${(aindaNaProposta?.anexos ?? []).length} bucket=${(aindaNoBucket ?? []).length}`)
+
     // 13. Remover o anexo
     const removido = await chamar('deleteAnexo', [propostaId, path], {
       rota: `/propostas/${propostaId}`,
@@ -1342,8 +1386,620 @@ try {
         histOrc[1]?.para === 'rejeitado' && histOrc[1]?.motivo_rejeicao === 'preco_alto',
         JSON.stringify(histOrc[1] ?? null),
       )
+
+      // Pendências da sprint 6 no orçamento: anexo e corrida de status.
+      const ro = `/orcamentos/${orcamentoId}`
+      const { data: perfilOrc } = await supabase.from('profiles').select('empresa_id').eq('id', admin.userId).maybeSingle()
+      const pdfOrc = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34])], 'orcamento.pdf', { type: 'application/pdf' })
+      const upOrc = await chamarComArquivo('uploadAnexoOrcamento', orcamentoId, pdfOrc)
+      const anexosOrc = (await supabase.from('orcamentos').select('anexos').eq('id', orcamentoId).maybeSingle()).data?.anexos ?? []
+      const pathOrc = anexosOrc[0]?.path ?? ''
+      checar('uploadAnexoOrcamento sobe o arquivo em {empresa}/orcamentos/{id}/',
+        upOrc.ok === true && anexosOrc.length === 1 && pathOrc.startsWith(`${perfilOrc?.empresa_id}/orcamentos/${orcamentoId}/`),
+        `${upOrc.error ?? ''} · ${pathOrc}`)
+      const alheioOrc = await chamar('deleteAnexoOrcamento', [orcamentoId, `${perfilOrc?.empresa_id}/propostas/x/1_outro.pdf`], { rota: ro })
+      checar('deleteAnexoOrcamento recusa path que não é anexo do orçamento',
+        alheioOrc.ok === false && /não encontrado/.test(alheioOrc.error ?? ''), alheioOrc.error)
+      const cookieComOrc = cookieDeSessao((await sessaoDePerfil('comercial')).session)
+      const doAdminOrc = await chamar('deleteAnexoOrcamento', [orcamentoId, pathOrc], { rota: ro, cookie: cookieComOrc })
+      const { data: noBucketOrc } = await supabase.storage.from('anexos').list(`${perfilOrc?.empresa_id}/orcamentos/${orcamentoId}`)
+      checar('comercial não apaga o anexo do orçamento que o admin subiu: fica no jsonb e no bucket',
+        doAdminOrc.ok === false && /admin ou quem enviou/.test(doAdminOrc.error ?? '') &&
+          ((await supabase.from('orcamentos').select('anexos').eq('id', orcamentoId).maybeSingle()).data?.anexos ?? []).length === 1 &&
+          (noBucketOrc ?? []).length === 1,
+        doAdminOrc.error ?? 'passou')
+      const rmOrc = await chamar('deleteAnexoOrcamento', [orcamentoId, pathOrc], { rota: ro })
+      const { data: noBucketOrc2 } = await supabase.storage.from('anexos').list(`${perfilOrc?.empresa_id}/orcamentos/${orcamentoId}`)
+      checar('deleteAnexoOrcamento remove do bucket e do jsonb', rmOrc.ok === true && (noBucketOrc2 ?? []).length === 0, rmOrc.error)
+
+      // Corrida: o orçamento não tem regra de transição, então, serializadas,
+      // as duas passam. O invariante é o mesmo das outras entidades: uma
+      // entrada por mudança que venceu, e a última batendo com o status.
+      const orcPara = (novo_status) => chamar('changeOrcamentoStatus', [orcamentoId, {
+        novo_status, data_envio: hoje, data_decisao: null, motivo_rejeicao: null, detalhe_rejeicao: null,
+        obra_id_vinculada: null, vincular_obra: false,
+      }], { rota: ro })
+      const [o1, o2] = await Promise.all([orcPara('pendente'), orcPara('enviado')])
+      const { data: orcDepois } = await supabase.from('orcamentos').select('status, historico').eq('id', orcamentoId).maybeSingle()
+      const venceramOrc = [o1, o2].filter((r) => r.ok).length
+      orcCorridaVenceram = venceramOrc
+      const perdedoraOrc = [o1, o2].find((r) => !r.ok)
+      checar('orçamento: mudanças simultâneas não perdem entrada do histórico',
+        venceramOrc >= 1 && orcDepois?.historico?.length === 2 + venceramOrc &&
+          orcDepois.historico.at(-1)?.para === orcDepois.status &&
+          (!perdedoraOrc || /mudou enquanto/.test(perdedoraOrc.error ?? '')),
+        `ok=${venceramOrc} · ${perdedoraOrc?.error ?? ''} · ${JSON.stringify(orcDepois?.historico?.map((h) => h.para) ?? null)}`)
     }
   }
+  // ============================================================
+  // Bloco 6.2 — gerar contrato a partir de proposta aprovada
+  // ============================================================
+  // A action chama a função gerar_contrato_de_proposta (20260923162000), que
+  // insere o contrato e copia os itens numa transação. Os passos provam as
+  // regras da função (aprovada, duplicado sem confirmação, rescindido não
+  // conta) e as da action (perfil), e que falha não deixa nada pela metade.
+  {
+    const p62 = await chamar('createProposta', [{
+      ...base, numero: `${NUMERO}-62`, valor_total: 100, desconto: 100, pct_sinal: 0.3, pct_fd: 0.7,
+    }], { rota: '/propostas/nova' })
+    proposta62Id = p62.id ?? null
+    checar('6.2: proposta de teste criada', p62.ok === true, p62.error)
+
+    if (proposta62Id) {
+      const r62 = `/propostas/${proposta62Id}`
+      const rg = `${r62}/gerar-contrato`
+      const it62 = (n, qtd, vu) => ({ numero: n, tipo: 'Janela', descricao: `6.2 item ${n}`, linha: 'L', acabamento: 'A',
+        largura: 1.2, altura: 1, quantidade: qtd, unidade: 'M2', valor_unit: vu, localizacao: 'Térreo', vidros: '6mm', observacao: 'obs' })
+      await chamar('createItem', [proposta62Id, it62(1, 2, 300)], { rota: r62 })
+      await chamar('createItem', [proposta62Id, it62(2, 1, 50)], { rota: r62 })
+
+      const ct = (numero, extra = {}) => ({
+        numero, obra_id: obra.id, data_assinatura: new Date().toISOString().slice(0, 10),
+        prazo_execucao: '45 dias', descricao: 'Contrato gerado pela camada de escrita', valor_total: 650,
+        desconto: 100, pct_sinal: 0.3, pct_fd: 0.7, pct_entrega_material: null, pct_medicao_instalacao: null,
+        condicoes_pagamento: 'condições da proposta', observacao: null, ...extra,
+      })
+      const gerar = (numero, opcoes, extra, cookie) =>
+        chamar('gerarContratoDeProposta', [proposta62Id, ct(numero, extra), opcoes], { rota: rg, ...(cookie ? { cookie } : {}) })
+      const contratosDaProposta = async () =>
+        (await supabase.from('contratos').select('id, numero, status, valor_total, desconto, valor_final, obra_id, proposta_origem_id, pct_sinal, pct_fd, prazo_execucao')
+          .eq('proposta_origem_id', proposta62Id).order('numero')).data ?? []
+      const lembrar = async () => {
+        for (const c of await contratosDaProposta()) if (!contratos62.includes(c.id)) contratos62.push(c.id)
+      }
+
+      const emRascunho = await gerar(`${NUMERO}-CT0`, { copiarItens: true, confirmarDuplicado: false })
+      checar('6.2: proposta em rascunho não gera contrato', emRascunho.ok === false && /aprovada/.test(emRascunho.error ?? ''), emRascunho.error)
+
+      const hoje62 = new Date().toISOString().slice(0, 10)
+      await chamar('changePropostaStatus', [proposta62Id,
+        { novo_status: 'enviada', data_envio: hoje62, data_decisao: null, motivo_rejeicao: null, detalhe_rejeicao: null }], { rota: r62 })
+      const ap = await chamar('changePropostaStatus', [proposta62Id,
+        { novo_status: 'aprovada', data_envio: hoje62, data_decisao: hoje62, motivo_rejeicao: null, detalhe_rejeicao: null }], { rota: r62 })
+      checar('6.2: proposta aprovada', ap.ok === true, ap.error)
+
+      const cookieVis = cookieDeSessao((await sessaoDePerfil('visualizador')).session)
+      const comoVis = await gerar(`${NUMERO}-CTV`, { copiarItens: true, confirmarDuplicado: false }, {}, cookieVis)
+      checar('6.2: visualizador não gera contrato (guard da action)', comoVis.ok === false && /permissão/.test(comoVis.error ?? ''), comoVis.error)
+
+      // A função é exposta pelo PostgREST: direto, sem a action, o RLS barra.
+      const visSb = createClient(URL_SUPABASE, ANON)
+      const sv = await sessaoDePerfil('visualizador')
+      await visSb.auth.setSession({ access_token: sv.session.access_token, refresh_token: sv.session.refresh_token })
+      const direto = await visSb.rpc('gerar_contrato_de_proposta', {
+        p_proposta: proposta62Id, p_contrato: { numero: `${NUMERO}-CTVD` }, p_copiar_itens: true, p_confirmar_duplicado: true,
+      })
+      checar('6.2: visualizador chamando a função direto no banco não cria contrato (RLS)',
+        Boolean(direto.error) && (await contratosDaProposta()).length === 0, direto.error?.message ?? `criou ${direto.data}`)
+
+      const g1 = await gerar(`${NUMERO}-CT1`, { copiarItens: true, confirmarDuplicado: false })
+      await lembrar()
+      checar('6.2: admin gera o contrato com cópia dos itens', g1.ok === true, g1.error)
+      const [c1] = await contratosDaProposta()
+      checar('6.2: contrato ativo, da obra da proposta, com proposta_origem_id',
+        c1?.status === 'ativo' && c1?.obra_id === obra.id && c1?.proposta_origem_id === proposta62Id, JSON.stringify(c1 ?? null))
+      checar('6.2: valor = soma dos itens (650), desconto 100, final 550, pct e prazo do form',
+        Number(c1?.valor_total) === 650 && Number(c1?.desconto) === 100 && Number(c1?.valor_final) === 550 &&
+          Number(c1?.pct_sinal) === 0.3 && Number(c1?.pct_fd) === 0.7 && c1?.prazo_execucao === '45 dias',
+        JSON.stringify(c1 ?? null))
+
+      const campos = 'numero, tipo, descricao, linha, acabamento, largura, altura, quantidade, unidade, valor_unit, localizacao, vidros, observacao, proposta_id, contrato_id, foto_url'
+      const { data: itensC1 } = await supabase.from('itens').select(campos).eq('contrato_id', c1?.id ?? '').order('numero')
+      const { data: itensP } = await supabase.from('itens').select(campos).eq('proposta_id', proposta62Id).order('numero')
+      const semVinculo = (l) => (l ?? []).map(({ proposta_id, contrato_id, foto_url, ...resto }) => resto)
+      checar('6.2: os 2 itens foram copiados com todos os campos',
+        (itensC1 ?? []).length === 2 && JSON.stringify(semVinculo(itensC1)) === JSON.stringify(semVinculo(itensP)),
+        JSON.stringify(semVinculo(itensC1)).slice(0, 200))
+      checar('6.2: XOR — a cópia só tem contrato_id, e a proposta continua com os itens dela',
+        (itensC1 ?? []).every((i) => i.proposta_id === null && i.contrato_id === c1?.id) && (itensP ?? []).length === 2,
+        `proposta tem ${(itensP ?? []).length}`)
+
+      const dup = await gerar(`${NUMERO}-CT2`, { copiarItens: true, confirmarDuplicado: false })
+      checar('6.2: segundo contrato sem confirmação é recusado e devolve o número do existente',
+        dup.ok === false && (dup.contratosExistentes ?? []).includes(`${NUMERO}-CT1`) && (await contratosDaProposta()).length === 1,
+        JSON.stringify(dup))
+
+      const semDesconto = await gerar(`${NUMERO}-CT2`, { copiarItens: true, confirmarDuplicado: true }, { desconto: 5000 })
+      await lembrar()
+      const { count: itensTotais } = await supabase.from('itens').select('id', { count: 'exact', head: true }).in('contrato_id', contratos62)
+      checar('6.2: desconto acima da soma dos itens é recusado, sem contrato nem item pela metade',
+        semDesconto.ok === false && /desconto/i.test(semDesconto.error ?? '') && (await contratosDaProposta()).length === 1 && itensTotais === 2,
+        `${semDesconto.error} · contratos=${(await contratosDaProposta()).length} itens=${itensTotais}`)
+
+      const numRepetido = await gerar(`${NUMERO}-CT1`, { copiarItens: false, confirmarDuplicado: true })
+      checar('6.2: número de contrato repetido é recusado com mensagem legível',
+        numRepetido.ok === false && /Já existe um contrato com esse número/.test(numRepetido.error ?? ''), numRepetido.error)
+
+      const g2 = await gerar(`${NUMERO}-CT2`, { copiarItens: false, confirmarDuplicado: true }, { valor_total: 700, desconto: 0 })
+      await lembrar()
+      const c2 = (await contratosDaProposta()).find((c) => c.numero === `${NUMERO}-CT2`)
+      const { count: itensC2 } = await supabase.from('itens').select('id', { count: 'exact', head: true }).eq('contrato_id', c2?.id ?? '')
+      checar('6.2: com confirmação, gera o segundo — sem cópia, valor digitado (700) e nenhum item',
+        g2.ok === true && Number(c2?.valor_total) === 700 && itensC2 === 0, `${g2.error ?? ''} · ${JSON.stringify(c2 ?? null)} itens=${itensC2}`)
+
+      // Rescindido não conta como vigente: depois de rescindir os dois,
+      // gerar de novo não pede confirmação. Rescisão direto no banco — a tela
+      // de status é do 6.5.
+      await supabase.from('contratos').update({ status: 'rescindido', motivo_rescisao: 'acordo_partes' }).in('id', contratos62)
+      const cookieCom = cookieDeSessao((await sessaoDePerfil('comercial')).session)
+      const g3 = await gerar(`${NUMERO}-CT3`, { copiarItens: true, confirmarDuplicado: false }, {}, cookieCom)
+      await lembrar()
+      checar('6.2: com os anteriores rescindidos, comercial gera sem confirmação',
+        g3.ok === true && (await contratosDaProposta()).length === 3, g3.error)
+    }
+  }
+
+  // ============================================================
+  // Bloco 6.3 — contrato avulso (createContrato)
+  // ============================================================
+  // A action repete a regra do zod do form (validarPayloadContrato), porque
+  // o zod só roda no navegador. Todos os contratos levam `${NUMERO}-AV` no
+  // número e saem no finally.
+  {
+    const rn = '/contratos/novo'
+    const av = (sufixo, extra = {}) => ({
+      numero: `${NUMERO}-AV${sufixo}`, obra_id: obra.id, descricao: 'Contrato avulso da camada de escrita',
+      data_assinatura: new Date().toISOString().slice(0, 10), prazo_execucao: '30 dias',
+      valor_total: 2000, desconto: 200, pct_sinal: 0.4, pct_fd: 0.6, pct_entrega_material: null,
+      pct_medicao_instalacao: null, condicoes_pagamento: 'boleto', observacao: 'obs avulso', ...extra,
+    })
+    const doBanco = async (numero) =>
+      (await supabase.from('contratos').select('id, numero, status, proposta_origem_id, obra_id, valor_total, desconto, valor_final, pct_sinal, pct_fd, prazo_execucao, condicoes_pagamento, historico, created_by')
+        .eq('numero', numero).maybeSingle()).data
+    const existe = async (numero) =>
+      (await supabase.from('contratos').select('id', { count: 'exact', head: true }).eq('numero', numero)).count
+
+    const c1 = await chamar('createContrato', [av('1')], { rota: rn })
+    const b1 = await doBanco(`${NUMERO}-AV1`)
+    checar('6.3: admin cria contrato avulso', c1.ok === true && Boolean(b1), c1.error)
+    checar('6.3: nasce ativo, sem proposta de origem, histórico vazio e com o autor',
+      b1?.status === 'ativo' && b1?.proposta_origem_id === null && Array.isArray(b1?.historico) && b1.historico.length === 0 &&
+        b1?.created_by === admin.userId, JSON.stringify(b1 ?? null))
+    checar('6.3: valores, desconto, final (1800), % e textos gravados como enviados',
+      Number(b1?.valor_total) === 2000 && Number(b1?.desconto) === 200 && Number(b1?.valor_final) === 1800 &&
+        Number(b1?.pct_sinal) === 0.4 && Number(b1?.pct_fd) === 0.6 && b1?.prazo_execucao === '30 dias' &&
+        b1?.condicoes_pagamento === 'boleto' && b1?.obra_id === obra.id, JSON.stringify(b1 ?? null))
+
+    // Campos que não são do form, mandados no corpo: a action não os repassa.
+    const { data: umaProposta } = await supabase.from('propostas').select('id').eq('obra_id', obra.id).limit(1).maybeSingle()
+    const c2 = await chamar('createContrato', [av('2', {
+      status: 'concluido', proposta_origem_id: umaProposta?.id ?? null, historico: [{ de: 'x' }], empresa_id: '00000000-0000-0000-0000-000000000000',
+    })], { rota: rn })
+    const b2 = await doBanco(`${NUMERO}-AV2`)
+    checar('6.3: status, proposta de origem, histórico e empresa vindos do corpo são ignorados',
+      c2.ok === true && b2?.status === 'ativo' && b2?.proposta_origem_id === null && (b2?.historico ?? []).length === 0,
+      `${c2.error ?? ''} · ${JSON.stringify(b2 ?? null)}`)
+
+    const recusas = [
+      ['desconto maior que o valor', av('X1', { desconto: 2001 }), /Desconto não pode ser maior/],
+      ['soma dos percentuais acima de 100%', av('X2', { pct_sinal: 0.5, pct_fd: 0.6 }), /100%/],
+      ['percentual isolado acima de 100%', av('X3', { pct_sinal: 1.5, pct_fd: 0 }), /entre 0% e 100%/],
+      ['valor negativo', av('X4', { valor_total: -1, desconto: 0 }), /negativo/],
+      ['número em branco', av('X5', { numero: '   ' }), /Número obrigatório/],
+      ['sem obra', av('X6', { obra_id: '' }), /obra/],
+    ]
+    for (const [rotulo, payload, esperado] of recusas) {
+      const r = await chamar('createContrato', [payload], { rota: rn })
+      checar(`6.3: ${rotulo} é recusado pela action, sem gravar`,
+        r.ok === false && esperado.test(r.error ?? '') && (await existe(payload.numero)) === 0, r.error)
+    }
+
+    const rep1 = await chamar('createContrato', [av('1', { valor_total: 10, desconto: 0 })], { rota: rn })
+    checar('6.3: número repetido na empresa é recusado com mensagem legível',
+      rep1.ok === false && /Já existe um contrato com esse número/.test(rep1.error ?? ''), rep1.error)
+
+    const cookieVis63 = cookieDeSessao((await sessaoDePerfil('visualizador')).session)
+    const vis = await chamar('createContrato', [av('V')], { rota: rn, cookie: cookieVis63 })
+    checar('6.3: visualizador não cria contrato',
+      vis.ok === false && /permissão/.test(vis.error ?? '') && (await existe(`${NUMERO}-AVV`)) === 0, vis.error)
+
+    const cookieCom63 = cookieDeSessao((await sessaoDePerfil('comercial')).session)
+    const com = await chamar('createContrato', [av('C')], { rota: rn, cookie: cookieCom63 })
+    checar('6.3: comercial cria contrato avulso', com.ok === true && (await existe(`${NUMERO}-AVC`)) === 1, com.error)
+  }
+
+  // ============================================================
+  // Bloco 6.4 — edição e anexos do contrato
+  // ============================================================
+  // O contrato leva `${NUMERO}-AV64` no número, então sai no finally junto dos
+  // avulsos do 6.3; o item dele entra em itensCriados, que é apagado antes.
+  {
+    const cid = await chamar('createContrato', [{
+      numero: `${NUMERO}-AV64`, obra_id: obra.id, descricao: 'Contrato do 6.4',
+      data_assinatura: null, prazo_execucao: null, valor_total: 5000, desconto: 0,
+      pct_sinal: 0.5, pct_fd: null, pct_entrega_material: null, pct_medicao_instalacao: null,
+      condicoes_pagamento: null, observacao: null,
+    }], { rota: '/contratos/novo' })
+    checar('6.4: contrato de teste criado', cid.ok === true, cid.error)
+    const id64 = cid.ok ? cid.id : null
+    const rc = `/contratos/${id64}`
+    const ed = (extra = {}) => ({
+      numero: `${NUMERO}-AV64`, obra_id: obra.id, descricao: 'Contrato do 6.4 editado',
+      data_assinatura: new Date().toISOString().slice(0, 10), prazo_execucao: '45 dias',
+      valor_total: 6000, desconto: 600, pct_sinal: 0.3, pct_fd: 0.7, pct_entrega_material: null,
+      pct_medicao_instalacao: null, condicoes_pagamento: 'pix', observacao: 'obs 6.4', ...extra,
+    })
+    const lido = async () =>
+      (await supabase.from('contratos').select('numero, status, proposta_origem_id, obra_id, descricao, prazo_execucao, valor_total, desconto, valor_final, pct_sinal, pct_fd, condicoes_pagamento, historico, anexos')
+        .eq('id', id64).maybeSingle()).data
+
+    if (id64) {
+      // Edição: os campos do form gravam; status, origem e histórico do corpo não.
+      const u1 = await chamar('updateContrato', [id64, ed({ status: 'concluido', proposta_origem_id: proposta62Id, historico: [{ de: 'x' }] })], { rota: `${rc}/editar` })
+      const b1 = await lido()
+      checar('6.4: admin edita o contrato e os campos do form gravam',
+        u1.ok === true && b1?.descricao === 'Contrato do 6.4 editado' && b1?.prazo_execucao === '45 dias' &&
+          Number(b1?.valor_total) === 6000 && Number(b1?.desconto) === 600 && Number(b1?.valor_final) === 5400 &&
+          Number(b1?.pct_sinal) === 0.3 && Number(b1?.pct_fd) === 0.7 && b1?.condicoes_pagamento === 'pix',
+        `${u1.error ?? ''} · ${JSON.stringify(b1 ?? null)}`)
+      checar('6.4: status, proposta de origem e histórico vindos do corpo são ignorados',
+        b1?.status === 'ativo' && b1?.proposta_origem_id === null && (b1?.historico ?? []).length === 0,
+        JSON.stringify(b1 ?? null))
+
+      const recusas = [
+        ['desconto maior que o valor', ed({ desconto: 6001 }), /Desconto não pode ser maior/],
+        ['soma dos percentuais acima de 100%', ed({ pct_sinal: 0.5, pct_fd: 0.6 }), /100%/],
+        ['número em branco', ed({ numero: '  ' }), /Número obrigatório/],
+        ['número de outro contrato da empresa', ed({ numero: `${NUMERO}-AV1` }), /Já existe um contrato com esse número/],
+      ]
+      for (const [rotulo, payload, esperado] of recusas) {
+        const r = await chamar('updateContrato', [id64, payload], { rota: `${rc}/editar` })
+        const b = await lido()
+        checar(`6.4: edição com ${rotulo} é recusada, sem gravar`,
+          r.ok === false && esperado.test(r.error ?? '') && b?.numero === `${NUMERO}-AV64` && Number(b?.desconto) === 600,
+          r.error)
+      }
+
+      const cookieVis64 = cookieDeSessao((await sessaoDePerfil('visualizador')).session)
+      const vis = await chamar('updateContrato', [id64, ed({ descricao: 'visualizador' })], { rota: `${rc}/editar`, cookie: cookieVis64 })
+      checar('6.4: visualizador não edita contrato',
+        vis.ok === false && /permissão/.test(vis.error ?? '') && (await lido())?.descricao === 'Contrato do 6.4 editado', vis.error)
+
+      const cookieCom64 = cookieDeSessao((await sessaoDePerfil('comercial')).session)
+      const com = await chamar('updateContrato', [id64, ed({ descricao: 'editado pelo comercial' })], { rota: `${rc}/editar`, cookie: cookieCom64 })
+      checar('6.4: comercial edita contrato', com.ok === true && (await lido())?.descricao === 'editado pelo comercial', com.error)
+
+      // Com item: valor total vem da soma dos itens e a obra fica travada.
+      const it = await chamar('createItem', [{ tipo: 'contrato', id: id64 }, {
+        numero: 1, tipo: 'Janela', descricao: 'Janela do contrato 6.4', linha: 'Suprema',
+        acabamento: 'Branco', largura: 1, altura: 1, quantidade: 2, unidade: 'QTD', valor_unit: 1500,
+      }], { rota: rc })
+      if (it.ok) itensCriados.push(it.item.id)
+      checar('6.4: item criado no contrato pela aba Itens', it.ok === true, it.error)
+      const vi = await chamar('updateContrato', [id64, ed({ valor_total: 999999, desconto: 0 })], { rota: `${rc}/editar` })
+      checar('6.4: com itens, o valor total mandado no corpo dá lugar à soma dos itens (3000)',
+        vi.ok === true && Number((await lido())?.valor_total) === 3000, `${vi.error ?? ''} · ${(await lido())?.valor_total}`)
+      const { data: outraObra } = await supabase.from('obras').select('id').neq('id', obra.id).limit(1).maybeSingle()
+      checar('6.4: gc-dev tem uma segunda obra para o passo da trava', Boolean(outraObra))
+      if (outraObra) {
+        const tr = await chamar('updateContrato', [id64, ed({ obra_id: outraObra.id, desconto: 0 })], { rota: `${rc}/editar` })
+        checar('6.4: com itens, trocar a obra é recusado com mensagem legível',
+          tr.ok === false && /tem itens/.test(tr.error ?? '') && (await lido())?.obra_id === obra.id, tr.error)
+      }
+
+      // Anexos: sobe, abre pela URL assinada e remove.
+      const arquivo = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34])], 'validacao-contrato.pdf', { type: 'application/pdf' })
+      const up = await chamarComArquivo('uploadAnexoContrato', id64, arquivo)
+      const anexos = (await lido())?.anexos ?? []
+      const pathAnexo = anexos[0]?.path ?? ''
+      checar('6.4: uploadAnexoContrato sobe o arquivo e grava no jsonb do contrato',
+        up.ok === true && anexos.length === 1, `${up.error ?? ''} · anexos=${anexos.length}`)
+      const { data: perfil64 } = await supabase.from('profiles').select('empresa_id').eq('id', admin.userId).maybeSingle()
+      checar('6.4: path do anexo segue {empresa}/contratos/{id}/...',
+        pathAnexo.startsWith(`${perfil64?.empresa_id}/contratos/${id64}/`), pathAnexo)
+      const url = await chamar('getAnexoUrl', [pathAnexo], { rota: rc })
+      const baixado = url.ok ? await fetch(url.url) : null
+      const bytes = baixado ? new Uint8Array(await baixado.arrayBuffer()) : new Uint8Array()
+      checar('6.4: a URL assinada baixa o anexo do contrato (%PDF)',
+        baixado?.status === 200 && bytes[0] === 0x25 && bytes[1] === 0x50, url.error ?? `HTTP ${baixado?.status}`)
+
+      const upVis = await chamarComArquivo('uploadAnexoContrato', id64, arquivo, { cookie: cookieVis64 })
+      checar('6.4: visualizador não anexa arquivo ao contrato',
+        upVis.ok === false && /permissão/.test(upVis.error ?? '') && ((await lido())?.anexos ?? []).length === 1, upVis.error)
+      const alheio = await chamar('deleteAnexoContrato', [id64, `${perfil64?.empresa_id}/propostas/x/1_outro.pdf`], { rota: rc })
+      checar('6.4: deleteAnexoContrato recusa path que não é anexo do contrato',
+        alheio.ok === false && /não encontrado/.test(alheio.error ?? ''), alheio.error)
+      const cookieCom64b = cookieDeSessao((await sessaoDePerfil('comercial')).session)
+      const doAdmin64 = await chamar('deleteAnexoContrato', [id64, pathAnexo], { rota: rc, cookie: cookieCom64b })
+      const { data: noBucket64 } = await supabase.storage.from('anexos').list(`${perfil64?.empresa_id}/contratos/${id64}`)
+      checar('comercial não apaga o anexo do contrato que o admin subiu: fica no jsonb e no bucket',
+        doAdmin64.ok === false && /admin ou quem enviou/.test(doAdmin64.error ?? '') &&
+          ((await lido())?.anexos ?? []).length === 1 && (noBucket64 ?? []).length === 1,
+        doAdmin64.error ?? 'passou')
+
+      const rm = await chamar('deleteAnexoContrato', [id64, pathAnexo], { rota: rc })
+      const { data: noBucket } = await supabase.storage.from('anexos').list(`${perfil64?.empresa_id}/contratos/${id64}`)
+      checar('6.4: deleteAnexoContrato remove do bucket e do jsonb',
+        rm.ok === true && ((await lido())?.anexos ?? []).length === 0 && (noBucket ?? []).length === 0,
+        `${rm.error ?? ''} · bucket=${(noBucket ?? []).length}`)
+
+      // Fora de ativo, a edição é recusada.
+      await chamar('changeContratoStatus', [id64, { novo_status: 'suspenso', motivo_rescisao: null, detalhe_rescisao: null }], { rota: rc })
+      const sus = await chamar('updateContrato', [id64, ed({ descricao: 'suspenso', desconto: 0 })], { rota: `${rc}/editar` })
+      checar('6.4: contrato suspenso não é editável',
+        sus.ok === false && /Só contrato ativo/.test(sus.error ?? '') && (await lido())?.descricao !== 'suspenso', sus.error)
+    }
+
+    // Contrato gerado de proposta fica na obra dela (FK contratos_proposta_fk).
+    const gerado = contratos62.length > 0
+      ? (await supabase.from('contratos').select('id, numero, obra_id, status').in('id', contratos62).eq('status', 'ativo').limit(1).maybeSingle()).data
+      : null
+    checar('6.4: há contrato ativo gerado de proposta (do 6.2) para o passo da obra travada', Boolean(gerado))
+    const { data: obraDiferente } = await supabase.from('obras').select('id').neq('id', gerado?.obra_id ?? obra.id).limit(1).maybeSingle()
+    if (gerado && obraDiferente) {
+      const r = await chamar('updateContrato', [gerado.id, ed({ numero: gerado.numero, obra_id: obraDiferente.id, desconto: 0 })], { rota: `/contratos/${gerado.id}/editar` })
+      const depois = (await supabase.from('contratos').select('obra_id').eq('id', gerado.id).maybeSingle()).data
+      checar('6.4: contrato gerado de proposta não troca de obra',
+        r.ok === false && /obra da proposta de origem/.test(r.error ?? '') && depois?.obra_id === gerado.obra_id, r.error)
+    }
+  }
+
+  // ============================================================
+  // Bloco 6.5 — mudança de status e rescisão (changeContratoStatus)
+  // ============================================================
+  // Dois contratos `${NUMERO}-AV65A` e `-AV65B`, apagados no finally com os
+  // avulsos. A: ativo → suspenso → ativo → rescindido. B: ativo → concluído.
+  {
+    const novo65 = async (sufixo) => chamar('createContrato', [{
+      numero: `${NUMERO}-AV65${sufixo}`, obra_id: obra.id, descricao: 'Contrato do 6.5',
+      data_assinatura: null, prazo_execucao: null, valor_total: 1000, desconto: 0,
+      pct_sinal: null, pct_fd: null, pct_entrega_material: null, pct_medicao_instalacao: null,
+      condicoes_pagamento: null, observacao: null,
+    }], { rota: '/contratos/novo' })
+    const a = await novo65('A')
+    const b65 = await novo65('B')
+    checar('6.5: contratos de teste criados', a.ok === true && b65.ok === true, a.error ?? b65.error)
+    const idA = a.ok ? a.id : null
+    const idB = b65.ok ? b65.id : null
+    const st = (id, novo_status, motivo_rescisao = null, detalhe_rescisao = null, cookie = admin.cookie) =>
+      chamar('changeContratoStatus', [id, { novo_status, motivo_rescisao, detalhe_rescisao }], { rota: `/contratos/${id}`, cookie })
+    const ler = async (id) =>
+      (await supabase.from('contratos').select('status, motivo_rescisao, detalhe_rescisao, historico').eq('id', id).maybeSingle()).data
+
+    if (idA && idB) {
+      const s1 = await st(idA, 'suspenso')
+      const r1 = await ler(idA)
+      checar('6.5: ativo → suspenso grava o status e uma entrada no histórico, com autor e sem motivo',
+        s1.ok === true && r1?.status === 'suspenso' && r1?.historico?.length === 1 &&
+          r1.historico[0].de === 'ativo' && r1.historico[0].para === 'suspenso' && r1.historico[0].por === admin.userId &&
+          r1.historico[0].motivo_rescisao === null && Boolean(r1.historico[0].em),
+        `${s1.error ?? ''} · ${JSON.stringify(r1 ?? null)}`)
+
+      const sDireto = await st(idA, 'concluido')
+      checar('6.5: suspenso → concluído não é permitido (precisa retomar antes)',
+        sDireto.ok === false && /não é permitida/.test(sDireto.error ?? '') && (await ler(idA))?.status === 'suspenso', sDireto.error)
+
+      const motivoFora = await st(idA, 'ativo', 'inadimplencia')
+      checar('6.5: motivo de rescisão em transição que não é rescisão é recusado, sem gravar',
+        motivoFora.ok === false && /só se aplica/.test(motivoFora.error ?? '') && (await ler(idA))?.status === 'suspenso', motivoFora.error)
+
+      const s2 = await st(idA, 'ativo')
+      checar('6.5: suspenso → ativo (retomada) grava a segunda entrada',
+        s2.ok === true && (await ler(idA))?.status === 'ativo' && (await ler(idA))?.historico?.length === 2, s2.error)
+
+      const recusas = [
+        ['rescisão sem motivo', [idA, 'rescindido', null, null], /Informe o motivo/],
+        ['rescisão com motivo inválido', [idA, 'rescindido', 'calote', null], /inválido/],
+        ['rescisão por "outro" sem detalhamento', [idA, 'rescindido', 'outro', '   '], /Descreva o motivo/],
+        ['status inexistente', [idA, 'cancelado', null, null], /não é permitida/],
+      ]
+      for (const [rotulo, args, esperado] of recusas) {
+        const r = await st(...args)
+        const depois = await ler(idA)
+        checar(`6.5: ${rotulo} é recusada, sem gravar`,
+          r.ok === false && esperado.test(r.error ?? '') && depois?.status === 'ativo' && depois?.historico?.length === 2, r.error)
+      }
+
+      const cookieVis65 = cookieDeSessao((await sessaoDePerfil('visualizador')).session)
+      const vis = await st(idA, 'suspenso', null, null, cookieVis65)
+      checar('6.5: visualizador não muda status',
+        vis.ok === false && /permissão/.test(vis.error ?? '') && (await ler(idA))?.status === 'ativo', vis.error)
+
+      const s3 = await st(idA, 'rescindido', 'outro', '  Obra embargada  ')
+      const r3 = await ler(idA)
+      const ultima = r3?.historico?.at(-1)
+      checar('6.5: rescisão grava status, motivo e detalhamento (aparado) na linha',
+        s3.ok === true && r3?.status === 'rescindido' && r3?.motivo_rescisao === 'outro' && r3?.detalhe_rescisao === 'Obra embargada',
+        `${s3.error ?? ''} · ${JSON.stringify(r3 ?? null)}`)
+      checar('6.5: a entrada da rescisão no histórico leva o motivo e o detalhamento',
+        r3?.historico?.length === 3 && ultima?.para === 'rescindido' && ultima?.motivo_rescisao === 'outro' &&
+          ultima?.detalhe_rescisao === 'Obra embargada', JSON.stringify(ultima ?? null))
+
+      const volta = await st(idA, 'ativo')
+      checar('6.5: rescindido é terminal (não volta a ativo)',
+        volta.ok === false && /não é permitida/.test(volta.error ?? '') && (await ler(idA))?.status === 'rescindido', volta.error)
+
+      const edRescindido = await chamar('updateContrato', [idA, {
+        numero: `${NUMERO}-AV65A`, obra_id: obra.id, descricao: 'depois da rescisão', data_assinatura: null, prazo_execucao: null,
+        valor_total: 1000, desconto: 0, pct_sinal: null, pct_fd: null, pct_entrega_material: null, pct_medicao_instalacao: null,
+        condicoes_pagamento: null, observacao: null,
+      }], { rota: `/contratos/${idA}/editar` })
+      checar('6.5: contrato rescindido não é editável', edRescindido.ok === false && /Só contrato ativo/.test(edRescindido.error ?? ''), edRescindido.error)
+
+      // Constraint estrita no banco, sem passar pela action: motivo fora de rescindido.
+      const { error: ck } = await supabase.from('contratos').update({ motivo_rescisao: 'inadimplencia' }).eq('id', idB)
+      checar('6.5: o CHECK contratos_rescindido_motivo recusa motivo em contrato ativo, direto no banco',
+        Boolean(ck) && /contratos_rescindido_motivo/.test(ck?.message ?? ''), ck?.message ?? 'o update passou')
+
+      const cookieCom65 = cookieDeSessao((await sessaoDePerfil('comercial')).session)
+      const c1 = await st(idB, 'concluido', null, null, cookieCom65)
+      const rb = await ler(idB)
+      checar('6.5: comercial conclui contrato ativo; concluído não tem motivo',
+        c1.ok === true && rb?.status === 'concluido' && rb?.motivo_rescisao === null && rb?.historico?.length === 1, c1.error)
+      const c2 = await st(idB, 'rescindido', 'inadimplencia')
+      checar('6.5: concluído é terminal (não vira rescindido)', c2.ok === false && (await ler(idB))?.status === 'concluido', c2.error)
+    }
+  }
+
+  // ============================================================
+  // Bloco 6.6 — matriz de perfis das ações de contrato
+  // ============================================================
+  // O "roteiro nos 4 perfis" do fechamento, feito sobre os seis (como o 5.8):
+  // cada ação de contrato, inclusive gerar a partir de proposta, em cada
+  // perfil. Regra esperada: admin e comercial tudo; financeiro, medição,
+  // produção e visualizador nada, e recusados pela checagem de perfil (não por
+  // erro de outra coisa). Os contratos levam `-AVM`, e os gerados entram em
+  // contratos62; todos saem no finally.
+  {
+    const PERFIS = ['admin', 'comercial', 'financeiro', 'medicao', 'producao', 'visualizador']
+    const PODEM = ['admin', 'comercial']
+    const pdf = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34])], 'matriz.pdf', { type: 'application/pdf' })
+    const cm = (numero) => ({
+      numero, obra_id: obra.id, descricao: 'matriz de perfis', data_assinatura: null, prazo_execucao: null,
+      valor_total: 100, desconto: 0, pct_sinal: null, pct_fd: null, pct_entrega_material: null,
+      pct_medicao_instalacao: null, condicoes_pagamento: null, observacao: null,
+    })
+    for (const perfil of PERFIS) {
+      const cookie = perfil === 'admin' ? admin.cookie : cookieDeSessao((await sessaoDePerfil(perfil)).session)
+      // Alvo criado pelo admin, com um anexo também do admin.
+      const alvo = await chamar('createContrato', [cm(`${NUMERO}-AVM-${perfil}`)], { rota: '/contratos/novo' })
+      if (!alvo.ok) {
+        checar(`6.6: perfil ${perfil}: contrato-alvo da matriz criado`, false, alvo.error)
+        continue
+      }
+      const rc = `/contratos/${alvo.id}`
+      await chamarComArquivo('uploadAnexoContrato', alvo.id, pdf)
+      const anexoAdmin = (await supabase.from('contratos').select('anexos').eq('id', alvo.id).maybeSingle()).data?.anexos?.[0]?.path
+
+      const deveriaPoder = PODEM.includes(perfil)
+      const erradas = []
+      const conferir = (acao, r) => {
+        if (deveriaPoder && !r.ok) erradas.push(`${acao} recusou: ${r.error}`)
+        if (!deveriaPoder && r.ok) erradas.push(`${acao} PASSOU sem permissão`)
+        if (!deveriaPoder && !r.ok && !/permissão/i.test(r.error ?? '')) erradas.push(`${acao} recusou pelo motivo errado: ${r.error}`)
+      }
+
+      conferir('createContrato', await chamar('createContrato', [cm(`${NUMERO}-AVMC-${perfil}`)], { rota: '/contratos/novo', cookie }))
+      conferir('updateContrato', await chamar('updateContrato', [alvo.id, { ...cm(`${NUMERO}-AVM-${perfil}`), descricao: `editado por ${perfil}` }], { rota: `${rc}/editar`, cookie }))
+      // Anexo: quem pode sobe o próprio e o remove (o Storage só deixa o dono
+      // ou o admin apagar); quem não pode tenta remover o do admin.
+      const up = await chamarComArquivo('uploadAnexoContrato', alvo.id, pdf, { cookie })
+      conferir('uploadAnexoContrato', up)
+      const anexos = (await supabase.from('contratos').select('anexos').eq('id', alvo.id).maybeSingle()).data?.anexos ?? []
+      const proprio = anexos.find((x) => x.path !== anexoAdmin)?.path
+      conferir('deleteAnexoContrato', await chamar('deleteAnexoContrato', [alvo.id, up.ok && proprio ? proprio : anexoAdmin], { rota: rc, cookie }))
+      conferir('changeContratoStatus', await chamar('changeContratoStatus', [alvo.id, { novo_status: 'suspenso', motivo_rescisao: null, detalhe_rescisao: null }], { rota: rc, cookie }))
+      if (proposta62Id) {
+        conferir('gerarContratoDeProposta', await chamar('gerarContratoDeProposta', [proposta62Id, { ...cm(`${NUMERO}-CTM-${perfil}`), valor_total: 650, desconto: 100 }, { copiarItens: false, confirmarDuplicado: true }], { rota: `/propostas/${proposta62Id}/gerar-contrato`, cookie }))
+      } else {
+        erradas.push('sem a proposta aprovada do 6.2 para gerar contrato')
+      }
+      checar(`6.6: perfil ${perfil}: as 6 ações de contrato obedecem à regra`, erradas.length === 0, erradas.join(' | '))
+
+      // O anexo do admin sai do bucket aqui: a limpeza do finally apaga só as linhas.
+      if (anexoAdmin) await supabase.storage.from('anexos').remove([anexoAdmin])
+    }
+    if (proposta62Id) {
+      const { data: gerados } = await supabase.from('contratos').select('id').eq('proposta_origem_id', proposta62Id)
+      for (const c of gerados ?? []) if (!contratos62.includes(c.id)) contratos62.push(c.id)
+    }
+  }
+
+  // ============================================================
+  // Pendências da sprint 6 — duas mudanças de status ao mesmo tempo
+  // ============================================================
+  // O histórico era lido e gravado em dois passos: duas mudanças simultâneas
+  // liam a mesma lista e a segunda apagava a entrada da primeira. As actions
+  // passaram a gravar só se o status ainda é o lido. O invariante conferido:
+  // exatamente uma das duas vence, e o histórico tem uma entrada por
+  // transição que venceu, com a última batendo com o status. As duas saem em
+  // paralelo, mas o servidor pode serializá-las; aí a perdedora cai na regra
+  // de transição em vez do lock. O invariante vale nos dois casos.
+  {
+    const cor = await chamar('createContrato', [{
+      numero: `${NUMERO}-AVCOR`, obra_id: obra.id, descricao: 'corrida de status', data_assinatura: null,
+      prazo_execucao: null, valor_total: 100, desconto: 0, pct_sinal: null, pct_fd: null,
+      pct_entrega_material: null, pct_medicao_instalacao: null, condicoes_pagamento: null, observacao: null,
+    }], { rota: '/contratos/novo' })
+    if (cor.ok) {
+      const st = (novo_status) => chamar('changeContratoStatus', [cor.id, { novo_status, motivo_rescisao: null, detalhe_rescisao: null }], { rota: `/contratos/${cor.id}` })
+      const [r1, r2] = await Promise.all([st('suspenso'), st('concluido')])
+      const { data: c } = await supabase.from('contratos').select('status, historico').eq('id', cor.id).maybeSingle()
+      const venceu = [r1, r2].filter((r) => r.ok).length
+      const perdedora = [r1, r2].find((r) => !r.ok)
+      checar('contrato: de duas mudanças simultâneas, uma vence e o histórico tem exatamente a entrada dela',
+        venceu === 1 && c?.historico?.length === 1 && c.historico[0].para === c.status &&
+          /mudou enquanto|não é permitida/.test(perdedora?.error ?? ''),
+        `ok=${venceu} · ${perdedora?.error ?? ''} · ${JSON.stringify(c ?? null)}`)
+    } else {
+      checar('contrato da corrida de status criado', false, cor.error)
+    }
+
+    const pc = await chamar('createProposta', [{ ...base, numero: `${NUMERO}-CORRIDA`, pct_sinal: null, pct_fd: null }], { rota: '/propostas/nova' })
+    if (pc.ok) {
+      const hoje = new Date().toISOString().slice(0, 10)
+      const para = (novo_status) => chamar('changePropostaStatus', [pc.id,
+        { novo_status, data_envio: hoje, data_decisao: hoje, motivo_rejeicao: null, detalhe_rejeicao: null }], { rota: `/propostas/${pc.id}` })
+      // Enviada primeiro, sozinha; depois dois destinos diferentes ao mesmo
+      // tempo. Transição para o mesmo status é aceita na proposta, então dois
+      // envios iguais não distinguiriam o código antigo do novo.
+      await para('enviada')
+      const [e1, e2] = await Promise.all([para('aprovada'), para('rascunho')])
+      const { data: pr } = await supabase.from('propostas').select('status, historico').eq('id', pc.id).maybeSingle()
+      const venceu = [e1, e2].filter((r) => r.ok).length
+      checar('proposta: de duas mudanças simultâneas, uma vence e o histórico tem exatamente a entrada dela',
+        venceu === 1 && pr?.historico?.length === 2 && pr.historico[1].para === pr.status,
+        `ok=${venceu} · ${[e1, e2].find((r) => !r.ok)?.error ?? ''} · ${JSON.stringify(pr ?? null)}`)
+      const apagada = await chamar('deleteProposta', [pc.id], { rota: `/propostas/${pc.id}` })
+      checar('limpeza da proposta da corrida de status', apagada.ok === true, apagada.error)
+    } else {
+      checar('proposta da corrida de status criada', false, pc.error)
+    }
+  }
+
+  // Pendência do 6.2 — dois cliques simultâneos em "Gerar contrato", sem a
+  // confirmação de duplicado. A função trava a proposta (`for update`) antes
+  // de conferir se já existe contrato vigente: tem de sair um contrato só, e
+  // a outra chamada volta com o aviso de contrato existente.
+  {
+    const hoje = new Date().toISOString().slice(0, 10)
+    const pg = await chamar('createProposta', [{ ...base, numero: `${NUMERO}-GCOR`, pct_sinal: null, pct_fd: null }], { rota: '/propostas/nova' })
+    if (pg.ok) {
+      const rpg = `/propostas/${pg.id}`
+      for (const novo_status of ['enviada', 'aprovada']) {
+        await chamar('changePropostaStatus', [pg.id, { novo_status, data_envio: hoje, data_decisao: hoje, motivo_rejeicao: null, detalhe_rejeicao: null }], { rota: rpg })
+      }
+      const ger = (sufixo) => chamar('gerarContratoDeProposta', [pg.id, {
+        numero: `${NUMERO}-CTCOR${sufixo}`, obra_id: obra.id, data_assinatura: hoje, prazo_execucao: null, descricao: null,
+        valor_total: Number(base.valor_total ?? 0), desconto: 0, pct_sinal: null, pct_fd: null, pct_entrega_material: null,
+        pct_medicao_instalacao: null, condicoes_pagamento: null, observacao: null,
+      }, { copiarItens: false, confirmarDuplicado: false }], { rota: `${rpg}/gerar-contrato` })
+      const [g1, g2] = await Promise.all([ger('1'), ger('2')])
+      const { data: gerados } = await supabase.from('contratos').select('id, numero').eq('proposta_origem_id', pg.id)
+      const perdedora = [g1, g2].find((r) => !r.ok)
+      checar('6.2: dois "Gerar contrato" simultâneos sem confirmação geram um contrato só; o outro recebe o aviso',
+        [g1, g2].filter((r) => r.ok).length === 1 && (gerados ?? []).length === 1 &&
+          ((perdedora?.contratosExistentes ?? []).length === 1 || /vigente/.test(perdedora?.error ?? '')),
+        `${perdedora?.error ?? ''} · gerados=${JSON.stringify(gerados ?? null)}`)
+      // Contrato antes da proposta (FK contratos_proposta_fk).
+      if ((gerados ?? []).length > 0) await supabase.from('contratos').delete().in('id', gerados.map((c) => c.id))
+      const apg = await chamar('deleteProposta', [pg.id], { rota: rpg })
+      checar('limpeza da proposta e do contrato da corrida do "Gerar"', apg.ok === true, apg.error)
+    } else {
+      checar('proposta da corrida do "Gerar" criada', false, pg.error)
+    }
+  }
+
   // ============================================================
   // Fase 6 da automação — POST /api/ingestao/proposta
   // ============================================================
@@ -1448,6 +2104,122 @@ try {
       checar('número de proposta repetido responde 409 com mensagem legível (decisão 9)', duplicada.status === 409 && /Já existe uma proposta com esse número/.test(duplicada.json?.error ?? ''), JSON.stringify(duplicada))
     }
   }
+  // Auditoria (13.2): o trigger viu o roteiro acima, e a RPC grava erro
+  // ============================================================
+
+  /** Eventos de um registro, do mais antigo pro mais novo, lidos como admin. */
+  async function eventosDe(entidade, registroId) {
+    const { data, error } = await supabase
+      .from('auditoria_eventos')
+      .select('id, origem, entidade, registro_id, referencia, acao, resultado, mensagem, autor_id, autor_descricao, detalhe, empresa_id')
+      .eq('entidade', entidade)
+      .eq('registro_id', registroId)
+      .order('id')
+    if (error) console.log(`         select de auditoria: ${error.message}`)
+    return data ?? []
+  }
+
+  if (propostaId) {
+    const evs = await eventosDe('propostas', propostaId)
+    const criar = evs.find((e) => e.acao === 'criar')
+    checar(
+      'auditoria: createProposta gerou evento "criar" com autor, origem sistema, referência e a linha',
+      criar?.origem === 'sistema' && criar?.autor_id === admin.userId &&
+        criar?.referencia === NUMERO && criar?.detalhe?.linha?.numero === NUMERO,
+      JSON.stringify(criar ?? null).slice(0, 200),
+    )
+    const envio = evs.find(
+      (e) => e.acao === 'status' && e.detalhe?.campos?.status?.de === 'rascunho' && e.detalhe?.campos?.status?.para === 'enviada',
+    )
+    checar('auditoria: rascunho → enviada virou evento "status" com o diff', Boolean(envio), `${evs.length} evento(s)`)
+    const ruido = evs.filter((e) => {
+      const campos = Object.keys(e.detalhe?.campos ?? {})
+      return (e.acao === 'editar' || e.acao === 'status') &&
+        (campos.length === 0 || campos.includes('updated_at') || campos.includes('historico'))
+    })
+    checar('auditoria: nenhum evento de update traz só updated_at/historico', ruido.length === 0, `${ruido.length} com ruído`)
+
+    // A busca da tela (filtroBuscaAuditoria) acha a proposta pelo número.
+    const { count: pelaBusca } = await supabase
+      .from('auditoria_eventos')
+      .select('id', { count: 'exact', head: true })
+      .or(`referencia.ilike.%${NUMERO}%,mensagem.ilike.%${NUMERO}%,autor_descricao.ilike.%${NUMERO}%`)
+    checar('auditoria: busca pelo número da proposta acha os eventos dela', (pelaBusca ?? 0) >= 2, `achou ${pelaBusca}`)
+  }
+
+  // A ingestão (Fase 6) grava com a chave de serviço: é o caso real do filtro
+  // "Automação" da tela, com o profile de serviço como autor (created_by).
+  if (propostaIngestaoId) {
+    const evs = await eventosDe('propostas', propostaIngestaoId)
+    const criar = evs.find((e) => e.acao === 'criar')
+    checar(
+      'auditoria: proposta da rota de ingestão entra como origem automacao, autor = profile de serviço',
+      criar?.origem === 'automacao' && criar?.autor_id === process.env.INGESTAO_PROFILE_ID &&
+        criar?.autor_descricao === 'service_role',
+      JSON.stringify(criar ?? null).slice(0, 200),
+    )
+  }
+
+  if (orcamentoId) {
+    const evs = await eventosDe('orcamentos', orcamentoId)
+    const status = evs.filter((e) => e.acao === 'status')
+    // 2 transições do roteiro, mais as que venceram na corrida da sprint 6.
+    const esperado = 2 + orcCorridaVenceram
+    checar(`auditoria: as ${esperado} transições do orçamento viraram ${esperado} eventos "status"`, status.length === esperado, `status=${status.length}`)
+  }
+
+  if (itensCriados.length > 0) {
+    const evs = await eventosDe('itens', itensCriados[0])
+    checar('auditoria: createItem gerou evento "criar" em itens', evs.some((e) => e.acao === 'criar'), `${evs.length} evento(s)`)
+  }
+
+  // RPC registrar_evento, como uma Server Action faria ao falhar (etapa B).
+  const comercial = await sessaoDePerfil('comercial')
+  const sbComercial = createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+  await sbComercial.auth.setSession(comercial.session)
+  const { data: perfilAdmin } = await supabase.from('profiles').select('empresa_id').eq('id', admin.userId).maybeSingle()
+
+  const rpc = await sbComercial.rpc('registrar_evento', {
+    p_entidade: 'validacao',
+    p_acao: 'teste_erro',
+    p_resultado: 'erro',
+    p_mensagem: `${NUMERO}: erro de teste da camada de escrita`,
+    // Com sessão, a empresa vem da sessão: este uuid tem de ser ignorado.
+    p_empresa_id: '00000000-0000-0000-0000-000000000000',
+  })
+  checar('auditoria: comercial registra erro pela RPC', !rpc.error && typeof rpc.data === 'number', rpc.error?.message)
+
+  if (!rpc.error) {
+    const { data: ev } = await supabase.from('auditoria_eventos').select('*').eq('id', rpc.data).maybeSingle()
+    checar(
+      'auditoria: evento da RPC tem origem sistema, autor = comercial e resultado erro',
+      ev?.origem === 'sistema' && ev?.autor_id === comercial.user.id && ev?.resultado === 'erro',
+      JSON.stringify(ev ?? null).slice(0, 200),
+    )
+    checar(
+      'auditoria: RPC com sessão ignora p_empresa_id e grava na empresa da sessão',
+      ev?.empresa_id === perfilAdmin?.empresa_id,
+      `empresa=${ev?.empresa_id}`,
+    )
+    const { count: vistoPeloComercial } = await sbComercial
+      .from('auditoria_eventos')
+      .select('id', { count: 'exact', head: true })
+      .eq('id', rpc.data)
+    checar('auditoria: comercial grava mas não lê o próprio evento', vistoPeloComercial === 0, `viu ${vistoPeloComercial}`)
+
+    const alterar = await svc.from('auditoria_eventos').update({ mensagem: 'adulterado' }).eq('id', rpc.data)
+    checar(
+      'auditoria: nem a chave de serviço altera evento (auditoria_imutavel)',
+      /auditoria_imutavel/.test(alterar.error?.message ?? ''),
+      alterar.error?.message ?? 'update passou',
+    )
+  }
+
+  const anon = await createClient(URL_SUPABASE, ANON).rpc('registrar_evento', {
+    p_entidade: 'validacao', p_acao: 'teste_anon', p_resultado: 'erro',
+    p_empresa_id: perfilAdmin?.empresa_id,
+  })
+  checar('auditoria: anon não chama registrar_evento', Boolean(anon.error), 'anon conseguiu registrar')
 } finally {
   // Fase 6: a proposta da ingestão sai com os itens pelo mesmo caminho da tela;
   // os documentos de teste saem depois (a FK de proposta_criada_id é set null).
@@ -1480,6 +2252,25 @@ try {
       !errItens,
       errItens?.message,
     )
+  }
+  // 6.3: contratos avulsos (sem itens).
+  {
+    const { data: avulsos } = await supabase.from('contratos').select('id').like('numero', `${NUMERO}-AV%`)
+    if ((avulsos ?? []).length > 0) {
+      const { error: eav } = await supabase.from('contratos').delete().in('id', avulsos.map((c) => c.id))
+      checar(`6.3: os ${avulsos.length} contratos avulsos apagados`, !eav, eav?.message)
+    }
+  }
+  // 6.2: itens dos contratos primeiro (FK set null deixaria órfãos), depois os
+  // contratos, depois a proposta com os itens dela.
+  if (contratos62.length > 0) {
+    await supabase.from('itens').delete().in('contrato_id', contratos62)
+    const { error: e62 } = await supabase.from('contratos').delete().in('id', contratos62)
+    checar(`6.2: os ${contratos62.length} contratos gerados apagados com os itens`, !e62, e62?.message)
+  }
+  if (proposta62Id) {
+    const r = await chamar('deleteProposta', [proposta62Id], { rota: `/propostas/${proposta62Id}` })
+    checar('6.2: proposta de teste apagada com os itens', r.ok === true, r.error)
   }
   if (contratoTesteId) {
     await supabase.from('itens').delete().eq('contrato_id', contratoTesteId)
@@ -1520,7 +2311,28 @@ try {
       itensOrfaos === 0,
       `itens restantes: ${itensOrfaos}`,
     )
+
+    const { data: exclusao } = await supabase
+      .from('auditoria_eventos')
+      .select('detalhe')
+      .eq('entidade', 'propostas')
+      .eq('registro_id', propostaId)
+      .eq('acao', 'excluir')
+      .maybeSingle()
+    checar(
+      'auditoria: deleteProposta deixou evento "excluir" com a linha apagada',
+      exclusao?.detalhe?.linha?.numero === NUMERO,
+      JSON.stringify(exclusao ?? null).slice(0, 200),
+    )
   }
+
+  // Limpeza da auditoria: os eventos que o roteiro gerou (ver o módulo).
+  const limpezaAud = await limparAuditoriaDoRoteiro(svc, INICIO_AUDITORIA)
+  checar(
+    `limpeza dos ${limpezaAud.apagados} eventos de auditoria do roteiro`,
+    !limpezaAud.error,
+    limpezaAud.error?.message,
+  )
 }
 
 console.log(`\n${passos - falhas}/${passos} passos ok (como ${EMAIL})`)

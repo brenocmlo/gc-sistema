@@ -270,7 +270,7 @@ camada_navegador() {
   npx next dev -p "$porta_dev" > /tmp/validar-next-dev.log 2>&1 &
   SERVER_PID=$!
 
-  "$chrome" --headless=new --remote-debugging-port="$PORTA_CDP" --no-first-run     --user-data-dir=/tmp/gc-validacao/chrome-profile about:blank     > /tmp/validar-chrome.log 2>&1 &
+  "$chrome" --headless=new --remote-debugging-port="$PORTA_CDP" --no-first-run     --user-data-dir="/tmp/gc-validacao/chrome-profile-$PORTA_CDP" about:blank     > /tmp/validar-chrome.log 2>&1 &
   CHROME_PID=$!
 
   local i codigo=000
@@ -291,7 +291,11 @@ camada_navegador() {
     sleep 1
   done
 
-  if BASE_URL="http://127.0.0.1:$porta_dev" node --env-file=.env.local scripts/validar-navegador.mjs; then
+  # A porta do CDP vai junto: sem ela o script conectava sempre na 9222 e, com
+  # duas rodadas em paralelo (VALIDACAO_PORTA_CDP diferente), dirigia o Chrome
+  # da outra. Pelo mesmo motivo o perfil do Chrome é um por porta.
+  if BASE_URL="http://127.0.0.1:$porta_dev" VALIDACAO_PORTA_CDP="$PORTA_CDP" \
+    node --env-file=.env.local scripts/validar-navegador.mjs; then
     ok navegador "$((SECONDS - t0))s"
   else
     falhou navegador "$((SECONDS - t0))s"; return 1

@@ -23,9 +23,11 @@ import {
   type PropostaFinanceiro,
 } from '@/lib/types'
 
-import AnexosTab from './anexos-tab'
+import AnexosTab from '@/components/AnexosTab'
+
+import { deleteAnexo, getAnexoUrl, uploadAnexo } from './actions'
 import DetailHeader from './detail-header'
-import ItensTab from './itens-tab'
+import ItensTab from '@/components/itens/itens-tab'
 
 type PageProps = {
   params: { id: string }
@@ -136,10 +138,10 @@ export default async function PropostaDetalhePage({ params }: PageProps) {
             label: `Itens${itens.length > 0 ? ` (${itens.length})` : ''}`,
             content: (
               <ItensTab
-                propostaId={proposta.id}
+                pai={{ tipo: 'proposta', id: proposta.id }}
                 itens={itens}
-                valorTotalProposta={proposta.valor_total}
-                descontoProposta={proposta.desconto}
+                valorTotalPai={proposta.valor_total}
+                descontoPai={proposta.desconto}
                 perfil={profile.perfil}
                 editavel={isEditavel(proposta.status)}
               />
@@ -150,9 +152,13 @@ export default async function PropostaDetalhePage({ params }: PageProps) {
             label: `Anexos${anexos.length > 0 ? ` (${anexos.length})` : ''}`,
             content: (
               <AnexosTab
-                propostaId={proposta.id}
                 anexos={anexos}
                 perfil={profile.perfil}
+                userId={profile.id}
+                doPai="da proposta"
+                upload={uploadAnexo.bind(null, proposta.id)}
+                remove={deleteAnexo.bind(null, proposta.id)}
+                abrir={getAnexoUrl}
               />
             ),
           },

@@ -1,4 +1,5 @@
 import {
+  Activity,
   ArrowLeftRight,
   Building2,
   FileCheck,
@@ -75,6 +76,8 @@ export const MENU_ITEMS: readonly MenuItem[] = [
     icon: ArrowLeftRight,
     perfis: ['admin', 'financeiro', 'visualizador'],
   },
+  // Bloco 13.2. Só admin: a RLS de auditoria_eventos também só deixa admin ler.
+  { label: 'Logs e auditoria', href: '/logs', icon: Activity, perfis: ['admin'] },
 ]
 
 export const SETTINGS_ITEM: MenuItem = {

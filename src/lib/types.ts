@@ -208,6 +208,26 @@ export type Contrato = Omit<Tables['contratos']['Row'], 'status'> & {
 export type ContratoInsert = Tables['contratos']['Insert']
 export type ContratoUpdate = Tables['contratos']['Update']
 
+// Subset de campos pra listagem. Como proposta, contrato não tem cliente_id:
+// o cliente vem por obra.
+export type ContratoListItem = Pick<
+  Contrato,
+  | 'id'
+  | 'numero'
+  | 'obra_id'
+  | 'data_assinatura'
+  | 'status'
+  | 'valor_total'
+  | 'desconto'
+  | 'valor_final'
+> & {
+  obra:
+    | (Pick<Obra, 'codigo_obra' | 'nome'> & {
+        cliente: Pick<Cliente, 'nome'> | null
+      })
+    | null
+}
+
 // Operação
 export type Obra = Tables['obras']['Row']
 export type ObraInsert = Tables['obras']['Insert']

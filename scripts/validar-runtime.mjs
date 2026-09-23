@@ -228,8 +228,57 @@ const { data: seedDivergente } = await supabase
   .eq('numero', 'SEED-DIVERGENTE-001')
   .maybeSingle()
 
+// {propostaAprovada} → PROP-2026-008 (supabase/seed_propostas.sql): aprovada,
+// com desconto e sem itens. É a que mostra o botão "Gerar contrato" (6.2).
+const { data: seedAprovada } = await supabase
+  .from('propostas')
+  .select('id')
+  .eq('numero', 'PROP-2026-008')
+  .eq('status', 'aprovada')
+  .maybeSingle()
+
 // {obraPrimeira}: qualquer obra serve — o que a rota prova é que o detalhe
 // monta, e ele passa pela mesma view que já derrubou a listagem uma vez.
+// {contratoAtivo} → SEED-CT-001 e {contratoSuspenso} → SEED-CT-002
+// (supabase/seed_contratos.sql): o detalhe e a edição do bloco 6.4.
+const { data: seedContratoAtivo } = await supabase
+  .from('contratos')
+  .select('id')
+  .eq('numero', 'SEED-CT-001')
+  .eq('status', 'ativo')
+  .maybeSingle()
+
+const { data: seedContratoSuspenso } = await supabase
+  .from('contratos')
+  .select('id')
+  .eq('numero', 'SEED-CT-002')
+  .eq('status', 'suspenso')
+  .maybeSingle()
+
+// {contratoRescindido} → SEED-CT-004: rescindido por inadimplência (6.5).
+const { data: seedContratoRescindido } = await supabase
+  .from('contratos')
+  .select('id')
+  .eq('numero', 'SEED-CT-004')
+  .eq('status', 'rescindido')
+  .maybeSingle()
+
+// Pendência do 6.1: filtro por obra e busca por cliente em /contratos.
+// {obraDosContratos} → a obra do SEED-CT-001; {clienteDosContratos} → o nome
+// do cliente dela (na URL, codificado); {obraSemContrato} → uma obra sem
+// nenhum contrato, que tem de dar a lista vazia.
+const { data: ctComObra } = await supabase
+  .from('contratos')
+  .select('obra_id, obra:obras(cliente:clientes(nome))')
+  .eq('numero', 'SEED-CT-001')
+  .maybeSingle()
+const clienteDosContratos = ctComObra?.obra?.cliente?.nome ?? null
+const { data: obrasComContrato } = await supabase.from('contratos').select('obra_id')
+const { data: todasAsObras } = await supabase.from('obras').select('id')
+const obraSemContrato = (todasAsObras ?? []).find(
+  (o) => !(obrasComContrato ?? []).some((c) => c.obra_id === o.id),
+)?.id ?? null
+
 const { data: obraPrimeira } = await supabase
   .from('obras')
   .select('id')
@@ -286,6 +335,40 @@ for (const rota of rotas) {
     continue
   }
 
+  if (rota.path.includes('{propostaAprovada}') && !seedAprovada) {
+    falhas += 1
+    console.log(
+      `  FALHA ${rota.path} — sem PROP-2026-008 aprovada; rode` +
+        ' bash scripts/aplicar-seed.sh supabase/seed_propostas.sql',
+    )
+    continue
+  }
+
+  if (
+    (rota.path.includes('{contratoAtivo}') && !seedContratoAtivo) ||
+    (rota.path.includes('{contratoSuspenso}') && !seedContratoSuspenso) ||
+    (rota.path.includes('{contratoRescindido}') && !seedContratoRescindido)
+  ) {
+    falhas += 1
+    console.log(
+      `  FALHA ${rota.path} — sem SEED-CT-001 ativo / 002 suspenso / 004 rescindido; rode` +
+        ' bash scripts/aplicar-seed.sh supabase/seed_contratos.sql',
+    )
+    continue
+  }
+
+  if (
+    (rota.path.includes('{obraDosContratos}') && !ctComObra) ||
+    (rota.path.includes('{clienteDosContratos}') && !clienteDosContratos) ||
+    (rota.path.includes('{obraSemContrato}') && !obraSemContrato)
+  ) {
+    falhas += 1
+    console.log(
+      `  FALHA ${rota.path} — falta dado: SEED-CT-001 com obra e cliente, ou uma obra sem contrato em gc-dev`,
+    )
+    continue
+  }
+
   if (rota.path.includes('{obraPrimeira}') && !obraPrimeira) {
     falhas += 1
     console.log(`  FALHA ${rota.path} — gc-dev não tem nenhuma obra`)
@@ -302,6 +385,13 @@ for (const rota of rotas) {
     .replace('{propostaSeed}', seed?.id ?? '')
     .replace('{propostaItens}', seedItens?.id ?? '')
     .replace('{propostaDivergente}', seedDivergente?.id ?? '')
+    .replace('{propostaAprovada}', seedAprovada?.id ?? '')
+    .replace('{contratoAtivo}', seedContratoAtivo?.id ?? '')
+    .replace('{contratoSuspenso}', seedContratoSuspenso?.id ?? '')
+    .replace('{contratoRescindido}', seedContratoRescindido?.id ?? '')
+    .replace('{obraDosContratos}', ctComObra?.obra_id ?? '')
+    .replace('{clienteDosContratos}', encodeURIComponent(clienteDosContratos ?? ''))
+    .replace('{obraSemContrato}', obraSemContrato ?? '')
     .replace('{obraPrimeira}', obraPrimeira?.id ?? '')
     .replace('{orcamentoPrimeiro}', orcamentoPrimeiro?.id ?? '')
   const cookieDaRota = cookiesPorPerfil[perfil ?? 'admin']

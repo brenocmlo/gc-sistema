@@ -227,7 +227,9 @@ export default function PropostaForm({
             readOnly
             disabled
             tabIndex={-1}
-            value={formatCurrency(valorFinal)}
+            // Desconto acima do valor: o erro já aparece no campo Desconto, e
+            // um valor final negativo só confundia. O banco recusa esse caso.
+            value={valorFinal < 0 ? '—' : formatCurrency(valorFinal)}
           />
         </FormField>
       </FormSection>

@@ -21,6 +21,8 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 
 import { exigirGcDev } from './gc-dev-guard.mjs'
 import { conectar } from './navegador-cdp.mjs'
+import { limparAuditoriaDoRoteiro } from './auditoria-limpeza.mjs'
+import { sessaoDePerfil } from './sessao-dev.mjs'
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3111'
 const EMAIL = process.env.VALIDACAO_EMAIL
@@ -40,6 +42,8 @@ let passos = 0, falhas = 0
 // Declarado aqui em cima: o roteiro chama clienteSupabase() antes da linha
 // em que a função é declarada, e `let` embaixo cairia na zona morta.
 let _sb = null
+/** Início da rodada, com folga pro relógio do banco — ver auditoria-limpeza.mjs. */
+const INICIO_AUDITORIA = new Date(Date.now() - 60_000).toISOString()
 
 function checar(desc, cond, detalhe = '') {
   passos++
@@ -47,7 +51,7 @@ function checar(desc, cond, detalhe = '') {
   else { falhas++; console.log(`  FALHA ${desc}`); if (detalhe) console.log(`         ${String(detalhe).slice(0, 300)}`) }
 }
 
-const b = await conectar()
+const b = await conectar({ porta: Number(process.env.VALIDACAO_PORTA_CDP ?? 9222) })
 
 try {
   await b.limparSessao()
@@ -668,7 +672,453 @@ try {
       ` de janela, sidebar ${shell.sidebar}px — pendência do bloco 8.2`,
   )
   await b.screenshot(`${SHOTS}/14-shell-390px.png`, { largura: 390, altura: 844 })
+
+  // Pendência do 6.1: /contratos nunca tinha sido medido em 390px. A mesma
+  // guarda do shell: a listagem de contratos não pode estourar mais do que a
+  // de propostas estoura hoje.
+  await b.ir(`${BASE}/contratos`)
+  await b.esperar('document.querySelector("table tbody tr")', { rotulo: '/contratos em 390px', ms: 25000 })
+  const shellCt = await b.avaliar('({ paginaScroll: document.documentElement.scrollWidth, janela: window.innerWidth })')
+  checar(
+    `/contratos em 390px não estoura além do shell conhecido (${SHELL_OVERFLOW_CONHECIDO}px)`,
+    shellCt.paginaScroll <= SHELL_OVERFLOW_CONHECIDO,
+    `medido: ${JSON.stringify(shellCt)}`,
+  )
+  await b.screenshot(`${SHOTS}/14b-contratos-390px.png`, { largura: 390, altura: 844 })
   await b.viewport(1440, 900)
+
+  // 15. Logs e auditoria (13.2): menu lateral, busca, filtro e o diff.
+  //     A proposta desta rodada foi criada e excluída pela tela lá em cima,
+  //     então o trigger deixou pelo menos "criar" e "excluir" com a referência.
+  await b.clicar('nav a', { texto: 'Logs e auditoria' })
+  await b.esperar('location.pathname === "/logs"', { rotulo: '/logs pelo menu', ms: 20000 })
+  checar('item "Logs e auditoria" do menu lateral navega', (await b.url()).startsWith('/logs'), await b.url())
+
+  await b.preencher('input[placeholder^="Buscar na mensagem"]', NUMERO)
+  await b.esperar(`location.search.includes("busca=${NUMERO}")`, { rotulo: 'busca na URL (debounce)', ms: 10000 })
+  await b.esperar('document.querySelector("table")', { rotulo: 'tabela de eventos', ms: 20000 })
+  // Só as linhas da tabela de fora: o diff do <details> também tem <tr>.
+  const linhasLog = await b.avaliar(
+    'Array.from(document.querySelector("table").tBodies[0].rows).map((r) => r.innerText.replace(/\\s+/g, " "))',
+  )
+  checar(
+    'busca pelo número acha os eventos da proposta desta rodada, todos com a referência',
+    linhasLog.length >= 2 && linhasLog.every((l) => l.includes(NUMERO)),
+    `${linhasLog.length} linha(s): ${linhasLog.slice(0, 3).join(' | ')}`,
+  )
+  checar(
+    'a exclusão pela tela ficou registrada',
+    linhasLog.some((l) => l.includes('Exclusão') && l.includes('registro excluído')),
+    linhasLog.join(' | ').slice(0, 300),
+  )
+  await b.screenshot(`${SHOTS}/15-logs-busca.png`)
+
+  await b.preencher('select[aria-label="resultado"]', 'erro')
+  await b.esperar('location.search.includes("resultado=erro")', { rotulo: 'filtro de resultado na URL' })
+  await b.esperar('document.body.innerText.includes("Nenhum evento encontrado com esses filtros")', {
+    rotulo: 'filtro erro esvazia a busca',
+  })
+  checar('filtro "Erro" tira os eventos de sucesso', true)
+
+  await b.ir(`${BASE}/logs?busca=SEED-VENCIDA-001`)
+  await b.esperar('document.querySelector("details summary")', { rotulo: 'evento com diff' })
+  await b.clicar('details summary')
+  await b.esperar('document.querySelector("details[open]")', { rotulo: '<details> aberto' })
+  const diff = await b.avaliar('document.querySelector("details[open]").innerText.replace(/\\s+/g, " ")')
+  checar(
+    'o <details> abre o diff campo a campo (antes → depois)',
+    diff.includes('Antes') && diff.includes('Depois') && diff.includes('desconto') && diff.includes('5000'),
+    diff,
+  )
+  await b.screenshot(`${SHOTS}/16-logs-diff.png`)
+  await b.screenshot(`${SHOTS}/17-logs-390px.png`, { largura: 390, altura: 844 })
+  await b.viewport(1440, 900)
+
+  // 16. Listagem de contratos (6.1): menu, busca com debounce, filtros de
+  //     status e período na URL. Os dados vêm de supabase/seed_contratos.sql.
+  await b.clicar('nav a', { texto: 'Contratos' })
+  await b.esperar('location.pathname === "/contratos"', { rotulo: '/contratos pelo menu', ms: 25000 })
+  await b.esperar('document.querySelector("table tbody tr")', { rotulo: 'tabela de contratos', ms: 25000 })
+  checar('item "Contratos" do menu abre a listagem', (await b.url()) === '/contratos', await b.url())
+
+  const numerosContratos = () =>
+    b.avaliar('Array.from(document.querySelectorAll("table tbody tr")).map((r) => r.cells[0].innerText.trim())')
+
+  await b.preencher('input[aria-label="Buscar contratos"]', 'SEED-CT-00')
+  await b.esperar('location.search.includes("busca=SEED-CT-00")', { rotulo: 'busca de contrato na URL (debounce)', ms: 10000 })
+  await b.esperar('Array.from(document.querySelectorAll("table tbody tr")).every((r) => r.cells[0].innerText.startsWith("SEED-CT-"))', {
+    rotulo: 'busca aplicada', ms: 20000,
+  })
+  const buscados = await numerosContratos()
+  checar(
+    'busca "SEED-CT-00" traz os 4 contratos do seed, com data mais recente primeiro e sem data no fim',
+    JSON.stringify(buscados) === JSON.stringify(['SEED-CT-001', 'SEED-CT-002', 'SEED-CT-003', 'SEED-CT-004']),
+    buscados.join(', '),
+  )
+
+  await b.preencher('select[aria-label="Status"]', 'rescindido')
+  await b.esperar('location.search.includes("status=rescindido") && location.search.includes("busca=SEED-CT-00")', {
+    rotulo: 'status na URL sem perder a busca',
+  })
+  await b.esperar('document.querySelectorAll("table tbody tr").length === 1', { rotulo: 'filtro de status aplicado', ms: 20000 })
+  checar('filtro de status "Rescindido" deixa só SEED-CT-004', (await numerosContratos())[0] === 'SEED-CT-004')
+
+  await b.preencher('select[aria-label="Status"]', '')
+  // Cada select lê a URL atual pra montar a próxima: sem esperar, o segundo
+  // push partiria da URL velha e traria o status de volta.
+  await b.esperar('!location.search.includes("status=") && document.querySelectorAll("table tbody tr").length === 4', {
+    rotulo: 'status limpo', ms: 20000,
+  })
+  await b.preencher('select[aria-label="Período"]', '90d')
+  await b.esperar('location.search.includes("periodo=90d") && !location.search.includes("status=")', { rotulo: 'período na URL' })
+  await b.esperar('document.querySelectorAll("table tbody tr").length === 1', { rotulo: 'filtro de período aplicado', ms: 20000 })
+  checar('período "últimos 90 dias" deixa só o assinado há 10 dias (SEED-CT-001)', (await numerosContratos())[0] === 'SEED-CT-001')
+  checar(
+    'contrato com desconto mostra o valor final embaixo do total',
+    /final/.test(await b.avaliar('document.querySelector("table tbody tr").innerText')),
+  )
+  await b.screenshot(`${SHOTS}/18-contratos-listagem.png`)
+
+  // 17. Gerar contrato de proposta aprovada (6.2), sobre a PROP-2026-008 do
+  //     seed (aprovada, desconto de R$ 8 mil, sem itens). Os dois contratos
+  //     desta rodada levam o NUMERO e saem no finally.
+  {
+    const sb = await clienteSupabase()
+    const { data: aprovada } = await sb.from('propostas')
+      .select('id, valor_total, desconto, pct_sinal').eq('numero', 'PROP-2026-008').eq('status', 'aprovada').maybeSingle()
+    checar('seed: PROP-2026-008 aprovada existe', Boolean(aprovada))
+    if (aprovada) {
+      await b.ir(`${BASE}/propostas/${aprovada.id}`)
+      await b.esperar('Array.from(document.querySelectorAll("a")).some((a) => a.innerText.includes("Gerar contrato"))', {
+        rotulo: 'botão Gerar contrato', ms: 25000,
+      })
+      await b.clicar('a', { texto: 'Gerar contrato' })
+      await b.esperar('location.pathname.endsWith("/gerar-contrato") && document.querySelector("#desconto")', {
+        rotulo: 'form de gerar contrato', ms: 25000,
+      })
+      const pre = await b.avaliar(`(() => ({
+        numero: document.querySelector('#numero').value,
+        valor: Number(document.querySelector('#valor_total').value),
+        desconto: Number(document.querySelector('#desconto').value),
+        sinal: Number(document.querySelector('#pct_sinal').value),
+        obraTravada: document.querySelector('#obra_id').getAttribute('aria-readonly') === 'true',
+      }))()`)
+      checar(
+        'o form nasce com valor, desconto e % da proposta, número em branco e obra travada',
+        pre.numero === '' && pre.valor === Number(aprovada.valor_total) && pre.desconto === Number(aprovada.desconto) &&
+          Math.abs(pre.sinal - Number(aprovada.pct_sinal) * 100) < 0.001 && pre.obraTravada,
+        JSON.stringify(pre),
+      )
+      await b.screenshot(`${SHOTS}/19-gerar-contrato-form.png`)
+
+      await b.preencher('#numero', `${NUMERO}-CT`)
+      await b.clicar('button[type="submit"]')
+      await b.esperar(`/^\\/contratos\\/[0-9a-f-]{36}$/.test(location.pathname) && document.body.innerText.includes(${JSON.stringify(`${NUMERO}-CT`)})`, {
+        rotulo: 'detalhe do contrato gerado', ms: 25000,
+      })
+      checar('gerar pela tela leva ao detalhe do contrato novo (6.4), com o link da proposta de origem',
+        (await b.texto()).includes('Gerado da proposta PROP-2026-008'))
+
+      // Segunda vez: o form avisa, e o envio abre o diálogo de confirmação.
+      await b.ir(`${BASE}/propostas/${aprovada.id}/gerar-contrato`)
+      await b.esperar('document.querySelector("#numero") && document.querySelector("[role=alert]")', { rotulo: 'aviso de contrato existente', ms: 25000 })
+      checar(
+        'o form avisa que a proposta já gerou contrato, com o número',
+        (await b.avaliar('document.querySelector("[role=alert]").innerText')).includes(`${NUMERO}-CT`),
+      )
+      // Página aberta por URL (e não por clique): o valor preenchido antes da
+      // hidratação é apagado quando o react-hook-form monta. Repreenche até o
+      // valor sobreviver meio segundo.
+      for (let tentativa = 0; tentativa < 20; tentativa++) {
+        await b.preencher('#numero', `${NUMERO}-CT2`)
+        await new Promise((r) => setTimeout(r, 500))
+        if ((await b.avaliar('document.querySelector("#numero").value')) === `${NUMERO}-CT2`) break
+      }
+      await b.clicar('button[type="submit"]')
+      await b.esperar('document.body.innerText.includes("Gerar outro contrato desta proposta?")', { rotulo: 'diálogo de confirmação' })
+      const antesDeConfirmar = (await sb.from('contratos').select('id').eq('numero', `${NUMERO}-CT2`)).data ?? []
+      checar('sem confirmar, o segundo contrato ainda não existe', antesDeConfirmar.length === 0)
+      await b.screenshot(`${SHOTS}/20-gerar-contrato-confirmar.png`)
+      await b.clicar('button', { texto: 'Gerar mesmo assim' })
+      await b.esperar(`/^\\/contratos\\/[0-9a-f-]{36}$/.test(location.pathname) && document.body.innerText.includes(${JSON.stringify(`${NUMERO}-CT2`)})`, {
+        rotulo: 'segundo contrato gerado', ms: 25000,
+      })
+      const gerados = (await sb.from('contratos').select('numero, proposta_origem_id, desconto')
+        .like('numero', `${NUMERO}-CT%`).order('numero')).data ?? []
+      checar(
+        'confirmado, os dois contratos existem, ligados à proposta e com o desconto dela',
+        gerados.length === 2 && gerados.every((c) => c.proposta_origem_id === aprovada.id && Number(c.desconto) === Number(aprovada.desconto)),
+        JSON.stringify(gerados),
+      )
+    }
+  }
+
+  // 18. Contrato avulso (6.3): o zod do form na tela — o que só roda no
+  //     cliente. Número `${NUMERO}-AV`, apagado no finally.
+  {
+    await b.ir(`${BASE}/contratos`)
+    await b.esperar('Array.from(document.querySelectorAll("a")).some((a) => a.innerText.includes("Novo contrato"))', {
+      rotulo: 'botão Novo contrato', ms: 25000,
+    })
+    await b.clicar('a', { texto: 'Novo contrato' })
+    await b.esperar('location.pathname === "/contratos/novo" && document.querySelector("#numero")', { rotulo: '/contratos/novo', ms: 25000 })
+    checar('botão "Novo contrato" da listagem abre o form avulso', true)
+
+    // Envio vazio: o zod barra no navegador, sem ida ao servidor.
+    await b.clicar('button[type="submit"]')
+    await b.esperar('document.body.innerText.includes("Número obrigatório")', { rotulo: 'erro de número' })
+    const vazio = await b.texto()
+    checar('envio vazio: "Número obrigatório" e "Selecione uma obra", e a tela não sai do form',
+      vazio.includes('Selecione uma obra') && (await b.url()) === '/contratos/novo')
+
+    const obraValor = await b.avaliar('Array.from(document.querySelector("#obra_id").options).map((o) => o.value).find((v) => v)')
+    await b.preencher('#numero', `${NUMERO}-AV`)
+    await b.preencher('#obra_id', obraValor)
+    await b.preencher('#valor_total', '5000')
+    await b.preencher('#desconto', '6000')
+    await b.preencher('#pct_sinal', '60')
+    await b.preencher('#pct_fd', '50')
+    await b.clicar('button[type="submit"]')
+    await b.esperar('document.body.innerText.includes("não pode passar de 100%")', { rotulo: 'erro de soma' })
+    const errado = await b.texto()
+    checar('desconto acima do valor e soma de 110% são barrados no form, com a mensagem de cada um',
+      /Desconto não pode ser maior que o valor total/.test(errado) && /110%/.test(errado) && (await b.url()) === '/contratos/novo')
+    checar('com o desconto acima do valor, a prévia do valor final mostra "—", e não um valor negativo',
+      (await b.avaliar('document.querySelector("#valor_final_preview").value')) === '—')
+    const antes63 = (await (await clienteSupabase()).from('contratos').select('id').eq('numero', `${NUMERO}-AV`)).data ?? []
+    checar('nada foi gravado enquanto o form estava inválido', antes63.length === 0)
+    await b.screenshot(`${SHOTS}/21-contrato-avulso-erros.png`)
+
+    await b.preencher('#desconto', '500')
+    await b.preencher('#pct_fd', '40')
+    await b.preencher('#prazo_execucao', '60 dias')
+    await b.clicar('button[type="submit"]')
+    await b.esperar(`/^\\/contratos\\/[0-9a-f-]{36}$/.test(location.pathname) && document.body.innerText.includes(${JSON.stringify(`${NUMERO}-AV`)})`, {
+      rotulo: 'detalhe do contrato avulso', ms: 25000,
+    })
+    const { data: criado } = await (await clienteSupabase()).from('contratos')
+      .select('status, proposta_origem_id, valor_total, desconto, pct_sinal, pct_fd, prazo_execucao').eq('numero', `${NUMERO}-AV`).maybeSingle()
+    checar('corrigido, cria o contrato ativo e sem origem, com os valores da tela (% em fração)',
+      criado?.status === 'ativo' && criado?.proposta_origem_id === null && Number(criado?.valor_total) === 5000 &&
+        Number(criado?.desconto) === 500 && Number(criado?.pct_sinal) === 0.6 && Number(criado?.pct_fd) === 0.4 &&
+        criado?.prazo_execucao === '60 dias', JSON.stringify(criado ?? null))
+  }
+
+  // 19. Detalhe e edição do contrato (6.4), sobre o avulso do passo 18: a
+  //     linha da listagem abre o detalhe, as abas trocam no cliente, e a
+  //     edição reusa o zod do form do 6.3.
+  {
+    const sb = await clienteSupabase()
+    const { data: av } = await sb.from('contratos').select('id').eq('numero', `${NUMERO}-AV`).maybeSingle()
+    checar('o contrato avulso do passo 18 existe para o 6.4', Boolean(av))
+    if (av) {
+      await b.ir(`${BASE}/contratos?busca=${encodeURIComponent(`${NUMERO}-AV`)}`)
+      await b.esperar(`Array.from(document.querySelectorAll("table tbody tr")).some((tr) => tr.innerText.includes(${JSON.stringify(`${NUMERO}-AV`)}))`, {
+        rotulo: 'contrato avulso na listagem', ms: 25000,
+      })
+      await b.clicar('table tbody tr td', { texto: `${NUMERO}-AV` })
+      await b.esperar(`location.pathname === ${JSON.stringify(`/contratos/${av.id}`)}`, { rotulo: 'detalhe pelo clique na linha', ms: 25000 })
+      checar('clicar na linha da listagem abre o detalhe do contrato', (await b.url()) === `/contratos/${av.id}`)
+
+      const abas = await b.avaliar('Array.from(document.querySelectorAll("[role=tab]")).map((t) => t.innerText.trim())')
+      checar('o detalhe tem as abas Detalhes, Itens, Anexos e Financeiro',
+        ['Detalhes', 'Itens', 'Anexos', 'Financeiro'].every((n) => abas.some((a) => a.startsWith(n))), JSON.stringify(abas))
+      checar('contrato avulso: sem link de proposta de origem, "Contrato avulso" nos detalhes',
+        !(await b.texto()).includes('Gerado da proposta') && (await b.texto()).includes('Contrato avulso'))
+
+      await b.clicar('[role=tab]', { texto: 'Financeiro' })
+      await b.esperar('Array.from(document.querySelectorAll("[role=tabpanel]")).some((p) => !p.hidden && p.innerText.includes("Sprint 12"))', { rotulo: 'aba Financeiro' })
+      checar('a aba Financeiro mostra o placeholder do Sprint 12', true)
+      await b.clicar('[role=tab]', { texto: 'Itens' })
+      // Vazia e editável, a aba mostra "Nenhum item ainda."; a frase "Este
+      // contrato não tem itens." é da versão somente-leitura.
+      await b.esperar('Array.from(document.querySelectorAll("[role=tabpanel]")).some((p) => !p.hidden && p.innerText.includes("Nenhum item ainda."))', { rotulo: 'aba Itens' })
+      checar('a aba Itens do contrato abre vazia e editável',
+        await b.avaliar('Array.from(document.querySelectorAll("[role=tabpanel]")).some((p) => !p.hidden && p.innerText.includes("Adicionar item"))'))
+      await b.screenshot(`${SHOTS}/22-contrato-detalhe.png`)
+
+      await b.clicar('a', { texto: 'Editar' })
+      await b.esperar(`location.pathname === ${JSON.stringify(`/contratos/${av.id}/editar`)} && document.querySelector("#descricao")`, { rotulo: 'form de edição', ms: 25000 })
+      const pre = await b.avaliar(`(() => ({
+        numero: document.querySelector('#numero').value,
+        valor: Number(document.querySelector('#valor_total').value),
+        sinal: Number(document.querySelector('#pct_sinal').value),
+        prazo: document.querySelector('#prazo_execucao').value,
+      }))()`)
+      checar('a edição abre com os valores do contrato (% de volta a 0..100)',
+        pre.numero === `${NUMERO}-AV` && pre.valor === 5000 && pre.sinal === 60 && pre.prazo === '60 dias', JSON.stringify(pre))
+
+      await b.preencher('#pct_fd', '50')
+      await b.clicar('button[type="submit"]')
+      await b.esperar('document.body.innerText.includes("não pode passar de 100%")', { rotulo: 'erro de soma na edição' })
+      checar('na edição, a soma de 110% é barrada no form sem sair da tela',
+        (await b.url()) === `/contratos/${av.id}/editar`)
+
+      await b.preencher('#pct_fd', '40')
+      await b.preencher('#descricao', 'Editado pela camada navegador')
+      await b.clicar('button[type="submit"]')
+      await b.esperar(`location.pathname === ${JSON.stringify(`/contratos/${av.id}`)} && document.body.innerText.includes("Editado pela camada navegador")`, {
+        rotulo: 'detalhe depois de salvar', ms: 25000,
+      })
+      const { data: editado } = await sb.from('contratos').select('descricao, pct_fd, status').eq('id', av.id).maybeSingle()
+      checar('salvar volta ao detalhe com a descrição nova, gravada no banco',
+        editado?.descricao === 'Editado pela camada navegador' && Number(editado?.pct_fd) === 0.4 && editado?.status === 'ativo',
+        JSON.stringify(editado ?? null))
+    }
+  }
+
+  // 20. Mudança de status e rescisão (6.5), sobre o mesmo avulso do passo 18:
+  //     o select de motivo só aparece em "Rescindido", o zod barra motivo
+  //     vazio e "Outro" sem detalhamento, e a aba Histórico mostra a entrada.
+  {
+    const sb = await clienteSupabase()
+    const { data: av } = await sb.from('contratos').select('id').eq('numero', `${NUMERO}-AV`).maybeSingle()
+    if (av) {
+      await b.ir(`${BASE}/contratos/${av.id}`)
+      await b.esperar('Array.from(document.querySelectorAll("button")).some((x) => x.innerText.includes("Mudar status"))', {
+        rotulo: 'botão Mudar status', ms: 25000,
+      })
+      await b.clicar('button', { texto: 'Mudar status' })
+      await b.esperar('document.querySelector("#novo_status")', { rotulo: 'diálogo de status' })
+      const destinos = await b.avaliar('Array.from(document.querySelector("#novo_status").options).map((o) => o.value)')
+      checar('o diálogo oferece só suspenso, concluído e rescindido a partir de ativo',
+        JSON.stringify(destinos) === JSON.stringify(['suspenso', 'concluido', 'rescindido']), JSON.stringify(destinos))
+      checar('sem escolher "Rescindido", o select de motivo não aparece',
+        !(await b.avaliar('Boolean(document.querySelector("#motivo_rescisao"))')))
+
+      await b.preencher('#novo_status', 'rescindido')
+      await b.esperar('document.querySelector("#motivo_rescisao")', { rotulo: 'select de motivo' })
+      await b.clicar('button[type="submit"]', { texto: 'Salvar mudança' })
+      await b.esperar('document.body.innerText.includes("Motivo é obrigatório")', { rotulo: 'erro de motivo' })
+      await b.preencher('#motivo_rescisao', 'outro')
+      await b.clicar('button[type="submit"]', { texto: 'Salvar mudança' })
+      await b.esperar('document.body.innerText.includes("Descreva o motivo quando escolher")', { rotulo: 'erro de detalhamento' })
+      const aindaAtivo = (await sb.from('contratos').select('status').eq('id', av.id).maybeSingle()).data
+      checar('motivo vazio e "Outro" sem detalhamento são barrados no diálogo, sem gravar', aindaAtivo?.status === 'ativo')
+      await b.screenshot(`${SHOTS}/23-contrato-rescisao-erros.png`)
+
+      await b.preencher('#detalhe_rescisao', 'Cliente desistiu da obra')
+      await b.clicar('button[type="submit"]', { texto: 'Salvar mudança' })
+      await b.esperar('!document.querySelector("#novo_status") && Array.from(document.querySelectorAll("h2")).some((h) => h.innerText.includes("Rescisão"))', {
+        rotulo: 'detalhe rescindido', ms: 25000,
+      })
+      const r = (await sb.from('contratos').select('status, motivo_rescisao, detalhe_rescisao, historico').eq('id', av.id).maybeSingle()).data
+      checar('salvo, o contrato fica rescindido com motivo e detalhamento, e o histórico ganha a entrada',
+        r?.status === 'rescindido' && r?.motivo_rescisao === 'outro' && r?.detalhe_rescisao === 'Cliente desistiu da obra' &&
+          r?.historico?.length === 1, JSON.stringify(r ?? null))
+      checar('rescindido: o botão Mudar status some',
+        !(await b.avaliar('Array.from(document.querySelectorAll("button")).some((x) => x.innerText.includes("Mudar status"))')))
+
+      await b.clicar('[role=tab]', { texto: 'Histórico' })
+      await b.esperar('Array.from(document.querySelectorAll("[role=tabpanel]")).some((p) => !p.hidden && p.innerText.includes("Motivo da rescisão"))', { rotulo: 'aba Histórico' })
+      checar('a aba Histórico mostra a transição com o motivo e o detalhamento',
+        await b.avaliar('Array.from(document.querySelectorAll("[role=tabpanel]")).some((p) => !p.hidden && p.innerText.includes("Cliente desistiu da obra"))'))
+      await b.screenshot(`${SHOTS}/24-contrato-historico.png`)
+    }
+  }
+
+  // 21. Pendência do 6.2: "Copiar itens" pela tela. A proposta aprovada do
+  //     seed não tem itens, então este passo monta uma pelo cliente Supabase
+  //     (`${NUMERO}-CI`, com 2 itens), e a limpeza do finally a apaga.
+  {
+    const sb = await clienteSupabase()
+    const { data: { user } } = await sb.auth.getUser()
+    const { data: eu } = await sb.from('profiles').select('empresa_id').eq('id', user.id).maybeSingle()
+    const { data: obraCi } = await sb.from('obras').select('id').order('codigo_obra').limit(1).maybeSingle()
+    const hoje = new Date().toISOString().slice(0, 10)
+    const { data: pci, error: epci } = await sb.from('propostas').insert({
+      empresa_id: eu.empresa_id, obra_id: obraCi.id, numero: `${NUMERO}-CI`, status: 'aprovada',
+      data_emissao: hoje, data_envio: hoje, data_decisao: hoje, valor_total: 0, desconto: 0,
+      observacao: 'camada navegador: copiar itens',
+    }).select('id').single()
+    checar('proposta aprovada com itens montada para o "Copiar itens"', !epci, epci?.message)
+    if (pci) {
+      const item = (numero, valor_unit) => ({
+        empresa_id: eu.empresa_id, obra_id: obraCi.id, proposta_id: pci.id, numero, tipo: 'Janela',
+        descricao: `item ${numero} do copiar itens`, quantidade: 2, unidade: 'QTD', valor_unit,
+      })
+      const { error: eit } = await sb.from('itens').insert([item(1, 300), item(2, 200)])
+      checar('os 2 itens da proposta foram inseridos', !eit, eit?.message)
+
+      await b.ir(`${BASE}/propostas/${pci.id}/gerar-contrato`)
+      await b.esperar('document.querySelector("input[name=copiar_itens]") && document.querySelector("#valor_total")', { rotulo: 'form de gerar com itens', ms: 25000 })
+      const pre = await b.avaliar(`(() => ({
+        marcada: document.querySelector('input[name=copiar_itens]').checked,
+        valor: Number(document.querySelector('#valor_total').value),
+        travado: document.querySelector('#valor_total').readOnly,
+        dica: document.body.innerText.includes('Soma dos 2 itens'),
+      }))()`)
+      checar('com itens, "Copiar itens" nasce marcada e o valor total vem travado na soma (1.000)',
+        pre.marcada && pre.valor === 1000 && pre.travado && pre.dica, JSON.stringify(pre))
+
+      await b.clicar('input[name=copiar_itens]')
+      await b.esperar('!document.querySelector("#valor_total").readOnly', { rotulo: 'valor destravado' })
+      checar('desmarcada, o valor total volta a ser editável', true)
+      await b.clicar('input[name=copiar_itens]')
+      await b.esperar('document.querySelector("#valor_total").readOnly', { rotulo: 'valor travado de novo' })
+      await b.screenshot(`${SHOTS}/25-gerar-copiando-itens.png`)
+
+      for (let tentativa = 0; tentativa < 20; tentativa++) {
+        await b.preencher('#numero', `${NUMERO}-CI1`)
+        await new Promise((r) => setTimeout(r, 500))
+        if ((await b.avaliar('document.querySelector("#numero").value')) === `${NUMERO}-CI1`) break
+      }
+      await b.clicar('button[type="submit"]')
+      await b.esperar(`/^\\/contratos\\/[0-9a-f-]{36}$/.test(location.pathname) && document.body.innerText.includes(${JSON.stringify(`${NUMERO}-CI1`)})`, {
+        rotulo: 'detalhe do contrato com itens', ms: 25000,
+      })
+      const { data: ctci } = await sb.from('contratos').select('id, valor_total, itens(valor_total)').eq('numero', `${NUMERO}-CI1`).maybeSingle()
+      checar('gerado copiando, o contrato tem os 2 itens e o valor total é a soma deles',
+        ctci?.itens?.length === 2 && Number(ctci?.valor_total) === 1000, JSON.stringify(ctci ?? null))
+      checar('a aba do detalhe mostra "Itens (2)"',
+        await b.avaliar('Array.from(document.querySelectorAll("[role=tab]")).some((t) => t.innerText.trim() === "Itens (2)")'))
+    }
+  }
+
+  // 22. Pendência de anexos: o ícone de excluir só aparece no anexo que a
+  //     pessoa pode apagar. Um anexo do admin e um do comercial no avulso do
+  //     passo 18; a tela é aberta como comercial, pelo cookie da sessão sem
+  //     senha de scripts/sessao-dev.mjs. É o último passo: a sessão do admin
+  //     não volta depois dele.
+  {
+    const sb = await clienteSupabase()
+    const { data: av } = await sb.from('contratos').select('id, empresa_id').eq('numero', `${NUMERO}-AV`).maybeSingle()
+    if (av) {
+      const { createClient } = await import('@supabase/supabase-js')
+      const com = await sessaoDePerfil('comercial')
+      const sbCom = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, { auth: { persistSession: false } })
+      await sbCom.auth.setSession(com.session)
+      const pdf = new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])], { type: 'application/pdf' })
+      const pasta = `${av.empresa_id}/contratos/${av.id}`
+      const pAdmin = `${pasta}/1_do-admin.pdf`
+      const pCom = `${pasta}/2_do-comercial.pdf`
+      const { data: { user: adminUser } } = await sb.auth.getUser()
+      const u1 = await sb.storage.from('anexos').upload(pAdmin, pdf, { contentType: 'application/pdf' })
+      const u2 = await sbCom.storage.from('anexos').upload(pCom, pdf, { contentType: 'application/pdf' })
+      const meta = (path, nome, por) => ({ nome, path, tipo: 'application/pdf', tamanho: 4, uploaded_at: new Date().toISOString(), uploaded_by: por })
+      await sb.from('contratos').update({
+        anexos: [meta(pAdmin, 'do-admin.pdf', adminUser.id), meta(pCom, 'do-comercial.pdf', com.user.id)],
+      }).eq('id', av.id)
+      checar('anexos do admin e do comercial montados', !u1.error && !u2.error, u1.error?.message ?? u2.error?.message)
+
+      const ref = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname.split('.')[0]
+      await b.limparSessao()
+      await b.definirCookie(`sb-${ref}-auth-token`, `base64-${Buffer.from(JSON.stringify(com.session)).toString('base64url')}`, BASE)
+      await b.ir(`${BASE}/contratos/${av.id}`)
+      await b.esperar('Array.from(document.querySelectorAll("[role=tab]")).some((t) => t.innerText.startsWith("Anexos"))', { rotulo: 'detalhe como comercial', ms: 25000 })
+      await b.clicar('[role=tab]', { texto: 'Anexos' })
+      await b.esperar('document.body.innerText.includes("do-comercial.pdf")', { rotulo: 'aba Anexos como comercial' })
+      const botoes = await b.avaliar(`({
+        admin: Boolean(document.querySelector('button[aria-label="Excluir do-admin.pdf"]')),
+        proprio: Boolean(document.querySelector('button[aria-label="Excluir do-comercial.pdf"]')),
+      })`)
+      checar('como comercial, o ícone de excluir some no anexo do admin e aparece no dele',
+        !botoes.admin && botoes.proprio, JSON.stringify(botoes))
+      await b.screenshot(`${SHOTS}/26-anexos-como-comercial.png`)
+
+      await sb.storage.from('anexos').remove([pAdmin, pCom])
+    }
+  }
 
   const errosReais = b.erros.filter((e) => !/favicon|Download the React DevTools/i.test(e))
   checar('nenhum erro de console', errosReais.length === 0, errosReais.join(' | '))
@@ -679,6 +1129,7 @@ try {
 } finally {
   b.fechar()
   await limparRestosDoRoteiro()
+  await limparAuditoria()
 }
 
 /**
@@ -709,7 +1160,18 @@ async function limparRestosDoRoteiro() {
   try {
     const sb = await clienteSupabase()
 
-    const { data: restos } = await sb.from('propostas').select('id').eq('numero', NUMERO)
+    // Contratos gerados pelo passo 17 (6.2). Sem itens: a PROP-2026-008 não tem.
+    // E o avulso do passo 18 (6.3), `${NUMERO}-AV`.
+    // E o do passo 21, `${NUMERO}-CI1`, que tem itens: eles saem antes.
+    const { data: ctRestos } = await sb.from('contratos').select('id')
+      .or(`numero.like.${NUMERO}-CT%,numero.eq.${NUMERO}-AV,numero.like.${NUMERO}-CI%`)
+    if ((ctRestos ?? []).length > 0) {
+      await sb.from('itens').delete().in('contrato_id', ctRestos.map((c) => c.id))
+      await sb.from('contratos').delete().in('id', ctRestos.map((c) => c.id))
+      console.log(`  limpeza: ${ctRestos.length} contrato(s) ${NUMERO}-CT*/-AV apagado(s)`)
+    }
+
+    const { data: restos } = await sb.from('propostas').select('id').in('numero', [NUMERO, `${NUMERO}-CI`])
     for (const { id } of restos ?? []) {
       const { data: comFoto } = await sb
         .from('itens').select('foto_url').eq('proposta_id', id).not('foto_url', 'is', null)
@@ -717,10 +1179,25 @@ async function limparRestosDoRoteiro() {
       if (paths.length > 0) await sb.storage.from('anexos').remove(paths)
       await sb.from('itens').delete().eq('proposta_id', id)
       await sb.from('propostas').delete().eq('id', id)
-      console.log(`  limpeza: ${NUMERO} ficou para trás e foi apagada no finally`)
+      console.log(`  limpeza: proposta ${id} desta rodada apagada no finally`)
     }
   } catch (e) {
     console.log(`  aviso limpeza: ${e.message} — confira ${NUMERO} à mão`)
+  }
+}
+
+/** Os eventos que a rodada gerou no trigger de auditoria (13.2). */
+async function limparAuditoria() {
+  try {
+    const { createClient } = await import('@supabase/supabase-js')
+    const svc = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY ?? '', {
+      auth: { persistSession: false },
+    })
+    const r = await limparAuditoriaDoRoteiro(svc, INICIO_AUDITORIA)
+    if (r.error) console.log(`  aviso limpeza da auditoria: ${r.error.message}`)
+    else console.log(`  limpeza: ${r.apagados} evento(s) de auditoria da rodada`)
+  } catch (e) {
+    console.log(`  aviso limpeza da auditoria: ${e.message}`)
   }
 }
 

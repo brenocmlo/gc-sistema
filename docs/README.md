@@ -54,9 +54,30 @@ Concluída em 2026-09-23. Oito blocos, todos fechados no ClickUp.
 > escreve; o segundo usa o que está lá. A aba "Itens" da tela é da sprint 5; a gravação dos
 > itens pela ingestão é da `automacao/`. Ver decisão 3 do plano de migração.
 
-## Sprints 6 a 15 — planejadas
+## Sprint 6 — Contratos · `sprint-6/`
 
-Contratos (6) · Execução: estrutura e apontamento (7) · Execução: evidências e visão
+Aberta em 2026-09-23. Blocos fechados um de cada vez.
+
+| Bloco | Documento |
+|---|---|
+| 6.1 Contratos: types, helpers e listagem | `6.1-status-entrega.md` ✅ |
+| 6.2 Contratos: gerar contrato a partir de proposta aprovada | `6.2-status-entrega.md` ✅ |
+| 6.3 Contratos: formulário de criação avulsa | `6.3-status-entrega.md` ✅ |
+| 6.4 Contratos: detalhes, edição e abas | `6.4-status-entrega.md` — implementado, validação pendente para o fechamento da sprint |
+| 6.5 Contratos: mudança de status e rescisão | `6.5-status-entrega.md` — implementado, validação pendente para o fechamento da sprint |
+| 6.6 Contratos: anexos, export e testes (fechamento) | `6.6-status-entrega.md` — implementado; rodada de fechamento a cargo do Breno |
+
+## Sprint 13 — Administração, qualidade e segurança · `sprint-13/`
+
+Um bloco **adiantado** em 2026-09-23, a pedido do Breno: a tela de logs e auditoria.
+
+| Bloco | Documento |
+|---|---|
+| 13.2 Histórico e auditoria de mudanças | `13.2-status-entrega.md` (etapa A: banco, trigger e tela `/logs`; B e C pendentes) |
+
+## Sprints 7 a 15 — planejadas
+
+Execução: estrutura e apontamento (7) · Execução: evidências e visão
 consolidada (8) · Financeiro: Notas Fiscais (9) · Financeiro: Pagamentos (10) ·
 Financeiro: Acordos e parcelas (11) · Painel financeiro e Dashboard (12) · Administração,
 qualidade e segurança (13) · Migração da planilha e go-live (14) · Treinamento e
@@ -71,15 +92,15 @@ Trilha separada, com **numeração própria de 1 a 8** na lista do ClickUp — n
 
 | Documento | O que é |
 |---|---|
-| `migracao-telegram-integracao-automacao.md` | O plano da rodada: migrar de Z-API para Telegram e fazer a proposta entrar sozinha no sistema. 19 decisões fechadas (6 de 22/09), 8 fases |
+| `migracao-telegram-integracao-automacao.md` | O plano da rodada: migrar de Z-API para Telegram e fazer a proposta entrar sozinha no sistema. 21 decisões fechadas, 8 fases |
 | `fase-1-contatos-canal-status-entrega.md` | Entrega da Fase 1 (migration de identidade de canal) |
 | `fase-0-runbook.md` | Fase 0 dividida: Parte A (Telegram, manual) e Parte B (n8n) |
 | `fase-0-parte-a-telegram-passo-a-passo.md` | Os nove passos da Parte A: criar os dois bots, o grupo de admin e pegar os `chat_id` |
 | `fase-0-status-entrega.md` | Entrega da Fase 0: bots, Credentials, prova do Telegram Trigger e decisão 6 fechada (CHECK não muda) |
 | `fase-2-notificar-e-simplificacao-status-entrega.md` | Fase 2 (`Notificar`) e a simplificação: 8 workflows viram 3, Z-API removida, só propostas, testado com PDF real |
 | `fase-4-telegram-como-gatilho-status-entrega.md` | Fase 4: o Telegram vira gatilho do `Processar Documento`; testado até a extração (cota do Gemini pendente) |
-| `fase-5-extracao-itens-status-entrega.md` | Fase 5: prompt com os 14 campos do item e parse; testado offline 12/12, teste real pendente da cota do Gemini |
-| `fase-6-rota-ingestao-status-entrega.md` | Fase 6: rota `/api/ingestao/proposta` no repo, 7 camadas verdes (145/145 na escrita); falta endereço público para o n8n chamá-la |
+| `fase-5-extracao-itens-status-entrega.md` | Fase 5: extração dos itens, Gemini real 4/4; reserva pela Groq (decisão 20) com trava para texto embaralhado |
+| `fase-6-rota-ingestao-status-entrega.md` | Fase 6: rota `/api/ingestao/proposta` pronta; até ela ser alcançável, o n8n grava proposta e itens com a mesma regra (decisão 21) |
 
 ## Técnicos · `tecnicos/`
 

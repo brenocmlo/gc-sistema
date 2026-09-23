@@ -38,6 +38,8 @@ type Row = {
   motivo_rejeicao: string | null
 }
 
+const PERFIS_COM_ACESSO = ['admin', 'comercial', 'visualizador']
+
 export async function GET(req: NextRequest) {
   const supabase = createClient()
 
@@ -45,6 +47,18 @@ export async function GET(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Os mesmos perfis do layout de /orcamentos. A rota de API não passa pelo layout,
+  // e a RLS deixa qualquer perfil da empresa ler: sem esta checagem, o
+  // financeiro baixava pelo export o que não vê na tela.
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('perfil')
+    .eq('id', user.id)
+    .maybeSingle()
+  if (!profile || !PERFIS_COM_ACESSO.includes(profile.perfil)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   const sp = req.nextUrl.searchParams
   const busca = sp.get('busca')?.trim() ?? ''

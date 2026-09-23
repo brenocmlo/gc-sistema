@@ -112,6 +112,7 @@ export default async function OrcamentoDetalhePage({ params }: PageProps) {
                 orcamentoId={orcamento.id}
                 anexos={anexos}
                 perfil={profile.perfil}
+                userId={profile.id}
               />
             ),
           },

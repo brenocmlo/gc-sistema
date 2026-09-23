@@ -146,3 +146,70 @@ Comparados com os que a sprint 5 registrou no fechamento (`docs/sprint-5/5.8-sta
 5. **Regra de milímetro é heurística** (> 10 lê-se mm). Esquadria de mais de 10 m ou documento
    em centímetros é lido errado — o original fica em `observacao`.
 6. **Sem commit.** Tudo no working tree, como o `CLAUDE.md` pede.
+
+---
+
+## 4. Itens gravados pelo n8n com a regra do sistema (decisão 21) — 23/09
+
+A rota continua pronta e verde; o que mudou é que o n8n **não espera mais por ela** para
+gravar os itens.
+
+### 4.1 O que o `Processar Documento` faz agora
+
+```
+Proposta aprovada? → Montar ingestão → Criar proposta → Tem itens?
+                                           sim → Criar itens → Documento aprovado
+                                           não → Documento aprovado
+   Criar itens falhou → guarda o erro → APAGA a proposta → Registrar falha (revisão)
+   Montar ingestão recusou (item sem conserto) → Registrar falha (revisão, não "falha técnica")
+Montar avisos → Preparar envio → Telegram - Enviar      (antes: sub-workflow Notificar)
+```
+
+- **`Montar ingestão`** roda `montarIngestao` de `src/lib/ingestao.ts`, empacotado com os
+  helpers que ele usa. Proposta nasce **rascunho**, autor e histórico = profile de serviço,
+  rastro do documento em `observacao`. Itens com `valor_unit` inferido, unidade mapeada,
+  milímetro → metro, numeração do documento, **sem** `valor_total`/`area_m2`. O valor da
+  proposta passa a ser a soma dos itens pelo trigger da 5.6.
+- **Leitura não confiável** (número de item repetido ou soma divergente — o texto embaralhado
+  da reserva Groq, fase 5 seção 5.3): a proposta entra **sem itens**, e o grupo recebe "itens
+  NÃO gravados: leitura não confiável".
+- **Proposta e itens na mesma unidade**: itens recusados pelo banco → a proposta é apagada.
+- O aviso ao grupo diz quantos itens foram gravados.
+
+### 4.2 Como regerar o `Montar ingestão`
+
+```bash
+node scripts/empacotar-ingestao-n8n.mjs > /tmp/ingestao-n8n.js
+```
+
+Cole no nó, substituindo tudo acima da linha `// ===== fim do codigo gerado =====`. A versão
+publicada foi gerada do commit `5b9f76f` (os `.ts` commitados). O `itens.ts` do working tree
+tem 60 linhas a mais da sprint 6 (bloco 6.4), só exportações novas — não muda a regra.
+
+### 4.3 Números reais
+
+| Verificação | Resultado |
+|---|---|
+| Pacote × código do repo, mesmas entradas | **9/9 casos idênticos** (inclui o PDF de 16 itens) |
+| Código do `Montar ingestão`, offline, com a extração real do Qwen do `EB-25-08-0048` | **10/10** — 16 itens, item 1 inferido, item 12 = 2 × 1.986,08, item 13 = 0,95 × 2,1 m, sem coluna gerada, leitura ruim → 0 itens, item sem conserto → recusa |
+| Colunas da linha do item × tabela `itens` | as 16 existem, mais `proposta_id` |
+| `n8n_validate_workflow` | **0 erros, 0 warnings**, 34 nós, 50 conexões |
+| Referências a nós inexistentes, e ao `Notificar` removido | **nenhuma** |
+| Webhook do bot depois da publicação | registrado, sem erro |
+| Execuções do n8n por documento | **2 → 1** |
+
+### 4.4 O que NÃO foi validado
+
+1. **Nada disso rodou no n8n.** O plano do n8n Cloud atingiu o limite de execuções
+   ("Execution limit reached"). A proposta com itens gravados nas colunas foi provada offline
+   e por `select` de colunas, **não** por uma execução real. Primeiro teste quando as
+   execuções voltarem: a Vista Verde (4 itens) pelo bot.
+2. **O rollback (itens recusados → proposta apagada) nunca disparou.**
+3. **O `chat_id` do grupo está em dois nós** — `Preparar envio` (aqui) e `Resolver destino`
+   (Notificar, que ficou só com o alerta de erro de sistema). A decisão 5 pedia um só; é o
+   preço de tirar o sub-workflow do caminho. Os dois comentários avisam.
+4. **Mensagens do grupo de admin ainda gastam execução.** O bot recebe toda mensagem do
+   grupo (privacy mode desligado, decisão 5) e o workflow roda só para ignorá-la. O privacy
+   desligado só era preciso para descobrir o `chat_id` do grupo, que já está anotado: para
+   **enviar** ao grupo ele não é necessário. Religar o privacy no `@obraminds_ingestao_v2_bot`
+   corta essas execuções — decisão do Breno, porque contraria o texto da decisão 5.

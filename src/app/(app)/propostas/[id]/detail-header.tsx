@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowRightLeft, Pencil, Trash2 } from 'lucide-react'
+import { ArrowRightLeft, FileCheck, Pencil, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -47,6 +47,9 @@ export default function DetailHeader({
   const canEdit = podeEscrever && isEditavel(status)
   const canChangeStatus = podeEscrever && !isFinalizada(status)
   const canDelete = perfil === 'admin'
+  // Bloco 6.2: só proposta aprovada gera contrato — a função do banco confere
+  // de novo, e a page de gerar redireciona fora disso.
+  const canGerarContrato = podeEscrever && status === 'aprovada'
 
   async function handleDelete() {
     const result = await deleteProposta(id)
@@ -77,6 +80,15 @@ export default function DetailHeader({
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-amber-100 text-amber-700 border-amber-200">
               Vencida
             </span>
+          )}
+          {canGerarContrato && (
+            <Link
+              href={`/propostas/${id}/gerar-contrato`}
+              className="inline-flex items-center gap-2 bg-gray-900 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-gray-800 transition-colors"
+            >
+              <FileCheck size={14} />
+              Gerar contrato
+            </Link>
           )}
           {canChangeStatus && (
             <button

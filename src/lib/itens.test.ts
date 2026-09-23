@@ -28,6 +28,9 @@ import {
   somaItens,
   valorTotalDoItem,
   vinculoValido,
+  colunaDoPai,
+  normalizarPai,
+  rotaDoPai,
 } from './itens.ts'
 
 // ============================================================
@@ -484,4 +487,23 @@ test('previaAjuste soma antes e depois, e conta os itens sem valor', () => {
     { valor_unit: null, quantidade: 1, valor_total: null },
   ], 5)
   assert.deepEqual(r, { afetados: 2, semValor: 1, antes: 233.33, depois: 245 })
+})
+
+test('normalizarPai: string continua valendo como proposta (formato antes do 6.4)', () => {
+  assert.deepEqual(normalizarPai('abc'), { tipo: 'proposta', id: 'abc' })
+  assert.deepEqual(normalizarPai({ tipo: 'contrato', id: 'x1' }), { tipo: 'contrato', id: 'x1' })
+  assert.deepEqual(normalizarPai({ tipo: 'proposta', id: 'p1' }), { tipo: 'proposta', id: 'p1' })
+})
+
+test('normalizarPai recusa tipo desconhecido, id vazio e lixo', () => {
+  for (const v of ['', null, undefined, 42, [], { tipo: 'obra', id: 'o1' }, { tipo: 'contrato', id: '' }, { tipo: 'contrato' }, { id: 'x' }]) {
+    assert.equal(normalizarPai(v), null, JSON.stringify(v))
+  }
+})
+
+test('colunaDoPai e rotaDoPai seguem o tipo', () => {
+  assert.equal(colunaDoPai('proposta'), 'proposta_id')
+  assert.equal(colunaDoPai('contrato'), 'contrato_id')
+  assert.equal(rotaDoPai({ tipo: 'proposta', id: 'p1' }), '/propostas/p1')
+  assert.equal(rotaDoPai({ tipo: 'contrato', id: 'c1' }), '/contratos/c1')
 })

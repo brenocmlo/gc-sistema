@@ -46,3 +46,5 @@ next-env.d.ts
 /supabase/reset_e_aplicar_tudo.sql
 
 .token-optimizer/
+# worktrees do Claude Code (isolamento de sessões paralelas): nunca versionar
+.claude/worktrees/

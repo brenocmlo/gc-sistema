@@ -4,8 +4,18 @@ Data: 2026-09-04. Vale a partir do bloco 4.3 (aplicado retroativamente a ele).
 
 ## A regra, em uma frase
 
-**Nenhuma task é declarada pronta antes de `bash scripts/validar.sh` passar, e
-o que o plano não cobre entra como pendência escrita no documento do bloco.**
+**Nenhuma sprint fecha antes de `bash scripts/validar.sh` passar, e o que o
+plano não cobre entra como pendência escrita no documento do bloco.**
+
+### Quando roda (desde 2026-09-23, a pedido do Breno)
+
+O plano e os testes (`npm run validar`, `npm test`, camada isolada) rodam **só
+no fechamento da sprint** ou **quando o Breno pedir**. Bloco no meio da sprint
+não roda nada: o código fica no working tree, os scripts do plano são
+estendidos junto com ele, e o documento do bloco diz "validação: não rodou —
+fica para o fechamento da sprint". Bloco assim é "implementado, validação
+pendente", nunca "validado". Até 2026-09-23 a regra era rodar ao fim de cada
+bloco; os documentos do 4.3 ao 6.3 foram escritos sob ela.
 
 São **sete camadas**, da mais barata à mais cara: estático, unitário, build,
 runtime, dados, escrita e navegador.
@@ -233,6 +243,29 @@ E um aviso sobre o toast: em `next dev` a primeira compilação de uma rota leva
 mais que os ~4s de vida do toast, então o de criação já expirou quando a página
 aparece. Aferir o toast numa navegação já compilada — o de mudança de status,
 por exemplo.
+
+### Duas coisas que valem para as camadas que escrevem (desde o bloco 13.2)
+
+**A auditoria registra as escritas de teste, e as camadas limpam o que geraram.**
+O trigger `auditar_mudanca` (migrations 019 e 020) grava um evento em
+`auditoria_eventos` a cada insert, update e delete, inclusive os do roteiro. Uma
+rodada gera por volta de 1.300 eventos, 1.000 deles só da carga de 500 itens do 5.8.
+`scripts/auditoria-limpeza.mjs` apaga, com a chave de serviço, os eventos desde o
+início da rodada **cujo registro não existe mais**, mais os de
+`entidade = 'validacao'`. As camadas escrita e navegador chamam essa limpeza no `finally`. Evento
+de registro que continua existindo fica, seja de quem for, e é isso que torna a
+limpeza segura com duas rodadas em paralelo. A leitura é **paginada**: o PostgREST
+corta em 1000 linhas sem avisar, e na primeira versão a limpeza leu exatamente
+1000 e deixou 189 para trás.
+
+**Rodadas em paralelo usam portas próprias.** Com duas sessões no mesmo
+repositório, rode com `VALIDACAO_PORTA=3211 VALIDACAO_PORTA_CDP=9322` (ou
+qualquer par livre). Até o 13.2, `VALIDACAO_PORTA_CDP` subia o Chrome na porta
+pedida, mas `validar-navegador.mjs` conectava sempre na 9222 e dirigia o Chrome
+da outra rodada. O perfil do Chrome também era um só. Agora a porta vai para o
+script, e o perfil é `/tmp/gc-validacao/chrome-profile-<porta>`. O `.next`
+continua sendo um por diretório: duas rodadas **no mesmo checkout** ainda se
+atropelam no build. Para isso, use um worktree.
 
 ## O que continua manual
 

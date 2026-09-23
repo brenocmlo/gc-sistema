@@ -543,6 +543,26 @@ lista de 7 workflows. Onde uma fase abaixo contradisser uma delas, vale a decis�
     workflow separado. Alvo final da rodada: **2 workflows** — `Notificar` e
     `Processar Documento` (+ o SLA inativo, decisão 8).
 
+20. **Extração: Gemini gratuito como principal, Groq como reserva.** Decidido pelo Breno em
+    23/09, depois que a cota gratuita do Gemini esgotou nos testes. O Gemini lê o PDF direto;
+    se falhar (cota, 503, erro), o PDF vira texto (extrator nativo do n8n) e vai para a Groq,
+    modelo `openai/gpt-oss-120b` com `reasoning_effort: low`, **com o mesmo prompt** — o prompt
+    mora num nó só. O documento registra `extrator` e o motivo da falha do Gemini, e o aviso
+    ao grupo diz quando a reserva entrou. PDF sem texto (escaneado) não tem reserva: vai para
+    revisão. Detalhe e limites em `docs/automacao/fase-5-extracao-itens-status-entrega.md`,
+    seção 5.
+
+21. **Até a rota ser alcançável, o n8n grava proposta e itens por REST — com a regra do
+    sistema, não com uma cópia.** Pedido do Breno em 23/09: os itens extraídos têm de ir para
+    as colunas de `itens`. A rota `POST /api/ingestao/proposta` (Fase 6) está pronta, mas o n8n
+    na nuvem não alcança um gc-sistema apontando para o gc-dev. Então o Code node
+    `Montar ingestão` roda **o próprio `src/lib/ingestao.ts`**, empacotado por
+    `scripts/empacotar-ingestao-n8n.mjs` (provado idêntico ao código do repo em 9/9 casos). É
+    uma exceção à decisão 1 na forma (REST), não na regra (a mesma, testada por `node --test`).
+    Quando existir o endereço, o `Montar ingestão` + `Criar proposta` + `Criar itens` viram uma
+    chamada à rota. Na mesma mudança, o envio saiu do sub-workflow `Notificar` para dentro do
+    `Processar Documento`: **1 execução do n8n por documento, não 2**.
+
 ---
 
 ## 5. Plano por fases

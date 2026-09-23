@@ -10,20 +10,38 @@ import FileUpload, { type UploadResult } from '@/components/FileUpload'
 import { iconForFile } from '@/lib/file-icons'
 import { formatFileSize } from '@/lib/files'
 import { formatDate } from '@/lib/format'
+import { podeExcluirAnexo } from '@/lib/anexos'
 import type { Anexo, Perfil } from '@/lib/types'
 
-import { deleteAnexo, getAnexoUrl, uploadAnexo } from './actions'
+type Resultado = { ok: true } | { ok: false; error: string }
 
+/**
+ * Aba de anexos de proposta e de contrato (bloco 6.4). As três actions chegam
+ * por prop, já presas ao id do pai com `.bind` na page — cada entidade tem as
+ * suas, porque o jsonb `anexos` e o path do Storage são da tabela dela.
+ */
 type AnexosTabProps = {
-  propostaId: string
   anexos: Anexo[]
   perfil: Perfil
+  /** Quem está vendo: excluir só aparece no anexo que a pessoa pode apagar. */
+  userId: string
+  /** "da proposta" / "do contrato", no texto do diálogo de exclusão. */
+  doPai: string
+  upload: (formData: FormData) => Promise<UploadResult>
+  remove: (path: string) => Promise<Resultado>
+  abrir: (
+    path: string,
+  ) => Promise<{ ok: true; url: string } | { ok: false; error: string }>
 }
 
 export default function AnexosTab({
-  propostaId,
   anexos,
   perfil,
+  userId,
+  doPai,
+  upload,
+  remove,
+  abrir,
 }: AnexosTabProps) {
   const router = useRouter()
   const [deleting, setDeleting] = useState<Anexo | null>(null)
@@ -34,12 +52,12 @@ export default function AnexosTab({
   async function handleUpload(file: File): Promise<UploadResult> {
     const formData = new FormData()
     formData.append('file', file)
-    return uploadAnexo(propostaId, formData)
+    return upload(formData)
   }
 
   async function handleOpen(anexo: Anexo) {
     setOpening(anexo.path)
-    const result = await getAnexoUrl(anexo.path)
+    const result = await abrir(anexo.path)
     setOpening(null)
 
     if (!result.ok) {
@@ -51,7 +69,7 @@ export default function AnexosTab({
 
   async function handleDelete() {
     if (!deleting) return
-    const result = await deleteAnexo(propostaId, deleting.path)
+    const result = await remove(deleting.path)
     if (!result.ok) {
       toast.error(`Não foi possível excluir: ${result.error}`)
       return
@@ -73,7 +91,7 @@ export default function AnexosTab({
             <AnexoRow
               key={anexo.path}
               anexo={anexo}
-              canManage={canManage}
+              canDelete={canManage && podeExcluirAnexo(anexo, { perfil, userId })}
               opening={opening === anexo.path}
               onOpen={() => handleOpen(anexo)}
               onDelete={() => setDeleting(anexo)}
@@ -100,7 +118,7 @@ export default function AnexosTab({
         title="Excluir anexo?"
         description={
           deleting
-            ? `"${deleting.nome}" será removido permanentemente da proposta.`
+            ? `"${deleting.nome}" será removido permanentemente ${doPai}.`
             : ''
         }
         variant="danger"
@@ -113,13 +131,13 @@ export default function AnexosTab({
 
 function AnexoRow({
   anexo,
-  canManage,
+  canDelete,
   opening,
   onOpen,
   onDelete,
 }: {
   anexo: Anexo
-  canManage: boolean
+  canDelete: boolean
   opening: boolean
   onOpen: () => void
   onDelete: () => void
@@ -148,7 +166,7 @@ function AnexoRow({
           <ExternalLink size={12} />
           {opening ? 'Abrindo...' : 'Visualizar'}
         </button>
-        {canManage && (
+        {canDelete && (
           <button
             type="button"
             onClick={onDelete}

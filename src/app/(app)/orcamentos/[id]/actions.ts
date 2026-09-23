@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { autorizarExclusaoDeAnexo, removeuDoStorage, STATUS_MUDOU_NO_MEIO } from '@/lib/anexos'
 import { buildStoragePath, validateFile, fileErrorMessage } from '@/lib/files'
 import {
   appendHistorico,
@@ -154,12 +155,18 @@ export async function changeOrcamentoStatus(
     ) as unknown as OrcamentoUpdate['historico']
   }
 
-  const { error } = await supabase
+  // Lock otimista pelo status: o update só vale se o status ainda é o lido.
+  // Sem isso, duas mudanças simultâneas liam o mesmo histórico e a segunda
+  // gravação apagava a entrada da primeira.
+  const { data: gravado, error } = await supabase
     .from('orcamentos')
     .update(update)
     .eq('id', id)
+    .eq('status', statusAtual)
+    .select('id')
 
   if (error) return { ok: false, error: error.message }
+  if (!gravado || gravado.length === 0) return { ok: false, error: STATUS_MUDOU_NO_MEIO }
 
   revalidatePath('/orcamentos')
   revalidatePath(`/orcamentos/${id}`)
@@ -172,11 +179,15 @@ export async function changeOrcamentoStatus(
 
 const BUCKET = 'anexos'
 
+// As actions levam o sufixo "Orcamento" porque a camada escrita do plano acha
+// a action pelo nome no build, e `uploadAnexo`/`deleteAnexo` já são os da
+// proposta — com o mesmo nome, o orçamento não tinha como ser testado.
+
 export type UploadAnexoResult =
   | { ok: true }
   | { ok: false; error: string }
 
-export async function uploadAnexo(
+export async function uploadAnexoOrcamento(
   orcamentoId: string,
   formData: FormData,
 ): Promise<UploadAnexoResult> {
@@ -288,7 +299,7 @@ export type DeleteAnexoResult =
   | { ok: true }
   | { ok: false; error: string }
 
-export async function deleteAnexo(
+export async function deleteAnexoOrcamento(
   orcamentoId: string,
   path: string,
 ): Promise<DeleteAnexoResult> {
@@ -320,12 +331,22 @@ export async function deleteAnexo(
   if (readErr) return { ok: false, error: readErr.message }
   if (!current) return { ok: false, error: 'Orçamento não encontrado' }
 
-  const existentes = (current.anexos as Anexo[] | null) ?? []
-  const atualizados = existentes.filter((a) => a.path !== path)
+  // O path vem do corpo da requisição: só apaga o que é anexo deste
+  // orçamento, e só se quem pede for admin ou quem subiu (a policy do Storage).
+  const permitido = autorizarExclusaoDeAnexo(current.anexos, path, {
+    perfil: profile.perfil,
+    userId: user.id,
+  })
+  if (!permitido.ok) return { ok: false, error: permitido.error }
+  const atualizados = permitido.restantes
 
   // Remove do Storage primeiro. Se falhar, abortamos sem mexer no jsonb.
-  const { error: rmErr } = await supabase.storage.from(BUCKET).remove([path])
+  // Recusa da policy não vem como erro, vem como lista vazia.
+  const { data: removidos, error: rmErr } = await supabase.storage.from(BUCKET).remove([path])
   if (rmErr) return { ok: false, error: rmErr.message }
+  if (!removeuDoStorage(removidos)) {
+    return { ok: false, error: 'O armazenamento não removeu o arquivo; o anexo foi mantido' }
+  }
 
   const { error: updateErr } = await supabase
     .from('orcamentos')
