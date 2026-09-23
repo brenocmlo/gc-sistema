@@ -192,7 +192,7 @@ Coisas que pareciam funcionar e não funcionavam:
   ocupa 240px, sobram **150px** de conteúdo e o documento passa a rolar na
   horizontal. Vale para as quatro listagens. Reproduza com
   `shot x 390` + `medir main`. É problema conhecido e **não corrigido** — está
-  registrado em `docs/4.5-status-entrega.md`.
+  registrado em `docs/sprint-4/4.5-status-entrega.md`.
 
 ## Troubleshooting
 

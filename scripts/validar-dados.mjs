@@ -263,6 +263,200 @@ const CHECKS = [
         .order('data_lancamento', { ascending: false })
         .range(0, 19),
   },
+  {
+    // Copiada de src/app/(app)/propostas/[id]/page.tsx — a query da aba Itens.
+    nome: 'itens: aba Itens da proposta (colunas geradas e ordenação)',
+    bloco: '5.2',
+    query: (sb) =>
+      sb
+        .from('itens')
+        .select(
+          'id, empresa_id, obra_id, proposta_id, contrato_id, numero, tipo, descricao, linha, acabamento, largura, altura, quantidade, unidade, valor_unit, valor_total, area_m2, vidros, localizacao, observacao, foto_url, created_at, updated_at, created_by',
+        )
+        .order('numero', { ascending: true, nullsFirst: false })
+        .order('created_at', { ascending: true })
+        .range(0, 19),
+    // Duas coisas que só o banco prova: que as colunas GENERATED voltam
+    // calculadas (o type diz que existem, não que batem), e que `unidade`
+    // respeita o CHECK — se alguém reintroduzir 'ML' por SQL direto, o
+    // narrowing de Unidade em types.ts vira mentira e a tela quebra.
+    valida: (r) => {
+      const linha = r.data?.[0]
+      if (!linha) return null
+
+      if (linha.unidade !== null && !['QTD', 'M2'].includes(linha.unidade)) {
+        return `unidade "${linha.unidade}" fora do CHECK ('QTD','M2')`
+      }
+
+      if (linha.valor_unit !== null && linha.quantidade !== null) {
+        const esperado = linha.valor_unit * linha.quantidade
+        if (Math.abs((linha.valor_total ?? 0) - esperado) > 0.01) {
+          return `valor_total ${linha.valor_total} != valor_unit × quantidade (${esperado})`
+        }
+      }
+
+      if (
+        linha.largura !== null &&
+        linha.altura !== null &&
+        linha.quantidade !== null
+      ) {
+        const esperado = linha.largura * linha.altura * linha.quantidade
+        if (Math.abs((linha.area_m2 ?? 0) - esperado) > 0.0001) {
+          return `area_m2 ${linha.area_m2} != largura × altura × quantidade (${esperado})`
+        }
+      }
+
+      return null
+    },
+  },
+  {
+    // ItemComStatus foi estreitado em src/lib/types.ts no bloco 5.1, mas a view
+    // nunca havia sido LIDA — o tipo existia sem prova de que casa com o que o
+    // PostgREST devolve. A view é `security_invoker`, então respeita a mesma RLS.
+    nome: 'itens_com_status: view de item com execução (security_invoker)',
+    bloco: '5.1',
+    query: (sb) =>
+      sb
+        .from('itens_com_status')
+        .select(
+          'id, numero, descricao, unidade, quantidade, valor_unit, valor_total, area_m2, status_atual, etapa_atual, progresso_pct, progresso_etapas_pct, evidencias_count, status_fabricacao, status_entrega, status_instalacao, status_medicao',
+        )
+        .order('numero', { ascending: true, nullsFirst: false })
+        .range(0, 19),
+    // A view faz LEFT JOIN em execucao: item sem execução tem de vir com os
+    // coalesce aplicados, não com null. Se algum dia o LEFT virar INNER, a
+    // contagem cai em silêncio e só isto acusa.
+    valida: (r) => {
+      const linha = r.data?.[0]
+      if (!linha) return null
+
+      const etapas = [
+        'status_fabricacao',
+        'status_entrega',
+        'status_instalacao',
+        'status_medicao',
+      ]
+      for (const e of etapas) {
+        if (linha[e] === null || linha[e] === undefined) {
+          return `${e} veio null — o coalesce da view não aplicou`
+        }
+      }
+      if (linha.status_atual === null) return 'status_atual veio null'
+      if (linha.etapa_atual === null) return 'etapa_atual veio null'
+      if (linha.progresso_pct === null) return 'progresso_pct veio null'
+      if (linha.unidade !== null && !['QTD', 'M2'].includes(linha.unidade)) {
+        return `unidade "${linha.unidade}" fora do CHECK`
+      }
+      return null
+    },
+  },
+  {
+    // A proposta do seed de itens: prova que a query da aba devolve os 12 e
+    // que as colunas geradas vieram calculadas em TODAS as linhas, não só na
+    // primeira.
+    nome: 'itens: os 12 itens da proposta semeada, com as geradas calculadas',
+    bloco: '5.2',
+    query: async (sb) => {
+      const { data: p } = await sb
+        .from('propostas')
+        .select('id')
+        .eq('numero', 'SEED-ITENS-001')
+        .maybeSingle()
+      if (!p) return { data: null, error: { message: 'SEED-ITENS-001 ausente — rode bash scripts/aplicar-seed.sh supabase/seed_itens.sql' } }
+      return sb
+        .from('itens')
+        .select('id, numero, quantidade, largura, altura, valor_unit, valor_total, area_m2, unidade')
+        .eq('proposta_id', p.id)
+        .order('numero', { ascending: true, nullsFirst: false })
+    },
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.length !== 12) return `esperados 12 itens, vieram ${linhas.length}`
+
+      const semNumero = linhas.filter((l) => l.numero === null).length
+      if (semNumero !== 1) return `esperado 1 item sem numero, vieram ${semNumero}`
+
+      for (const l of linhas) {
+        if (l.valor_unit !== null && l.quantidade !== null) {
+          const esperado = l.valor_unit * l.quantidade
+          if (Math.abs((l.valor_total ?? 0) - esperado) > 0.01) {
+            return `item ${l.numero}: valor_total ${l.valor_total} != ${esperado}`
+          }
+        }
+        if (l.largura !== null && l.altura !== null && l.quantidade !== null) {
+          const esperado = l.largura * l.altura * l.quantidade
+          if (Math.abs((l.area_m2 ?? 0) - esperado) > 0.0001) {
+            return `item ${l.numero}: area_m2 ${l.area_m2} != ${esperado}`
+          }
+        }
+      }
+      return null
+    },
+  },
+  {
+    // O invariante que o trigger trg_itens_recalcula_pai (bloco 5.6) mantém:
+    // proposta COM itens tem valor_total igual à soma deles. A única exceção
+    // aceita é SEED-DIVERGENTE-001, divergente de propósito.
+    nome: 'propostas com itens: valor_total igual à soma (trigger do 5.6)',
+    bloco: '5.6',
+    query: (sb) =>
+      sb
+        .from('propostas')
+        .select('id, numero, valor_total, desconto, itens(valor_total)')
+        .neq('numero', 'SEED-DIVERGENTE-001'),
+    valida: (r) => {
+      const comItens = (r.data ?? []).filter((p) => (p.itens ?? []).length > 0)
+      if (comItens.length === 0) return 'nenhuma proposta com itens — o invariante não foi exercitado'
+      for (const p of comItens) {
+        const soma = p.itens.reduce((a, i) => a + Number(i.valor_total ?? 0), 0)
+        // Soma abaixo do desconto é divergência ESPERADA: o trigger não
+        // sincroniza porque violaria o CHECK desconto <= valor_total.
+        if (soma < Number(p.desconto ?? 0)) continue
+        if (Math.abs(Number(p.valor_total) - soma) > 0.005) {
+          return `${p.numero}: valor_total ${p.valor_total} != soma dos itens ${soma}`
+        }
+      }
+      return null
+    },
+  },
+  {
+    // Contraprova: a checagem acima só vale se souber acusar. A proposta
+    // divergente do seed TEM de aparecer divergente — se não aparecer, ou o
+    // seed sumiu, ou o trigger passou a reescrever valor digitado.
+    nome: 'SEED-DIVERGENTE-001 continua divergente (a checagem acima sabe acusar)',
+    bloco: '5.6',
+    query: (sb) =>
+      sb
+        .from('propostas')
+        .select('numero, valor_total, itens(valor_total)')
+        .eq('numero', 'SEED-DIVERGENTE-001')
+        .maybeSingle(),
+    valida: (r) => {
+      if (!r.data) return 'SEED-DIVERGENTE-001 ausente — rode bash scripts/aplicar-seed.sh supabase/seed_itens.sql'
+      const soma = (r.data.itens ?? []).reduce((a, i) => a + Number(i.valor_total ?? 0), 0)
+      return Math.abs(Number(r.data.valor_total) - soma) > 0.005
+        ? null
+        : `valor ${r.data.valor_total} == soma ${soma}: a divergência sumiu`
+    },
+  },
+  {
+    // Os 3 contratos que a automação criou em 2026-08 têm itens. O trigger
+    // cobre contrato também, e eles já batiam antes da migration.
+    nome: 'contratos com itens: valor_total igual à soma',
+    bloco: '5.6',
+    query: (sb) => sb.from('contratos').select('numero, valor_total, itens(valor_total)'),
+    valida: (r) => {
+      const comItens = (r.data ?? []).filter((c) => (c.itens ?? []).length > 0)
+      if (comItens.length === 0) return null
+      for (const c of comItens) {
+        const soma = c.itens.reduce((a, i) => a + Number(i.valor_total ?? 0), 0)
+        if (Math.abs(Number(c.valor_total) - soma) > 0.005) {
+          return `${c.numero}: valor_total ${c.valor_total} != soma dos itens ${soma}`
+        }
+      }
+      return null
+    },
+  },
 ]
 
 const supabase = createClient(URL_SUPABASE, ANON)

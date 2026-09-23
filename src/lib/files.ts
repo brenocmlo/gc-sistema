@@ -5,6 +5,12 @@
 export const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10 MB
 
 // MIME types aceitos. Frontend também valida extensão como fallback.
+//
+// TEM de ser igual ao `allowed_mime_types` do bucket `anexos`
+// (20260424121552_storage_buckets.sql). Até o fim da sprint 5 esta lista
+// aceitava GIF, que o bucket recusa — o anexo passava na tela e falhava no
+// upload com erro cru do Storage — e não aceitava WebP, que o bucket aceita.
+// `files.test.ts` compara as duas listas.
 export const ALLOWED_MIME_TYPES: readonly string[] = [
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
@@ -13,7 +19,7 @@ export const ALLOWED_MIME_TYPES: readonly string[] = [
   'application/vnd.ms-excel', // .xls (legado)
   'image/jpeg',
   'image/png',
-  'image/gif',
+  'image/webp',
 ]
 
 export const ALLOWED_EXTENSIONS: readonly string[] = [
@@ -25,7 +31,7 @@ export const ALLOWED_EXTENSIONS: readonly string[] = [
   '.jpg',
   '.jpeg',
   '.png',
-  '.gif',
+  '.webp',
 ]
 
 /** Atributo `accept` de input[type=file]. */

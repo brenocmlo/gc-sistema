@@ -6,7 +6,7 @@
 #
 # Uso:
 #   bash scripts/docs-pdf.sh                      # docs/*.md e docs/*/*.md
-#   bash scripts/docs-pdf.sh docs/4.2-status-entrega.md
+#   bash scripts/docs-pdf.sh docs/sprint-4/4.2-status-entrega.md
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

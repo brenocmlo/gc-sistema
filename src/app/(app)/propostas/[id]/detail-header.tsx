@@ -22,6 +22,8 @@ type DetailHeaderProps = {
   status: PropostaStatus
   vencida: boolean
   perfil: Perfil
+  /** Quantos itens vão junto na exclusão — o diálogo avisa. */
+  totalItens: number
 }
 
 export default function DetailHeader({
@@ -32,6 +34,7 @@ export default function DetailHeader({
   status,
   vencida,
   perfil,
+  totalItens,
 }: DetailHeaderProps) {
   const router = useRouter()
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -134,7 +137,13 @@ export default function DetailHeader({
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         title="Excluir proposta?"
-        description="Esta ação não pode ser desfeita. A proposta será removida permanentemente."
+        description={
+          totalItens > 0
+            ? `Esta ação não pode ser desfeita. A proposta e ${totalItens} ${
+                totalItens === 1 ? 'item' : 'itens'
+              } serão removidos permanentemente.`
+            : 'Esta ação não pode ser desfeita. A proposta será removida permanentemente.'
+        }
         variant="danger"
         confirmLabel="Excluir"
         onConfirm={handleDelete}

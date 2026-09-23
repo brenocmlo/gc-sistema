@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { somaItens } from '@/lib/itens'
 import { isEditavel, mensagemDeErroProposta } from '@/lib/propostas'
 import { createClient } from '@/lib/supabase/server'
 import type { PropostaStatus } from '@/lib/types'
@@ -40,7 +41,7 @@ export async function updateProposta(
   // enviado a proposta.
   const { data: atual, error: readErr } = await supabase
     .from('propostas')
-    .select('status')
+    .select('status, obra_id')
     .eq('id', id)
     .maybeSingle()
 
@@ -57,7 +58,31 @@ export async function updateProposta(
 
   // status, empresa_id, created_by e as datas de envio/decisão ficam fora:
   // quem muda isso é o diálogo de status.
-  const { error } = await supabase.from('propostas').update(input).eq('id', id)
+  // Bloco 5.6 — com itens, dois campos deixam de ser do formulário.
+  const { data: itens } = await supabase
+    .from('itens')
+    .select('valor_total')
+    .eq('proposta_id', id)
+
+  const payload = { ...input }
+  if (itens && itens.length > 0) {
+    // Obra: `itens` tem FK composta (proposta_id, empresa_id, obra_id) sem
+    // `on update cascade`. Trocar a obra de uma proposta com itens estouraria a
+    // FK com erro cru — e, se não estourasse, os itens ficariam na obra velha.
+    if (payload.obra_id !== atual.obra_id) {
+      return {
+        ok: false,
+        error:
+          'Esta proposta tem itens, que pertencem à obra atual. Para trocar a obra, remova os itens antes.',
+      }
+    }
+    // Valor total: é a soma dos itens (trigger trg_itens_recalcula_pai). O
+    // formulário mostra o campo travado, mas o POST é de quem mandou — o valor
+    // que vale é o do banco, não o do corpo da requisição.
+    payload.valor_total = somaItens(itens as { valor_total: number | null }[])
+  }
+
+  const { error } = await supabase.from('propostas').update(payload).eq('id', id)
 
   if (error) return { ok: false, error: mensagemDeErroProposta(error.message) }
 

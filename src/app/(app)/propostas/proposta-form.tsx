@@ -22,6 +22,13 @@ import {
   type PropostaFormValues,
 } from './proposta-form-helpers'
 
+/**
+ * Bloco 5.6: com itens, `valor_total` é a soma deles (trigger no banco) e a obra
+ * não pode mudar (FK composta dos itens). A criação nunca tem itens, então só
+ * a edição passa isto.
+ */
+export type TravaPorItens = { quantidade: number; soma: number }
+
 type PropostaFormProps = {
   defaultValues: PropostaFormValues
   obraOptions: readonly { value: string; label: string }[]
@@ -29,6 +36,7 @@ type PropostaFormProps = {
   cancelHref: string
   /** Chamado com os valores validados. Responsável por toast + navegação. */
   onSubmit: (values: PropostaFormValues) => Promise<void>
+  travadoPorItens?: TravaPorItens | null
 }
 
 export default function PropostaForm({
@@ -37,6 +45,7 @@ export default function PropostaForm({
   submitLabel,
   cancelHref,
   onSubmit,
+  travadoPorItens = null,
 }: PropostaFormProps) {
   const {
     register,
@@ -92,9 +101,11 @@ export default function PropostaForm({
           htmlFor="obra_id"
           required
           hint={
-            obraOptions.length === 0
-              ? 'Nenhuma obra cadastrada ainda — cadastre uma antes'
-              : 'O cliente da proposta é o cliente da obra'
+            travadoPorItens
+              ? 'Travada: os itens desta proposta pertencem a esta obra'
+              : obraOptions.length === 0
+                ? 'Nenhuma obra cadastrada ainda — cadastre uma antes'
+                : 'O cliente da proposta é o cliente da obra'
           }
           error={errors.obra_id?.message}
         >
@@ -104,6 +115,13 @@ export default function PropostaForm({
             placeholder="— Selecione uma obra —"
             disabled={isSubmitting || obraOptions.length === 0}
             {...register('obra_id')}
+            {...(travadoPorItens
+              ? {
+                  'aria-readonly': true,
+                  tabIndex: -1,
+                  className: 'pointer-events-none bg-gray-100',
+                }
+              : {})}
           />
         </FormField>
 
@@ -158,6 +176,13 @@ export default function PropostaForm({
         <FormField
           label="Valor total (R$)"
           htmlFor="valor_total"
+          hint={
+            travadoPorItens
+              ? `Soma dos ${travadoPorItens.quantidade} ${
+                  travadoPorItens.quantidade === 1 ? 'item' : 'itens'
+                } — muda pela aba Itens`
+              : undefined
+          }
           error={errors.valor_total?.message}
         >
           <Input
@@ -166,6 +191,8 @@ export default function PropostaForm({
             step="0.01"
             min="0"
             disabled={isSubmitting}
+            readOnly={!!travadoPorItens}
+            className={travadoPorItens ? 'bg-gray-100' : ''}
             {...register('valor_total', { valueAsNumber: true })}
           />
         </FormField>

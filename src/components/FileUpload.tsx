@@ -172,7 +172,7 @@ export default function FileUpload({
           arquivos aqui
         </p>
         <p className="text-xs text-gray-500 mt-1">
-          PDF, Word, Excel, JPG, PNG, GIF · até 10 MB por arquivo
+          PDF, Word, Excel, JPG, PNG, WebP · até 10 MB por arquivo
         </p>
       </div>
 

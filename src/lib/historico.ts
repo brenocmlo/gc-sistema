@@ -3,7 +3,7 @@
  *
  * Nasceu em Propostas (bloco 4.6) e foi extraído pra cá quando Orçamentos
  * precisou do mesmo — o formato era "pra copiar", e código copiado é código que
- * divergc. Genérico no tipo de status: cada entidade passa o seu.
+ * diverge. Genérico no tipo de status: cada entidade passa o seu.
  *
  * Quem grava: a Server Action de mudança de status, no mesmo `update` do
  * status, pra não existir janela em que o status mudou e o registro não.
