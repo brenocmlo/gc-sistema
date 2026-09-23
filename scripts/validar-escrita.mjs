@@ -222,6 +222,9 @@ let propostaCargaId = null
 /** Propostas do 5.7 e da matriz de perfis do 5.8 — apagadas no finally. */
 let proposta57Id = null
 let propostaPerfisId = null
+/** Fase 6 da automação: proposta criada pela rota de ingestão e os documentos de teste — apagados no finally. */
+let propostaIngestaoId = null
+const documentosIngestao = []
 
 
 try {
@@ -1341,7 +1344,121 @@ try {
       )
     }
   }
+  // ============================================================
+  // Fase 6 da automação — POST /api/ingestao/proposta
+  // ============================================================
+  // Rota de máquina: autentica por x-ingestao-token, sem sessão. Os passos
+  // montam documentos_processamento de teste como o n8n montaria.
+  {
+    const TOKEN = process.env.INGESTAO_TOKEN
+    const AUTOR = process.env.INGESTAO_PROFILE_ID
+    const { data: obraIng } = await supabase.from('obras').select('id, empresa_id').eq('id', obra.id).single()
+    const novoDocumento = async () => {
+      const { data, error } = await supabase
+        .from('documentos_processamento')
+        .insert({ empresa_id: obraIng.empresa_id, tipo_documento: 'PROPOSTA', arquivo_url: 'validacao://ingestao', status: 'PENDENTE', canal: 'TELEGRAM', canal_chat_id: 'validacao' })
+        .select('id')
+        .single()
+      if (error) throw new Error(`documento de teste: ${error.message}`)
+      documentosIngestao.push(data.id)
+      return data.id
+    }
+    const ingerir = async (corpo, token = TOKEN) => {
+      const res = await fetch(BASE + '/api/ingestao/proposta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-ingestao-token': token } : {}) },
+        body: JSON.stringify(corpo),
+        redirect: 'manual',
+      })
+      let json = null
+      try { json = await res.json() } catch { json = null }
+      return { status: res.status, json }
+    }
+    checar('INGESTAO_TOKEN e INGESTAO_PROFILE_ID estão no .env.local', Boolean(TOKEN && AUTOR))
+
+    const NUMERO_ING = `VALIDA-INGESTAO-${Date.now()}`
+    const docId = await novoDocumento()
+    const corpo = {
+      documentoId: docId,
+      empresaId: obraIng.empresa_id,
+      obraId: obraIng.id,
+      numero: NUMERO_ING,
+      valorTotal: 'R$ 1.410,00',
+      pct: { sinal: 30, fd: 70 },
+      origem: { canal: 'TELEGRAM', chatId: 'validacao' },
+      itens: [
+        { numero: '1', descricao: 'só com valor total', quantidade: '02', valor_unitario: null, valor_total: 'R$ 1.000,00' },
+        { numero: '2', descricao: 'unidade UN', quantidade: 1, unidade: 'UN', valor_unitario: 200, valor_total: 200 },
+        { numero: '3', descricao: 'porta em mm', quantidade: 1, unidade: 'm²', valor_unitario: 210, valor_total: 210, largura: 950, altura: 2100 },
+      ],
+    }
+
+    const semToken = await ingerir(corpo, null)
+    checar('ingestão sem token é recusada com 401 (e não redireciona pro /login)', semToken.status === 401, `status ${semToken.status}`)
+    const tokenErrado = await ingerir(corpo, 'x'.repeat(64))
+    checar('ingestão com token errado é recusada com 401', tokenErrado.status === 401, `status ${tokenErrado.status}`)
+
+    const pctRuim = await ingerir({ ...corpo, pct: { sinal: 60, fd: 50 } })
+    checar('soma de percentuais acima de 100% é recusada com 422', pctRuim.status === 422 && /100%/.test(pctRuim.json?.error ?? ''), JSON.stringify(pctRuim))
+    const obraAlheia = await ingerir({ ...corpo, obraId: '00000000-0000-4000-8000-000000000000' })
+    checar('obra que não é da empresa é recusada com 422', obraAlheia.status === 422 && /Obra não pertence/.test(obraAlheia.json?.error ?? ''), JSON.stringify(obraAlheia))
+    const semConserto = await ingerir({ ...corpo, itens: [...corpo.itens, { numero: '4', quantidade: 0, valor_total: null }] })
+    checar('item com quantidade zero e sem valor recusa a ingestão inteira (422)', semConserto.status === 422 && /item 4/.test(semConserto.json?.error ?? ''), JSON.stringify(semConserto))
+    const { count: antes } = await supabase.from('propostas').select('id', { count: 'exact', head: true }).eq('numero', NUMERO_ING)
+    checar('nenhuma recusa deixou proposta gravada', antes === 0, `linhas: ${antes}`)
+
+    const feliz = await ingerir(corpo)
+    checar('ingestão válida cria a proposta (201) com 3 itens', feliz.status === 201 && feliz.json?.ok === true && feliz.json?.itens === 3, JSON.stringify(feliz))
+    propostaIngestaoId = feliz.json?.propostaId ?? null
+
+    if (propostaIngestaoId) {
+      const { data: pIng } = await supabase
+        .from('propostas')
+        .select('status, created_by, historico, valor_total, pct_sinal, pct_fd, observacao, obra_id')
+        .eq('id', propostaIngestaoId)
+        .single()
+      checar('proposta da ingestão nasce rascunho, com o profile de serviço como autor', pIng?.status === 'rascunho' && pIng?.created_by === AUTOR, JSON.stringify({ status: pIng?.status, created_by: pIng?.created_by }))
+      const h0 = Array.isArray(pIng?.historico) ? pIng.historico[0] : null
+      checar('histórico desde o nascimento: rascunho → rascunho, por = uuid do profile', h0?.de === 'rascunho' && h0?.para === 'rascunho' && h0?.por === AUTOR, JSON.stringify(h0))
+      checar('percentuais gravados como fração (30% / 70%)', pIng?.pct_sinal === 0.3 && pIng?.pct_fd === 0.7, JSON.stringify({ s: pIng?.pct_sinal, f: pIng?.pct_fd }))
+      checar('observacao leva o rastro do documento', (pIng?.observacao ?? '').includes(`documento ${docId}`), pIng?.observacao)
+
+      const { data: itIng } = await supabase
+        .from('itens')
+        .select('numero, quantidade, unidade, valor_unit, valor_total, largura, altura, area_m2, observacao')
+        .eq('proposta_id', propostaIngestaoId)
+        .order('numero')
+      const [i1, i2, i3] = itIng ?? []
+      checar('item só com total grava valor_unit inferido (1.000 / 2 = 500) e marca observacao', Number(i1?.valor_unit) === 500 && Number(i1?.valor_total) === 1000 && /inferido/.test(i1?.observacao ?? ''), JSON.stringify(i1))
+      checar("item com unidade 'UN' grava 'QTD'", i2?.unidade === 'QTD', JSON.stringify(i2))
+      checar("item em m² grava 'M2', medidas em mm convertidas para metro", i3?.unidade === 'M2' && Number(i3?.largura) === 0.95 && Number(i3?.altura) === 2.1 && /lidas como mm/.test(i3?.observacao ?? ''), JSON.stringify(i3))
+      checar('area_m2 e valor_total dos itens vêm calculados pelo banco', Number(i3?.area_m2) === 1.995 && Number(i3?.valor_total) === 210, JSON.stringify({ area: i3?.area_m2, total: i3?.valor_total }))
+      checar('valor da proposta = soma dos itens (trigger da 5.6)', Number(pIng?.valor_total) === 1410, `valor_total ${pIng?.valor_total}`)
+
+      const { data: dIng } = await supabase.from('documentos_processamento').select('status, proposta_criada_id, obra_id').eq('id', docId).single()
+      checar('documento vinculado: APROVADO, proposta_criada_id e obra preenchidos', dIng?.status === 'APROVADO' && dIng?.proposta_criada_id === propostaIngestaoId && dIng?.obra_id === obraIng.id, JSON.stringify(dIng))
+
+      const repetida = await ingerir(corpo)
+      checar('segunda chamada com o mesmo documentoId devolve 200 e o mesmo id', repetida.status === 200 && repetida.json?.jaExistia === true && repetida.json?.propostaId === propostaIngestaoId, JSON.stringify(repetida))
+      const { count: depois } = await supabase.from('propostas').select('id', { count: 'exact', head: true }).eq('numero', NUMERO_ING)
+      checar('a repetição não criou segunda proposta', depois === 1, `linhas: ${depois}`)
+
+      const doc2 = await novoDocumento()
+      const duplicada = await ingerir({ ...corpo, documentoId: doc2 })
+      checar('número de proposta repetido responde 409 com mensagem legível (decisão 9)', duplicada.status === 409 && /Já existe uma proposta com esse número/.test(duplicada.json?.error ?? ''), JSON.stringify(duplicada))
+    }
+  }
 } finally {
+  // Fase 6: a proposta da ingestão sai com os itens pelo mesmo caminho da tela;
+  // os documentos de teste saem depois (a FK de proposta_criada_id é set null).
+  if (propostaIngestaoId) {
+    const r = await chamar('deleteProposta', [propostaIngestaoId], { rota: `/propostas/${propostaIngestaoId}` })
+    checar('proposta da ingestão apagada com os itens', r.ok === true, r.error)
+  }
+  if (documentosIngestao.length > 0) {
+    const { error: ed } = await supabase.from('documentos_processamento').delete().in('id', documentosIngestao)
+    checar(`limpeza dos ${documentosIngestao.length} documentos de teste da ingestão`, !ed, ed?.message)
+  }
   // Limpeza: nem a proposta nem o orçamento de teste ficam em gc-dev, mesmo se
   // algo falhou no meio.
   if (orcamentoId) {

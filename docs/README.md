@@ -79,7 +79,7 @@ Trilha separada, com **numeração própria de 1 a 8** na lista do ClickUp — n
 | `fase-2-notificar-e-simplificacao-status-entrega.md` | Fase 2 (`Notificar`) e a simplificação: 8 workflows viram 3, Z-API removida, só propostas, testado com PDF real |
 | `fase-4-telegram-como-gatilho-status-entrega.md` | Fase 4: o Telegram vira gatilho do `Processar Documento`; testado até a extração (cota do Gemini pendente) |
 | `fase-5-extracao-itens-status-entrega.md` | Fase 5: prompt com os 14 campos do item e parse; testado offline 12/12, teste real pendente da cota do Gemini |
-| `fase-6-rota-ingestao-status-entrega.md` | Fase 6 em andamento: rota `/api/ingestao/proposta` escrita e testada fora do repo (21/21); espera a sprint 5 e um endereço público |
+| `fase-6-rota-ingestao-status-entrega.md` | Fase 6: rota `/api/ingestao/proposta` no repo, 7 camadas verdes (145/145 na escrita); falta endereço público para o n8n chamá-la |
 
 ## Técnicos · `tecnicos/`
 
