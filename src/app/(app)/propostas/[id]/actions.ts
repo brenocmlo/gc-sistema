@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 
 import { buildStoragePath, fileErrorMessage, validateFile } from '@/lib/files'
+import { BUCKET_FOTOS, pathEhDoItem } from '@/lib/fotos'
 import {
   appendHistorico,
   canChangePropostaStatus,
@@ -72,8 +73,43 @@ export async function deleteProposta(
   const auth = await autorizarEscrita(supabase, ['admin'], 'excluir propostas')
   if (!auth.ok) return { ok: false, error: auth.error }
 
+  // Itens primeiro, e de propósito.
+  //
+  // A FK é `itens_proposta_fk ... on delete set null (proposta_id)`: apagar a
+  // proposta NÃO apaga os itens, só desliga o vínculo. Eles ficariam em
+  // `itens` como itens "soltos" — estado que o DDL admite, mas que NENHUMA
+  // tela do sistema mostra. Ou seja: somem da interface e continuam no banco,
+  // contando em qualquer soma futura que varra a tabela.
+  //
+  // Cascata aqui, na aplicação, em vez de trocar a FK: a semântica de "solto"
+  // pode ser proposital para o caminho de contrato (a automação repontua item
+  // de proposta para contrato), e mexer no schema mudaria isso também. O que
+  // a pessoa espera ao excluir uma proposta é que os itens dela vão junto, e
+  // o diálogo avisa quantos são.
+  // As fotos dos itens (bloco 5.5) saem do Storage depois do delete, pela
+  // mesma razão do deleteItem: nunca deixar item apontando para arquivo que
+  // não existe. Lidas antes, porque depois do delete não há de onde ler.
+  const { data: comFoto } = await supabase
+    .from('itens')
+    .select('id, foto_url')
+    .eq('proposta_id', id)
+    .not('foto_url', 'is', null)
+
+  const { error: erroItens } = await supabase
+    .from('itens')
+    .delete()
+    .eq('proposta_id', id)
+  if (erroItens) {
+    return { ok: false, error: mensagemDeErroProposta(erroItens.message) }
+  }
+
   const { error } = await supabase.from('propostas').delete().eq('id', id)
   if (error) return { ok: false, error: mensagemDeErroProposta(error.message) }
+
+  const paths = (comFoto ?? [])
+    .filter((i) => pathEhDoItem(i.foto_url, auth.empresaId, i.id))
+    .map((i) => i.foto_url as string)
+  if (paths.length > 0) await supabase.storage.from(BUCKET_FOTOS).remove(paths)
 
   revalidatePath('/propostas')
   return { ok: true }

@@ -5,6 +5,8 @@ import { getCurrentProfile } from '@/lib/supabase/profile'
 import { createClient } from '@/lib/supabase/server'
 import type { Proposta } from '@/lib/types'
 
+import { somaItens } from '@/lib/itens'
+
 import { propostaToFormValues } from '../../proposta-form-helpers'
 import EditarPropostaForm from './editar-form'
 
@@ -22,7 +24,7 @@ export default async function EditarPropostaPage({ params }: PageProps) {
 
   const supabase = createClient()
 
-  const [propostaResult, obrasResult] = await Promise.all([
+  const [propostaResult, obrasResult, itensResult] = await Promise.all([
     supabase
       .from('propostas')
       .select('*, obra:obras(codigo_obra, nome)')
@@ -32,6 +34,8 @@ export default async function EditarPropostaPage({ params }: PageProps) {
       .from('obras')
       .select('id, codigo_obra, nome, cliente:clientes(nome)')
       .order('codigo_obra', { ascending: false }),
+    // Bloco 5.6: com itens, obra e valor total saem do formulário.
+    supabase.from('itens').select('valor_total').eq('proposta_id', params.id),
   ])
 
   if (!propostaResult.data) notFound()
@@ -45,6 +49,10 @@ export default async function EditarPropostaPage({ params }: PageProps) {
   if (!isEditavel(proposta.status)) {
     redirect(`/propostas/${proposta.id}`)
   }
+
+  const itens = (itensResult.data ?? []) as { valor_total: number | null }[]
+  const travadoPorItens =
+    itens.length > 0 ? { quantidade: itens.length, soma: somaItens(itens) } : null
 
   const obraOptions = (obrasResult.data ?? []).map((o) => ({
     value: o.id,
@@ -64,8 +72,13 @@ export default async function EditarPropostaPage({ params }: PageProps) {
       </div>
       <EditarPropostaForm
         id={proposta.id}
-        defaultValues={propostaToFormValues(proposta)}
+        defaultValues={
+          travadoPorItens
+            ? { ...propostaToFormValues(proposta), valor_total: travadoPorItens.soma }
+            : propostaToFormValues(proposta)
+        }
         obraOptions={obraOptions}
+        travadoPorItens={travadoPorItens}
       />
     </div>
   )

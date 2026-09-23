@@ -52,6 +52,11 @@ export type NotaFiscalStatus =
 
 export type AcordoStatus = 'aberto' | 'quitado' | 'cancelado' | 'convertido_nf'
 
+// itens.unidade — CHECK `('QTD','M2')`. O 'ML' existia no schema original e
+// foi REMOVIDO de propósito na revisão (20260511151924 §8), que migrou os
+// registros para 'QTD'. Não reintroduza.
+export type Unidade = 'QTD' | 'M2'
+
 // 'atrasada' foi removida do banco — agora é calculada em runtime
 // (data_vencimento < today and status = 'pendente')
 export type ParcelaStatus =
@@ -208,9 +213,46 @@ export type Obra = Tables['obras']['Row']
 export type ObraInsert = Tables['obras']['Insert']
 export type ObraUpdate = Tables['obras']['Update']
 
-export type Item = Tables['itens']['Row']
+// itens.unidade é string no gen (CHECK constraint) — narrar pra Unidade.
+export type Item = Omit<Tables['itens']['Row'], 'unidade'> & {
+  unidade: Unidade | null
+}
 export type ItemInsert = Tables['itens']['Insert']
 export type ItemUpdate = Tables['itens']['Update']
+
+/**
+ * Payload de escrita de item — é este o tipo que Server Action e rota de
+ * ingestão usam, NÃO o `ItemInsert` cru.
+ *
+ * Por quê: `itens.valor_total` e `itens.area_m2` são colunas GENERATED
+ * (`20260511151924_revisao_schema.sql` §8):
+ *
+ *     valor_total generated always as (valor_unit * quantidade) stored
+ *     area_m2     generated always as (largura * altura * quantidade) stored
+ *
+ * O gerador de types do Supabase NÃO sabe disso e as devolve como campos
+ * opcionais do Insert. Ou seja: mandar `valor_total: 1000` passa no `tsc`,
+ * passa no `npm test`, e só estoura no banco, com
+ * `cannot insert a non-DEFAULT value into column "valor_total"`. O `Omit`
+ * aqui move esse erro do runtime pro compilador.
+ *
+ * Os valores continuam existindo na leitura (`Item`), calculados pelo banco.
+ * Para prever na tela antes de salvar, use `areaDoItem`/`valorTotalDoItem`
+ * de `@/lib/itens`, que repetem a mesma fórmula.
+ */
+export type ItemPayload = Omit<
+  ItemInsert,
+  'valor_total' | 'area_m2' | 'unidade'
+> & {
+  unidade?: Unidade | null
+}
+
+export type ItemUpdatePayload = Omit<
+  ItemUpdate,
+  'valor_total' | 'area_m2' | 'unidade'
+> & {
+  unidade?: Unidade | null
+}
 
 export type Execucao = Tables['execucao']['Row']
 export type ExecucaoInsert = Tables['execucao']['Insert']
@@ -257,7 +299,14 @@ export type ObraListItem = Omit<
   cliente: Pick<Cliente, 'nome'> | null
 }
 
-export type ItemComStatus = Views['itens_com_status']['Row']
+// A view devolve `i.*` de itens mais as colunas de execução, então `unidade`
+// chega como string pelo mesmo motivo de `Item` — narrar igual.
+export type ItemComStatus = Omit<
+  Views['itens_com_status']['Row'],
+  'unidade'
+> & {
+  unidade: Unidade | null
+}
 export type ReceitaObra = Views['receitas_obra']['Row']
 export type ObraFinanceiro = Views['obras_financeiro']['Row']
 export type ContratoFinanceiro = Views['contratos_financeiro']['Row']

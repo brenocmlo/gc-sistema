@@ -29,12 +29,22 @@ nesses números.
 
 ## Adoção — rodar UMA vez por ambiente
 
-**O passo do `repair` não é opcional.** As migrations já estão todas aplicadas
-em gc-dev (verificado em 2026-09-02, 21/21 checagens), mas a CLI não sabe
-disso: o histórico remoto está vazio. Um `db push` antes do `repair` tentaria
-reaplicar tudo, começando pela `revisao_schema` (ex-004) — que é destrutiva e
-não idempotente. Ela está envolvida em `begin/commit`, então abortaria sem
-estragar nada, mas o susto é desnecessário.
+> **Estado em 2026-09-21: em gc-dev isto JÁ FOI FEITO e não precisa repetir.**
+> O `repair` das dez versões rodou em 2026-09-05, no bloco 4.1, e o
+> `migration list` mostra as 13 alinhadas nos dois lados. `db push` em gc-dev
+> não exige preparo nenhum.
+>
+> **O que está abaixo vale para gc-prod**, quando despausar, e como registro de
+> como o ambiente foi adotado. Se você veio parar aqui vindo do `CLAUDE.md`
+> achando que há uma pendência bloqueando gc-dev: não há.
+
+**O passo do `repair` não é opcional** — ao adotar um ambiente novo. As
+migrations já estão todas aplicadas em gc-dev (verificado em 2026-09-02, 21/21
+checagens), mas naquele momento a CLI não sabia disso: o histórico remoto
+estava vazio. Um `db push` antes do `repair` tentaria reaplicar tudo, começando
+pela `revisao_schema` (ex-004) — que é destrutiva e não idempotente. Ela está
+envolvida em `begin/commit`, então abortaria sem estragar nada, mas o susto é
+desnecessário.
 
 ```bash
 # 1. autenticar (o fluxo de navegador precisa de TTY; sem TTY, use --token)

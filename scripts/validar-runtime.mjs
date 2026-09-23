@@ -14,7 +14,8 @@
  * servidor trata a requisição como usuário logado de verdade, com RLS.
  *
  * As rotas conferidas ficam em scripts/validacao-rotas.json — cada bloco novo
- * acrescenta as suas lá, não aqui. O placeholder {propostaSeed} no path é
+ * acrescenta as suas lá, não aqui. Os placeholders {propostaSeed} e
+ * {propostaItens} no path são
  * trocado pelo id da proposta de scripts/seed-propostas-dev.mjs, que é como as
  * rotas dinâmicas entram sem uuid chumbado no arquivo.
  */
@@ -72,6 +73,23 @@ const PROIBIDO_EM_TODA_ROTA = ['Erro ao carregar', 'Application error']
  * `espera` aceita: `colunas` (cabeçalhos, na ordem), `minLinhas` e `contem`
  * (textos que precisam aparecer em alguma célula).
  */
+/**
+ * O template REAL da rota passado pelo parser REAL da importação (bloco 5.4).
+ * O teste unitário reproduz o layout; este prova que a rota entrega esse
+ * layout. Os dois juntos fecham o caminho baixar → preencher → subir.
+ * O Node 24 importa .ts direto (type stripping).
+ */
+async function conferirTemplateItens(buffer) {
+  const { lerPlanilhaItens } = await import('../src/lib/itens-planilha.ts')
+  const { validarPlanilha } = await import('../src/lib/itens-form.ts')
+  const lido = await lerPlanilhaItens(buffer)
+  if (!lido.ok) return [`o parser da importação não leu o template: ${lido.erro}`]
+  if (lido.linhas.length !== 1) return [`template deveria ter 1 linha (o exemplo), tem ${lido.linhas.length}`]
+  const [v] = validarPlanilha(lido.linhas, [])
+  if (v.ok) return ['a linha de exemplo do template passou na validação — seria importada como item']
+  return []
+}
+
 async function conferirXlsx(buffer, espera) {
   const problemas = []
   const { default: ExcelJS } = await import('exceljs')
@@ -192,6 +210,24 @@ const { data: seed } = await supabase
   .eq('numero', 'SEED-VENCIDA-001')
   .maybeSingle()
 
+// {propostaItens} → a proposta rascunho com 12 itens (supabase/seed_itens.sql).
+// Separada da de cima de propósito: SEED-VENCIDA-001 é `enviada` com ZERO
+// itens, então só exercita a aba no estado somente-leitura vazio. Esta é
+// rascunho e cheia, e é a única que faz a tabela editável renderizar.
+const { data: seedItens } = await supabase
+  .from('propostas')
+  .select('id')
+  .eq('numero', 'SEED-ITENS-001')
+  .maybeSingle()
+
+// {propostaDivergente} → SEED-DIVERGENTE-001 (supabase/seed_itens.sql): itens
+// somando 5.000,00 com valor digitado em 9.999,00. Prova o aviso do bloco 5.6.
+const { data: seedDivergente } = await supabase
+  .from('propostas')
+  .select('id')
+  .eq('numero', 'SEED-DIVERGENTE-001')
+  .maybeSingle()
+
 // {obraPrimeira}: qualquer obra serve — o que a rota prova é que o detalhe
 // monta, e ele passa pela mesma view que já derrubou a listagem uma vez.
 const { data: obraPrimeira } = await supabase
@@ -209,7 +245,6 @@ const { data: orcamentoPrimeiro } = await supabase
   .maybeSingle()
 
 let falhas = 0
-let pulados = 0
 
 for (const rota of rotas) {
   const {
@@ -219,28 +254,54 @@ for (const rota of rotas) {
     perfil,
   } = rota
 
+  // Gate de dado ausente ESTOURA, não pula.
+  //
+  // Até 2026-09-21 estes três blocos faziam `pulados += 1` e o exit final só
+  // olhava `falhas`, então gc-dev sem seed devolvia 0 com metade das rotas não
+  // exercitada — o skip silencioso que `auditoria-cobertura-sprint-4.md`
+  // documenta, dentro do próprio script de validação.
   if (rota.path.includes('{propostaSeed}') && !seed) {
-    pulados += 1
+    falhas += 1
     console.log(
-      `  PULOU ${rota.path} — rode scripts/seed-propostas-dev.mjs primeiro`,
+      `  FALHA ${rota.path} — sem SEED-VENCIDA-001; rode scripts/seed-propostas-dev.mjs`,
+    )
+    continue
+  }
+
+  if (rota.path.includes('{propostaItens}') && !seedItens) {
+    falhas += 1
+    console.log(
+      `  FALHA ${rota.path} — sem SEED-ITENS-001; rode` +
+        ' bash scripts/aplicar-seed.sh supabase/seed_itens.sql',
+    )
+    continue
+  }
+
+  if (rota.path.includes('{propostaDivergente}') && !seedDivergente) {
+    falhas += 1
+    console.log(
+      `  FALHA ${rota.path} — sem SEED-DIVERGENTE-001; rode` +
+        ' bash scripts/aplicar-seed.sh supabase/seed_itens.sql',
     )
     continue
   }
 
   if (rota.path.includes('{obraPrimeira}') && !obraPrimeira) {
-    pulados += 1
-    console.log(`  PULOU ${rota.path} — gc-dev não tem nenhuma obra`)
+    falhas += 1
+    console.log(`  FALHA ${rota.path} — gc-dev não tem nenhuma obra`)
     continue
   }
 
   if (rota.path.includes('{orcamentoPrimeiro}') && !orcamentoPrimeiro) {
-    pulados += 1
-    console.log(`  PULOU ${rota.path} — gc-dev não tem nenhum orçamento`)
+    falhas += 1
+    console.log(`  FALHA ${rota.path} — gc-dev não tem nenhum orçamento`)
     continue
   }
 
   const path = rota.path
     .replace('{propostaSeed}', seed?.id ?? '')
+    .replace('{propostaItens}', seedItens?.id ?? '')
+    .replace('{propostaDivergente}', seedDivergente?.id ?? '')
     .replace('{obraPrimeira}', obraPrimeira?.id ?? '')
     .replace('{orcamentoPrimeiro}', orcamentoPrimeiro?.id ?? '')
   const cookieDaRota = cookiesPorPerfil[perfil ?? 'admin']
@@ -292,8 +353,10 @@ for (const rota of rotas) {
       problemas.push(`content-type "${tipo}", esperado ${rota.esperaContentType}`)
     }
 
-    if (rota.esperaXlsx) {
-      problemas.push(...(await conferirXlsx(await res.arrayBuffer(), rota.esperaXlsx)))
+    if (rota.esperaXlsx || rota.esperaTemplateItens) {
+      const buffer = await res.arrayBuffer()
+      if (rota.esperaXlsx) problemas.push(...(await conferirXlsx(buffer, rota.esperaXlsx)))
+      if (rota.esperaTemplateItens) problemas.push(...(await conferirTemplateItens(buffer)))
     }
   }
 
@@ -308,8 +371,7 @@ for (const rota of rotas) {
 }
 
 console.log(
-  `\n${rotas.length - falhas - pulados}/${rotas.length} rotas ok` +
-    (pulados > 0 ? `, ${pulados} puladas` : '') +
+  `\n${rotas.length - falhas}/${rotas.length} rotas ok` +
     ` (autenticado como ${EMAIL})`,
 )
 process.exit(falhas === 0 ? 0 : 1)

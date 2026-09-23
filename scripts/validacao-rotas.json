@@ -57,7 +57,8 @@
       "Histórico",
       "Financeiro",
       "Mudar status",
-      "OBRA-2027-01"
+      "OBRA-2027-01",
+      "Esta proposta não tem itens."
     ],
     "nota": "trechos nunca atravessam interpolação de JSX: o SSR do React insere <!-- --> entre texto literal e {valor}, então \"Proposta X\" não existe como string contínua no HTML"
   },
@@ -358,6 +359,83 @@
     "path": "/clientes",
     "esperaHtml": [
       "<table"
+    ]
+  },
+  {
+    "path": "/propostas/{propostaItens}",
+    "esperaHtml": [
+      "SEED-ITENS-001",
+      "Itens (12)",
+      "Valor unit.",
+      "Área m²",
+      "Acabamento",
+      "Guarda-corpo",
+      "Adicionar item",
+      "12 itens"
+    ],
+    "naoEsperaHtml": [
+      "Esta proposta não tem itens.",
+      "Itens da proposta chegam no Sprint 5",
+      "é diferente da soma dos itens"
+    ]
+  },
+  {
+    "path": "/propostas/{propostaItens}",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "SEED-ITENS-001",
+      "Itens (12)",
+      "Guarda-corpo",
+      "12 itens",
+      "Ver todos os campos do item"
+    ],
+    "naoEsperaHtml": [
+      "Adicionar item",
+      "Abrir formulário do item",
+      "Excluir item"
+    ]
+  },
+  {
+    "path": "/api/template/itens",
+    "esperaContentType": "spreadsheetml",
+    "esperaHtml": [],
+    "esperaXlsx": {
+      "colunas": [
+        "Nº",
+        "Tipo",
+        "Descrição",
+        "Quantidade",
+        "Unidade (QTD ou M2)",
+        "Valor unitário"
+      ]
+    },
+    "esperaTemplateItens": true
+  },
+  {
+    "path": "/propostas/{propostaDivergente}",
+    "esperaHtml": [
+      "SEED-DIVERGENTE-001",
+      "é diferente da soma dos itens",
+      "Usar a soma dos itens",
+      "Valor total (soma de 2 itens)"
+    ]
+  },
+  {
+    "path": "/propostas/{propostaDivergente}",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "é diferente da soma dos itens"
+    ],
+    "naoEsperaHtml": [
+      "Usar a soma dos itens"
+    ]
+  },
+  {
+    "path": "/propostas/{propostaItens}/editar",
+    "esperaHtml": [
+      "Editar proposta",
+      "Soma dos 12 itens",
+      "Travada: os itens desta proposta"
     ]
   }
 ]

@@ -8,6 +8,7 @@ import { formatCurrency, formatDate } from '@/lib/format'
 import {
   formatPct,
   historicoOrdenado,
+  isEditavel,
   isPropostaVencida,
   parcelasDaProposta,
   pctRestante,
@@ -17,12 +18,14 @@ import { createClient } from '@/lib/supabase/server'
 import {
   MOTIVO_REJEICAO_LABELS,
   type Anexo,
+  type Item,
   type Proposta,
   type PropostaFinanceiro,
 } from '@/lib/types'
 
 import AnexosTab from './anexos-tab'
 import DetailHeader from './detail-header'
+import ItensTab from './itens-tab'
 
 type PageProps = {
   params: { id: string }
@@ -43,7 +46,7 @@ export default async function PropostaDetalhePage({ params }: PageProps) {
 
   // A proposta (com obra → cliente) e a linha financeira em paralelo. A view
   // propostas_financeiro é security_invoker, então respeita a mesma RLS.
-  const [propostaRes, financeiroRes] = await Promise.all([
+  const [propostaRes, financeiroRes, itensRes] = await Promise.all([
     supabase
       .from('propostas')
       .select(
@@ -56,6 +59,17 @@ export default async function PropostaDetalhePage({ params }: PageProps) {
       .select('total_nfs, recebido_nfs, total_acordos, recebido_acordos')
       .eq('id', params.id)
       .maybeSingle(),
+    // Itens da proposta, na ordem em que aparecem no documento. `numero` é
+    // nullable (item cuja numeração original não era inteira), e nulls last
+    // deixa esses no fim em vez de no topo.
+    supabase
+      .from('itens')
+      .select(
+        'id, empresa_id, obra_id, proposta_id, contrato_id, numero, tipo, descricao, linha, acabamento, largura, altura, quantidade, unidade, valor_unit, valor_total, area_m2, vidros, localizacao, observacao, foto_url, created_at, updated_at, created_by',
+      )
+      .eq('proposta_id', params.id)
+      .order('numero', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true }),
   ])
 
   if (!propostaRes.data) notFound()
@@ -70,6 +84,9 @@ export default async function PropostaDetalhePage({ params }: PageProps) {
     PropostaFinanceiro,
     'total_nfs' | 'recebido_nfs' | 'total_acordos' | 'recebido_acordos'
   > | null
+
+  const itens = (itensRes.data ?? []) as Item[]
+
 
   const anexos = (proposta.anexos as Anexo[] | null) ?? []
   const obraLabel = obra ? `${obra.codigo_obra} — ${obra.nome}` : '—'
@@ -97,6 +114,7 @@ export default async function PropostaDetalhePage({ params }: PageProps) {
         status={proposta.status}
         vencida={isPropostaVencida(proposta)}
         perfil={profile.perfil}
+        totalItens={itens.length}
       />
 
       <Tabs
@@ -104,7 +122,9 @@ export default async function PropostaDetalhePage({ params }: PageProps) {
           {
             value: 'detalhes',
             label: 'Detalhes',
-            content: <DetailsTab proposta={proposta} obra={obra} />,
+            content: (
+              <DetailsTab proposta={proposta} obra={obra} qtdItens={itens.length} />
+            ),
           },
           {
             value: 'pagamento',
@@ -113,9 +133,16 @@ export default async function PropostaDetalhePage({ params }: PageProps) {
           },
           {
             value: 'itens',
-            label: 'Itens',
+            label: `Itens${itens.length > 0 ? ` (${itens.length})` : ''}`,
             content: (
-              <Placeholder message="Itens da proposta chegam no Sprint 5." />
+              <ItensTab
+                propostaId={proposta.id}
+                itens={itens}
+                valorTotalProposta={proposta.valor_total}
+                descontoProposta={proposta.desconto}
+                perfil={profile.perfil}
+                editavel={isEditavel(proposta.status)}
+              />
             ),
           },
           {
@@ -156,9 +183,11 @@ export default async function PropostaDetalhePage({ params }: PageProps) {
 function DetailsTab({
   proposta,
   obra,
+  qtdItens,
 }: {
   proposta: Proposta
   obra: ObraJoin
+  qtdItens: number
 }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -204,7 +233,11 @@ function DetailsTab({
       <div className="space-y-6">
         <Block title="Valores">
           <DetailField
-            label="Valor total"
+            label={
+              qtdItens > 0
+                ? `Valor total (soma de ${qtdItens} ${qtdItens === 1 ? 'item' : 'itens'})`
+                : 'Valor total'
+            }
             value={formatCurrency(proposta.valor_total)}
           />
           <DetailField
@@ -398,14 +431,6 @@ function FinanceiroTab({
         fiscais não canceladas e acordos ativos. Enquanto as telas de financeiro
         não existirem, tudo aqui costuma ficar zerado.
       </p>
-    </div>
-  )
-}
-
-function Placeholder({ message }: { message: string }) {
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
-      {message}
     </div>
   )
 }

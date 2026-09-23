@@ -83,6 +83,14 @@ const NECESSARIAS = [
   'uploadAnexo',
   'getAnexoUrl',
   'deleteAnexo',
+  // Itens (bloco 5.2)
+  'createItem',
+  'updateItem',
+  'deleteItem',
+  // Importação em massa (bloco 5.4)
+  'importarItens',
+  // Sincronização de valor (5.6)
+  'sincronizarValorComItens',
   // Orçamentos: só o que o histórico uniformizado (migration 013) exige.
   'createOrcamento',
   'changeOrcamentoStatus',
@@ -199,6 +207,14 @@ function checar(descricao, condicao, detalhe = '') {
 const NUMERO = `VALIDA-ESCRITA-${Date.now()}`
 let propostaId = null
 let orcamentoId = null
+/** Ids dos itens criados no roteiro — limpos no finally. */
+const itensCriados = []
+/** Proposta isolada dos passos do 5.6 — apagada no finally. */
+let proposta56Id = null
+/** Contrato e proposta de carga do fechamento da sprint 5 — apagados no finally. */
+let contratoTesteId = null
+let propostaCargaId = null
+
 
 try {
   const { data: obra } = await supabase
@@ -281,6 +297,588 @@ try {
       descontoInvalido.error,
     )
 
+    // 5b. Itens (bloco 5.2) — a proposta ainda é rascunho aqui, que é a
+    // única janela em que o guard de item deixa escrever.
+    const rotaItens = `/propostas/${propostaId}`
+
+    const item1 = await chamar('createItem', [propostaId, {
+      numero: 1, tipo: 'Janela', descricao: 'Janela de correr', linha: 'Suprema',
+      acabamento: 'Branco', largura: 1.2, altura: 1.5, quantidade: 2,
+      unidade: 'M2', valor_unit: 500,
+    }], { rota: rotaItens })
+    checar('createItem cria o item na proposta', item1.ok === true, item1.error)
+    if (item1.ok) itensCriados.push(item1.item.id)
+
+    // As duas colunas GENERATED: o banco calcula, ninguém envia.
+    checar(
+      'valor_total generated = valor_unit × quantidade (1000)',
+      Number(item1.item?.valor_total) === 1000,
+      `valor_total=${item1.item?.valor_total}`,
+    )
+    checar(
+      'area_m2 generated = largura × altura × quantidade (3.6)',
+      Math.abs(Number(item1.item?.area_m2) - 3.6) < 0.0001,
+      `area_m2=${item1.item?.area_m2}`,
+    )
+    // O servidor resolve empresa_id/obra_id da proposta — não vêm do cliente.
+    checar(
+      'item herda obra_id e empresa_id da proposta',
+      item1.item?.obra_id === obra.id && Boolean(item1.item?.empresa_id),
+      `obra_id=${item1.item?.obra_id}`,
+    )
+
+    // Editar recalcula as geradas
+    const item1Editado = await chamar('updateItem', [propostaId, item1.item?.id, {
+      numero: 1, tipo: 'Janela', descricao: 'Janela de correr', linha: 'Suprema',
+      acabamento: 'Branco', largura: 1.2, altura: 1.5, quantidade: 3,
+      unidade: 'M2', valor_unit: 500,
+    }], { rota: rotaItens })
+    checar('updateItem edita a linha', item1Editado.ok === true, item1Editado.error)
+    checar(
+      'colunas generated recalculam na edição (1500)',
+      Number(item1Editado.item?.valor_total) === 1500,
+      `valor_total=${item1Editado.item?.valor_total}`,
+    )
+
+    // Unique parcial (proposta_id, numero) — o tsc não pega, o banco pega
+    const numeroRepetido = await chamar('createItem', [propostaId, {
+      numero: 1, tipo: null, descricao: 'Duplicata', linha: null, acabamento: null,
+      largura: null, altura: null, quantidade: 1, unidade: 'QTD', valor_unit: 10,
+    }], { rota: rotaItens })
+    checar(
+      'número repetido na mesma proposta é recusado',
+      numeroRepetido.ok === false,
+      numeroRepetido.error,
+    )
+    if (numeroRepetido.ok) itensCriados.push(numeroRepetido.item.id)
+
+    // CHECK de unidade. Via HTTP dá pra mandar 'ML', que o ItemPayload
+    // bloquearia no tsc — é exatamente o caminho que a automação vai usar.
+    const unidadeInvalida = await chamar('createItem', [propostaId, {
+      numero: 2, tipo: null, descricao: 'ML não existe mais', linha: null,
+      acabamento: null, largura: null, altura: null, quantidade: 1,
+      unidade: 'ML', valor_unit: 10,
+    }], { rota: rotaItens })
+    checar(
+      "unidade 'ML' é recusada pelo CHECK",
+      unidadeInvalida.ok === false,
+      unidadeInvalida.error,
+    )
+    if (unidadeInvalida.ok) itensCriados.push(unidadeInvalida.item.id)
+
+    // Colunas geradas enviadas pelo cliente: limparColunasGeradas as remove
+    // antes do insert, então a action aceita e o banco calcula o certo.
+    const comGeradas = await chamar('createItem', [propostaId, {
+      numero: 3, tipo: null, descricao: 'Com colunas geradas no payload',
+      linha: null, acabamento: null, largura: null, altura: null,
+      quantidade: 2, unidade: 'QTD', valor_unit: 100,
+      valor_total: 999999, area_m2: 999999,
+    }], { rota: rotaItens })
+    checar(
+      'payload com valor_total/area_m2 não quebra o insert',
+      comGeradas.ok === true,
+      comGeradas.error,
+    )
+    if (comGeradas.ok) itensCriados.push(comGeradas.item.id)
+    checar(
+      'valor_total enviado pelo cliente é ignorado (200, não 999999)',
+      Number(comGeradas.item?.valor_total) === 200,
+      `valor_total=${comGeradas.item?.valor_total}`,
+    )
+
+    // Excluir
+    if (comGeradas.ok) {
+      const excluido = await chamar('deleteItem', [propostaId, comGeradas.item.id], {
+        rota: rotaItens,
+      })
+      checar('deleteItem remove o item', excluido.ok === true, excluido.error)
+      if (excluido.ok) {
+        const i = itensCriados.indexOf(comGeradas.item.id)
+        if (i >= 0) itensCriados.splice(i, 1)
+      }
+    }
+
+    // 5e. Formulário completo (bloco 5.3): os três campos que a tabela não
+    // tem. Prova que `localizacao`/`vidros`/`observacao` gravam, e — o que
+    // importa mais — que editar pela TABELA depois não os apaga.
+    const itemCompleto = await chamar('createItem', [propostaId, {
+      numero: 30, tipo: 'Porta', descricao: 'Com todos os campos', linha: 'Gold',
+      acabamento: 'Bronze', largura: 0.9, altura: 2.1, quantidade: 1,
+      unidade: 'M2', valor_unit: 2000,
+      localizacao: 'Entrada social', vidros: 'Temperado 8mm', observacao: 'Vem do formulário completo',
+    }], { rota: `/propostas/${propostaId}` })
+    checar('createItem grava localizacao, vidros e observacao', itemCompleto.ok === true, itemCompleto.error)
+    if (itemCompleto.ok) {
+      itensCriados.push(itemCompleto.item.id)
+      checar(
+        'os três campos do formulário completo voltaram do banco',
+        itemCompleto.item.localizacao === 'Entrada social' &&
+          itemCompleto.item.vidros === 'Temperado 8mm' &&
+          itemCompleto.item.observacao === 'Vem do formulário completo',
+        JSON.stringify({
+          localizacao: itemCompleto.item.localizacao,
+          vidros: itemCompleto.item.vidros,
+          observacao: itemCompleto.item.observacao,
+        }),
+      )
+
+      // A tabela do 5.2 NÃO manda esses três campos. O PostgREST só altera as
+      // colunas presentes no update, então omitir tem de PRESERVAR.
+      const edicaoPelaTabela = await chamar('updateItem', [propostaId, itemCompleto.item.id, {
+        numero: 30, tipo: 'Porta', descricao: 'Editado pela tabela', linha: 'Gold',
+        acabamento: 'Bronze', largura: 0.9, altura: 2.1, quantidade: 2,
+        unidade: 'M2', valor_unit: 2000,
+      }, itemCompleto.item.updated_at], { rota: `/propostas/${propostaId}` })
+      checar('editar pela tabela funciona', edicaoPelaTabela.ok === true, edicaoPelaTabela.error)
+      checar(
+        'editar pela tabela NÃO apaga os campos do formulário completo',
+        edicaoPelaTabela.ok &&
+          edicaoPelaTabela.item.localizacao === 'Entrada social' &&
+          edicaoPelaTabela.item.vidros === 'Temperado 8mm' &&
+          edicaoPelaTabela.item.observacao === 'Vem do formulário completo',
+        JSON.stringify({
+          localizacao: edicaoPelaTabela.item?.localizacao,
+          vidros: edicaoPelaTabela.item?.vidros,
+          observacao: edicaoPelaTabela.item?.observacao,
+        }),
+      )
+    }
+
+    // 5f. Importação em massa (bloco 5.4)
+    const lote = await chamar('importarItens', [propostaId, [
+      { numero: 40, tipo: 'Lote', descricao: 'Linha 1 do lote', linha: null, acabamento: null,
+        largura: 1, altura: 1, quantidade: 2, unidade: 'M2', valor_unit: 100,
+        localizacao: null, vidros: null, observacao: null },
+      { numero: null, tipo: 'Lote', descricao: 'Linha 2 do lote, sem numero', linha: null, acabamento: null,
+        largura: null, altura: null, quantidade: 1, unidade: 'QTD', valor_unit: 50,
+        localizacao: null, vidros: null, observacao: null },
+    ], 3], { rota: `/propostas/${propostaId}` })
+    checar('importarItens grava o lote', lote.ok === true, lote.error)
+    checar('relatório traz importados e ignorados',
+      lote.ok && lote.importados === 2 && lote.ignorados === 3,
+      JSON.stringify({ importados: lote.importados, ignorados: lote.ignorados }))
+
+    if (lote.ok) {
+      const { data: doLote } = await supabase
+        .from('itens')
+        .select('id, numero, valor_total, area_m2, descricao')
+        .eq('proposta_id', propostaId)
+        .like('descricao', '%do lote%')
+      for (const l of doLote ?? []) itensCriados.push(l.id)
+
+      const semNumeroOriginal = (doLote ?? []).find((l) => l.descricao?.includes('sem numero'))
+      checar(
+        'linha sem numero recebeu numeração automática',
+        semNumeroOriginal && Number(semNumeroOriginal.numero) > 0,
+        `numero=${semNumeroOriginal?.numero}`,
+      )
+
+      const comDimensao = (doLote ?? []).find((l) => l.descricao?.includes('Linha 1'))
+      checar(
+        'colunas generated calculadas no lote (200 e 2)',
+        comDimensao && Number(comDimensao.valor_total) === 200 && Math.abs(Number(comDimensao.area_m2) - 2) < 0.0001,
+        JSON.stringify({ valor_total: comDimensao?.valor_total, area_m2: comDimensao?.area_m2 }),
+      )
+    }
+
+    // Lote inteiro volta atrás se UMA linha viola o unique — importação
+    // parcial é pior que recusada, porque ninguém sabe onde parou.
+    const loteComColisao = await chamar('importarItens', [propostaId, [
+      { numero: 50, tipo: 'Lote', descricao: 'Boa', linha: null, acabamento: null,
+        largura: null, altura: null, quantidade: 1, unidade: 'QTD', valor_unit: 10,
+        localizacao: null, vidros: null, observacao: null },
+      { numero: 50, tipo: 'Lote', descricao: 'Numero repetido', linha: null, acabamento: null,
+        largura: null, altura: null, quantidade: 1, unidade: 'QTD', valor_unit: 10,
+        localizacao: null, vidros: null, observacao: null },
+    ], 0], { rota: `/propostas/${propostaId}` })
+    checar('lote com numero repetido é recusado inteiro', loteComColisao.ok === false, loteComColisao.error)
+
+    const { count: sobrouDaColisao } = await supabase
+      .from('itens')
+      .select('id', { count: 'exact', head: true })
+      .eq('proposta_id', propostaId)
+      .eq('numero', 50)
+    checar('nenhuma linha do lote recusado entrou (transação)', sobrouDaColisao === 0,
+      `linhas com numero 50: ${sobrouDaColisao}`)
+
+    // Entrada inválida no lote é recusada antes do banco
+    const loteInvalido = await chamar('importarItens', [propostaId, [
+      { numero: 60, tipo: null, descricao: 'Unidade inválida', linha: null, acabamento: null,
+        largura: null, altura: null, quantidade: 1, unidade: 'ML', valor_unit: 10,
+        localizacao: null, vidros: null, observacao: null },
+    ], 0], { rota: `/propostas/${propostaId}` })
+    checar('lote com unidade inválida é recusado pela action',
+      loteInvalido.ok === false && /Unidade/i.test(loteInvalido.error ?? ''),
+      loteInvalido.error)
+
+    // ------------------------------------------------------------
+    // 5g. Whitelist de escrita (furo encontrado no 5.5). Tipo não existe em
+    // runtime: um POST pode mandar qualquer campo. Estes passos provam que os
+    // resolvidos pelo servidor não são sobrescritos pelo corpo.
+    // ------------------------------------------------------------
+    const { data: perfilDoAdmin } = await supabase
+      .from('profiles').select('empresa_id').eq('id', admin.userId).maybeSingle()
+    const empresaId = perfilDoAdmin?.empresa_id
+    const { data: outraProposta } = await supabase
+      .from('propostas').select('id').eq('numero', 'SEED-ITENS-001').maybeSingle()
+
+    const intruso = await chamar('createItem', [propostaId, {
+      numero: 90, tipo: null, descricao: 'Tenta escolher a própria proposta', linha: null,
+      acabamento: null, largura: null, altura: null, quantidade: 1, unidade: 'QTD', valor_unit: 10,
+      proposta_id: outraProposta?.id, created_by: '00000000-0000-0000-0000-000000000000',
+      foto_url: `${empresaId}/itens/qualquer/roubada.png`,
+    }], { rota: `/propostas/${propostaId}` })
+    if (intruso.ok) itensCriados.push(intruso.item.id)
+    checar('createItem ignora proposta_id, created_by e foto_url do corpo',
+      intruso.ok && intruso.item.proposta_id === propostaId &&
+        intruso.item.created_by === admin.userId && intruso.item.foto_url === null,
+      JSON.stringify({ proposta: intruso.item?.proposta_id, por: intruso.item?.created_by, foto: intruso.item?.foto_url }))
+
+    if (intruso.ok) {
+      const mover = await chamar('updateItem', [propostaId, intruso.item.id, {
+        numero: 90, tipo: null, descricao: 'Tenta mudar de proposta', linha: null,
+        acabamento: null, largura: null, altura: null, quantidade: 1, unidade: 'QTD', valor_unit: 10,
+        proposta_id: outraProposta?.id, empresa_id: '00000000-0000-0000-0000-000000000000',
+        foto_url: `${empresaId}/itens/qualquer/roubada.png`,
+      }, intruso.item.updated_at], { rota: `/propostas/${propostaId}` })
+      checar('updateItem não move o item de proposta nem aceita foto_url do corpo',
+        mover.ok && mover.item.proposta_id === propostaId && mover.item.foto_url === null,
+        JSON.stringify({ ok: mover.ok, proposta: mover.item?.proposta_id, foto: mover.item?.foto_url, erro: mover.error }))
+
+      // Excluir é só admin: a policy "Itens: admin exclui". Até o 5.5 a action
+      // aceitava comercial, o RLS negava em silêncio e a resposta era `ok`.
+      const sessaoCom5 = await sessaoDePerfil('comercial')
+      const exclCom = await chamar('deleteItem', [propostaId, intruso.item.id], {
+        cookie: cookieDeSessao(sessaoCom5.session), rota: `/propostas/${propostaId}`,
+      })
+      const { count: aindaExiste } = await supabase
+        .from('itens').select('id', { count: 'exact', head: true }).eq('id', intruso.item.id)
+      checar('comercial não exclui item — e a resposta diz isso, não "ok"',
+        exclCom.ok === false && /permissão/i.test(exclCom.error ?? '') && aindaExiste === 1,
+        `${exclCom.error} · linhas=${aindaExiste}`)
+    }
+
+    // ------------------------------------------------------------
+    // 5i. Recálculo do valor (bloco 5.6), numa proposta isolada: os passos
+    // precisam de desconto e de aprovação, e a proposta principal do roteiro
+    // é rejeitada mais adiante.
+    // ------------------------------------------------------------
+    const { data: somaPrincipal } = await supabase
+      .from('itens').select('valor_total').eq('proposta_id', propostaId)
+    const { data: valorPrincipal } = await supabase
+      .from('propostas').select('valor_total').eq('id', propostaId).maybeSingle()
+    const soma1 = (somaPrincipal ?? []).reduce((a, i) => a + Number(i.valor_total), 0)
+    checar('proposta principal: valor_total acompanhou a soma dos itens (trigger)',
+      Math.abs(Number(valorPrincipal?.valor_total) - soma1) < 0.005,
+      `valor=${valorPrincipal?.valor_total} soma=${soma1}`)
+
+    const p56 = await chamar('createProposta', [{
+      ...base, numero: `${NUMERO}-56`, valor_total: 5000, desconto: 100,
+      pct_sinal: null, pct_fd: null,
+    }], { rota: '/propostas/nova' })
+    proposta56Id = p56.id ?? null
+    checar('proposta do 5.6 criada com valor digitado 5000', p56.ok === true, p56.error)
+
+    if (proposta56Id) {
+      const r56 = `/propostas/${proposta56Id}`
+      const valor56 = async () => {
+        const { data } = await supabase.from('propostas').select('valor_total').eq('id', proposta56Id).maybeSingle()
+        return Number(data?.valor_total)
+      }
+      const item56 = (n, qtd, vu) => ({ numero: n, tipo: null, descricao: `5.6 item ${n}`, linha: null,
+        acabamento: null, largura: null, altura: null, quantidade: qtd, unidade: 'QTD', valor_unit: vu })
+
+      // Excluir o ÚLTIMO item não zera o valor (escolha 2 da migration)
+      const z = await chamar('createItem', [proposta56Id, item56(1, 1, 700)], { rota: r56 })
+      checar('com o primeiro item, o valor vira a soma (700)', z.ok && (await valor56()) === 700, await valor56())
+      if (z.ok) await chamar('deleteItem', [proposta56Id, z.item.id], { rota: r56 })
+      checar('excluir o último item mantém o último valor (700), não zera', (await valor56()) === 700, await valor56())
+
+      const a = await chamar('createItem', [proposta56Id, item56(2, 2, 300)], { rota: r56 })
+      const b = await chamar('createItem', [proposta56Id, item56(3, 1, 50)], { rota: r56 })
+      if (a.ok) itensCriados.push(a.item.id)
+      if (b.ok) itensCriados.push(b.item.id)
+      checar('dois itens (2×300 + 1×50): valor = 650', (await valor56()) === 650, await valor56())
+
+      // Soma abaixo do desconto: não bloqueia e não sincroniza (escolha 3). A
+      // primeira versão bloqueava — e aí nenhuma proposta com desconto
+      // conseguia receber o primeiro item. Quem pegou foi a camada navegador.
+      if (a.ok) {
+        const baratear = await chamar('updateItem', [proposta56Id, a.item.id, item56(2, 2, 1), a.item.updated_at], { rota: r56 })
+        checar('baratear abaixo do desconto (100) é aceito — não trava o lançamento de itens',
+          baratear.ok === true, baratear.error)
+        checar('e o valor digitado segue valendo (650), porque a soma (52) não cabe no CHECK',
+          (await valor56()) === 650, await valor56())
+        const voltar = await chamar('updateItem', [proposta56Id, a.item.id, item56(2, 2, 300),
+          baratear.ok ? baratear.item.updated_at : a.item.updated_at], { rota: r56 })
+        checar('quando a soma volta a alcançar o desconto, o valor volta a acompanhá-la (650)',
+          voltar.ok && (await valor56()) === 650, `${voltar.error ?? ''} · valor=${await valor56()}`)
+      }
+
+      // Formulário de edição com itens: obra travada, valor vem da soma
+      const { data: outraObra } = await supabase
+        .from('obras').select('id').neq('id', obra.id).limit(1).maybeSingle()
+      if (outraObra) {
+        const trocaObra = await chamar('updateProposta', [proposta56Id, {
+          ...base, numero: `${NUMERO}-56`, obra_id: outraObra.id, valor_total: 650, desconto: 100,
+          pct_sinal: null, pct_fd: null,
+        }], { rota: `${r56}/editar` })
+        checar('com itens, trocar a obra da proposta é recusado',
+          trocaObra.ok === false && /tem itens/.test(trocaObra.error ?? ''), trocaObra.error)
+      }
+      const valorDoCorpo = await chamar('updateProposta', [proposta56Id, {
+        ...base, numero: `${NUMERO}-56`, valor_total: 1, desconto: 100, pct_sinal: null, pct_fd: null,
+      }], { rota: `${r56}/editar` })
+      checar('com itens, o valor_total do corpo é ignorado: fica a soma (650)',
+        valorDoCorpo.ok && (await valor56()) === 650, `${valorDoCorpo.error ?? ''} · valor=${await valor56()}`)
+
+      // Divergência por escrita direta (o caminho do n8n) e o botão de resolver
+      await supabase.from('propostas').update({ valor_total: 12345 }).eq('id', proposta56Id)
+      checar('escrita direta no valor cria a divergência (o trigger não vigia propostas)',
+        (await valor56()) === 12345, await valor56())
+      const sinc = await chamar('sincronizarValorComItens', [proposta56Id], { rota: r56 })
+      checar('sincronizarValorComItens devolve o valor à soma (650)',
+        sinc.ok && (await valor56()) === 650, `${sinc.error ?? ''} · valor=${await valor56()}`)
+
+      // obras_com_valores continua batendo: aprovar a proposta soma os 650
+      // dela no valor da obra. Delta, e não valor absoluto, porque a obra já
+      // tem outras propostas e contratos.
+      const { data: antes } = await supabase
+        .from('obras_com_valores').select('valor_total_calculado').eq('id', obra.id).maybeSingle()
+      const hojeAprov = new Date().toISOString().slice(0, 10)
+      await chamar('changePropostaStatus', [proposta56Id,
+        { novo_status: 'enviada', data_envio: hojeAprov, data_decisao: null, motivo_rejeicao: null, detalhe_rejeicao: null },
+      ], { rota: r56 })
+      const aprov = await chamar('changePropostaStatus', [proposta56Id,
+        { novo_status: 'aprovada', data_envio: hojeAprov, data_decisao: hojeAprov, motivo_rejeicao: null, detalhe_rejeicao: null },
+      ], { rota: r56 })
+      const { data: depois } = await supabase
+        .from('obras_com_valores').select('valor_total_calculado').eq('id', obra.id).maybeSingle()
+      // A coluna da view é `valor_total_calculado`, não `valor_total`.
+      const delta = Math.round((Number(depois?.valor_total_calculado) - Number(antes?.valor_total_calculado)) * 100) / 100
+      checar('obras_com_valores: aprovar a proposta soma exatamente os 650 dos itens na obra',
+        aprov.ok && delta === 650, `${aprov.error ?? ''} · antes=${antes?.valor_total_calculado} depois=${depois?.valor_total_calculado} delta=${delta}`)
+    }
+
+    // ------------------------------------------------------------
+    // 5j. Recálculo em CONTRATO (pendência do 5.6). O trigger cobre contratos,
+    // mas nada tinha criado item de contrato: a tela é da sprint 6. Aqui é
+    // direto no banco, como o workflow n8n de contrato faz.
+    // ------------------------------------------------------------
+    {
+      const { data: c, error: ce } = await supabase.from('contratos').insert({
+        empresa_id: empresaId, obra_id: obra.id, numero: `${NUMERO}-CONTRATO`, valor_total: 999,
+      }).select('id').single()
+      checar('contrato de teste criado com valor digitado 999', !ce, ce?.message)
+      contratoTesteId = c?.id ?? null
+      if (contratoTesteId) {
+        const valorC = async () => Number((await supabase.from('contratos').select('valor_total').eq('id', contratoTesteId).single()).data?.valor_total)
+        const { data: ic } = await supabase.from('itens').insert([
+          { empresa_id: empresaId, obra_id: obra.id, contrato_id: contratoTesteId, quantidade: 2, unidade: 'QTD', valor_unit: 100 },
+          { empresa_id: empresaId, obra_id: obra.id, contrato_id: contratoTesteId, quantidade: 1, unidade: 'QTD', valor_unit: 50 },
+        ]).select('id')
+        checar('itens de contrato: valor do contrato vira a soma (250)', (await valorC()) === 250, await valorC())
+        await supabase.from('itens').update({ quantidade: 3 }).eq('id', ic?.[0]?.id)
+        checar('editar item de contrato recalcula (350)', (await valorC()) === 350, await valorC())
+        await supabase.from('itens').delete().in('id', (ic ?? []).map((i) => i.id))
+        checar('apagar todos os itens do contrato mantém o último valor (350)', (await valorC()) === 350, await valorC())
+      }
+    }
+
+    // ------------------------------------------------------------
+    // 5k. Concorrência DE VERDADE (pendências do 5.2, 5.3 e 5.6): requisições
+    // disparadas ao mesmo tempo, cada uma na sua transação.
+    // ------------------------------------------------------------
+    {
+      const base5k = (n, vu = 10) => ({ numero: n, tipo: null, descricao: `concorrência ${n}`, linha: null,
+        acabamento: null, largura: null, altura: null, quantidade: 1, unidade: 'QTD', valor_unit: vu })
+
+      // Mesmo número em paralelo: o unique parcial garante um só.
+      const mesmoNumero = await Promise.all([1, 2, 3].map(() =>
+        chamar('createItem', [propostaId, base5k(80)], { rota: `/propostas/${propostaId}` })))
+      for (const r of mesmoNumero) if (r.ok) itensCriados.push(r.item.id)
+      checar('3 criações simultâneas com o mesmo número: exatamente 1 entra',
+        mesmoNumero.filter((r) => r.ok).length === 1 &&
+          mesmoNumero.filter((r) => !r.ok && /Já existe um item com esse número/.test(r.error ?? '')).length === 2,
+        mesmoNumero.map((r) => r.ok ? 'ok' : r.error).join(' | '))
+
+      // Mesma linha editada por duas pessoas ao mesmo tempo: o lock otimista
+      // deixa passar uma.
+      const alvo5k = mesmoNumero.find((r) => r.ok)
+      if (alvo5k) {
+        const duasEdicoes = await Promise.all([30, 40].map((vu) =>
+          chamar('updateItem', [propostaId, alvo5k.item.id, base5k(80, vu), alvo5k.item.updated_at], { rota: `/propostas/${propostaId}` })))
+        checar('2 edições simultâneas com o mesmo updated_at: exatamente 1 grava',
+          duasEdicoes.filter((r) => r.ok).length === 1,
+          duasEdicoes.map((r) => r.ok ? `ok(${r.item.valor_unit})` : r.error).join(' | '))
+      }
+
+      // Muitas criações em paralelo: o valor da proposta tem de bater com a
+      // soma no fim. Antes da migration 20260922130000 isto falhava em 8 de
+      // 20 rodadas.
+      const muitas = await Promise.all([81, 82, 83, 84, 85, 86].map((n) =>
+        chamar('createItem', [propostaId, base5k(n, n)], { rota: `/propostas/${propostaId}` })))
+      for (const r of muitas) if (r.ok) itensCriados.push(r.item.id)
+      const { data: somaPar } = await supabase.from('itens').select('valor_total').eq('proposta_id', propostaId)
+      const { data: valorPar } = await supabase.from('propostas').select('valor_total, desconto').eq('id', propostaId).single()
+      const soma5k = (somaPar ?? []).reduce((a, i) => a + Number(i.valor_total), 0)
+      checar('6 criações simultâneas: valor da proposta == soma dos itens (trigger com trava)',
+        muitas.every((r) => r.ok) && Math.abs(Number(valorPar?.valor_total) - soma5k) < 0.005,
+        `valor=${valorPar?.valor_total} soma=${soma5k}`)
+    }
+
+    // ------------------------------------------------------------
+    // 5l. Carga (pendências do 5.2 e do 5.4): 500 itens, o limite da
+    // importação, numa proposta própria; e 501, que tem de ser recusado.
+    // ------------------------------------------------------------
+    {
+      const pc = await chamar('createProposta', [{
+        ...base, numero: `${NUMERO}-CARGA`, valor_total: 0, desconto: 0, pct_sinal: null, pct_fd: null,
+      }], { rota: '/propostas/nova' })
+      propostaCargaId = pc.id ?? null
+      if (propostaCargaId) {
+        const linhaCarga = (n) => ({ numero: n, tipo: 'Carga', descricao: `item ${n}`, linha: null, acabamento: null,
+          largura: null, altura: null, quantidade: 1, unidade: 'QTD', valor_unit: 10,
+          localizacao: null, vidros: null, observacao: null })
+        const demais = await chamar('importarItens', [propostaCargaId, Array.from({ length: 501 }, (_, i) => linhaCarga(i + 1)), 0],
+          { rota: `/propostas/${propostaCargaId}` })
+        checar('501 linhas são recusadas pelo limite', demais.ok === false && /até 500/.test(demais.error ?? ''), demais.error)
+
+        const t0 = Date.now()
+        const cheio = await chamar('importarItens', [propostaCargaId, Array.from({ length: 500 }, (_, i) => linhaCarga(i + 1)), 0],
+          { rota: `/propostas/${propostaCargaId}` })
+        const ms = Date.now() - t0
+        const { data: vCarga } = await supabase.from('propostas').select('valor_total').eq('id', propostaCargaId).single()
+        checar(`500 linhas entram numa importação só (${ms} ms), e o valor vira a soma (5000)`,
+          cheio.ok && cheio.importados === 500 && Number(vCarga?.valor_total) === 5000,
+          `${cheio.error ?? ''} · importados=${cheio.importados} valor=${vCarga?.valor_total}`)
+        console.log(`  medida importação de 500 itens: ${ms} ms`)
+      }
+    }
+
+    // 5c. Perfis nas actions de ITEM. As três checagens de perfil que já
+    // existiam são das actions de proposta — as de item nunca tinham sido
+    // exercitadas com outra sessão. A proposta ainda é rascunho aqui.
+    {
+      const sessaoCom = await sessaoDePerfil('comercial')
+      const com = { cookie: cookieDeSessao(sessaoCom.session) }
+
+      const criarComoCom = await chamar('createItem', [propostaId, {
+        numero: 20, tipo: 'Teste comercial', descricao: 'Comercial pode criar item',
+        linha: null, acabamento: null, largura: null, altura: null,
+        quantidade: 1, unidade: 'QTD', valor_unit: 15,
+      }], { cookie: com.cookie, rota: `/propostas/${propostaId}` })
+      checar('comercial CRIA item', criarComoCom.ok === true, criarComoCom.error)
+      if (criarComoCom.ok) itensCriados.push(criarComoCom.item.id)
+
+      if (criarComoCom.ok) {
+        const editarComoCom = await chamar('updateItem', [propostaId, criarComoCom.item.id, {
+          numero: 20, tipo: 'Teste comercial', descricao: 'Editado por comercial',
+          linha: null, acabamento: null, largura: null, altura: null,
+          quantidade: 2, unidade: 'QTD', valor_unit: 15,
+        }, criarComoCom.item.updated_at], { cookie: com.cookie, rota: `/propostas/${propostaId}` })
+        checar('comercial EDITA item', editarComoCom.ok === true, editarComoCom.error)
+
+        // Lock otimista: repetir com o updated_at JÁ CONSUMIDO tem de ser
+        // recusado, não sobrescrever em silêncio.
+        const conflito = await chamar('updateItem', [propostaId, criarComoCom.item.id, {
+          numero: 20, tipo: 'Teste comercial', descricao: 'Gravação concorrente',
+          linha: null, acabamento: null, largura: null, altura: null,
+          quantidade: 99, unidade: 'QTD', valor_unit: 15,
+        }, criarComoCom.item.updated_at], { rota: `/propostas/${propostaId}` })
+        checar(
+          'updated_at velho é recusado (lock otimista)',
+          conflito.ok === false && /outra pessoa/i.test(conflito.error ?? ''),
+          conflito.error,
+        )
+
+        // E o valor da gravação recusada NÃO entrou no banco.
+        const { data: naoMudou } = await supabase
+          .from('itens')
+          .select('quantidade')
+          .eq('id', criarComoCom.item.id)
+          .maybeSingle()
+        checar(
+          'a gravação recusada não alterou a linha',
+          Number(naoMudou?.quantidade) === 2,
+          `quantidade=${naoMudou?.quantidade}`,
+        )
+      }
+
+      const sessaoVisItem = await sessaoDePerfil('visualizador')
+      const visItem = { cookie: cookieDeSessao(sessaoVisItem.session) }
+
+      const criarComoVisItem = await chamar('createItem', [propostaId, {
+        numero: 21, tipo: null, descricao: 'Visualizador não deve criar',
+        linha: null, acabamento: null, largura: null, altura: null,
+        quantidade: 1, unidade: 'QTD', valor_unit: 10,
+      }], { cookie: visItem.cookie, rota: `/propostas/${propostaId}` })
+      checar(
+        'visualizador não cria item',
+        criarComoVisItem.ok === false && /permissão/i.test(criarComoVisItem.error ?? ''),
+        criarComoVisItem.error,
+      )
+      if (criarComoVisItem.ok) itensCriados.push(criarComoVisItem.item.id)
+
+      if (criarComoCom.ok) {
+        const editarComoVis = await chamar('updateItem', [propostaId, criarComoCom.item.id, {
+          numero: 20, tipo: null, descricao: 'Visualizador não deve editar',
+          linha: null, acabamento: null, largura: null, altura: null,
+          quantidade: 1, unidade: 'QTD', valor_unit: 10,
+        }], { cookie: visItem.cookie, rota: `/propostas/${propostaId}` })
+        checar(
+          'visualizador não edita item',
+          editarComoVis.ok === false && /permissão/i.test(editarComoVis.error ?? ''),
+          editarComoVis.error,
+        )
+
+        const excluirComoVis = await chamar('deleteItem', [propostaId, criarComoCom.item.id], {
+          cookie: visItem.cookie, rota: `/propostas/${propostaId}`,
+        })
+        checar(
+          'visualizador não exclui item',
+          excluirComoVis.ok === false && /permissão/i.test(excluirComoVis.error ?? ''),
+          excluirComoVis.error,
+        )
+
+        const importarComoVis = await chamar('importarItens', [propostaId, [
+          { numero: 70, tipo: null, descricao: 'Visualizador não importa', linha: null,
+            acabamento: null, largura: null, altura: null, quantidade: 1,
+            unidade: 'QTD', valor_unit: 10, localizacao: null, vidros: null, observacao: null },
+        ], 0], { cookie: visItem.cookie, rota: `/propostas/${propostaId}` })
+        checar(
+          'visualizador não importa planilha',
+          importarComoVis.ok === false && /permissão/i.test(importarComoVis.error ?? ''),
+          importarComoVis.error,
+        )
+      }
+    }
+
+    // 5d. Entrada inválida recusada ANTES do banco (validarEntradaItem)
+    const numeroQuebrado = await chamar('createItem', [propostaId, {
+      numero: 1.5, tipo: null, descricao: 'Número não inteiro', linha: null,
+      acabamento: null, largura: null, altura: null, quantidade: 1,
+      unidade: 'QTD', valor_unit: 10,
+    }], { rota: `/propostas/${propostaId}` })
+    checar(
+      'número não inteiro é recusado pela action',
+      numeroQuebrado.ok === false && /inteiro/i.test(numeroQuebrado.error ?? ''),
+      numeroQuebrado.error,
+    )
+    if (numeroQuebrado.ok) itensCriados.push(numeroQuebrado.item.id)
+
+    const negativo = await chamar('createItem', [propostaId, {
+      numero: 22, tipo: null, descricao: 'Quantidade negativa', linha: null,
+      acabamento: null, largura: null, altura: null, quantidade: -5,
+      unidade: 'QTD', valor_unit: 10,
+    }], { rota: `/propostas/${propostaId}` })
+    checar(
+      'quantidade negativa é recusada pela action',
+      negativo.ok === false && /negativa/i.test(negativo.error ?? ''),
+      negativo.error,
+    )
+    if (negativo.ok) itensCriados.push(negativo.item.id)
+
     // 6. rascunho → enviada
     const hoje = new Date().toISOString().slice(0, 10)
     const enviada = await chamar('changePropostaStatus', [
@@ -288,6 +886,19 @@ try {
       { novo_status: 'enviada', data_envio: hoje, data_decisao: null, motivo_rejeicao: null, detalhe_rejeicao: null },
     ], { rota: `/propostas/${propostaId}` })
     checar('changePropostaStatus leva rascunho → enviada', enviada.ok === true, enviada.error)
+
+    // 6b. Item fora de rascunho: mesma regra do botão Editar
+    const itemForaDeRascunho = await chamar('createItem', [propostaId, {
+      numero: 9, tipo: null, descricao: 'Não deve entrar', linha: null,
+      acabamento: null, largura: null, altura: null, quantidade: 1,
+      unidade: 'QTD', valor_unit: 10,
+    }], { rota: `/propostas/${propostaId}` })
+    checar(
+      'criar item em proposta enviada é recusado',
+      itemForaDeRascunho.ok === false,
+      itemForaDeRascunho.error,
+    )
+    if (itemForaDeRascunho.ok) itensCriados.push(itemForaDeRascunho.item.id)
 
     // 7. Enviada não é editável — o guard lê o status do banco
     const editarEnviada = await chamar('updateProposta', [propostaId, base], {
@@ -569,6 +1180,33 @@ try {
     })
     checar('deleteOrcamento apaga o orçamento de teste', excluido.ok === true, excluido.error)
   }
+  // Itens primeiro: a FK itens_proposta_fk é `on delete set null
+  // (proposta_id)`, então apagar a proposta NÃO apaga os itens — deixa órfãos
+  // em gc-dev. Tem de ser explícito.
+  if (itensCriados.length > 0) {
+    const { error: errItens } = await supabase
+      .from('itens')
+      .delete()
+      .in('id', itensCriados)
+    checar(
+      `limpeza dos ${itensCriados.length} itens de teste`,
+      !errItens,
+      errItens?.message,
+    )
+  }
+  if (contratoTesteId) {
+    await supabase.from('itens').delete().eq('contrato_id', contratoTesteId)
+    const { error: ec } = await supabase.from('contratos').delete().eq('id', contratoTesteId)
+    checar('contrato de teste apagado', !ec, ec?.message)
+  }
+  if (propostaCargaId) {
+    const excCarga = await chamar('deleteProposta', [propostaCargaId], { rota: `/propostas/${propostaCargaId}` })
+    checar('proposta de carga apagada com os 500 itens', excCarga.ok === true, excCarga.error)
+  }
+  if (proposta56Id) {
+    const exc56 = await chamar('deleteProposta', [proposta56Id], { rota: `/propostas/${proposta56Id}` })
+    checar('deleteProposta apaga a proposta do 5.6 (e os itens dela)', exc56.ok === true, exc56.error)
+  }
   if (propostaId) {
     const excluida = await chamar('deleteProposta', [propostaId], {
       rota: `/propostas/${propostaId}`,
@@ -580,6 +1218,16 @@ try {
       .select('id', { count: 'exact', head: true })
       .eq('numero', NUMERO)
     checar('nada sobrou em gc-dev', count === 0, `linhas com ${NUMERO}: ${count}`)
+
+    const { count: itensOrfaos } = await supabase
+      .from('itens')
+      .select('id', { count: 'exact', head: true })
+      .in('id', itensCriados.length > 0 ? itensCriados : ['00000000-0000-0000-0000-000000000000'])
+    checar(
+      'nenhum item de teste ficou órfão',
+      itensOrfaos === 0,
+      `itens restantes: ${itensOrfaos}`,
+    )
   }
 }
 

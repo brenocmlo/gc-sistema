@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
-import PropostaForm from '../../proposta-form'
+import PropostaForm, { type TravaPorItens } from '../../proposta-form'
 import {
   formValuesToPayload,
   type PropostaFormValues,
@@ -14,12 +14,14 @@ type EditarPropostaFormProps = {
   id: string
   defaultValues: PropostaFormValues
   obraOptions: readonly { value: string; label: string }[]
+  travadoPorItens: TravaPorItens | null
 }
 
 export default function EditarPropostaForm({
   id,
   defaultValues,
   obraOptions,
+  travadoPorItens,
 }: EditarPropostaFormProps) {
   const router = useRouter()
 
@@ -43,6 +45,7 @@ export default function EditarPropostaForm({
       submitLabel="Salvar alterações"
       cancelHref={`/propostas/${id}`}
       onSubmit={handleSubmit}
+      travadoPorItens={travadoPorItens}
     />
   )
 }

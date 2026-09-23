@@ -302,33 +302,39 @@ export type Database = {
       }
       contatos_whatsapp: {
         Row: {
+          canal: string
           created_at: string | null
           created_by: string | null
           empresa_id: string
           id: string
           numero_contrato: string | null
           obra_id: string | null
-          telefone: string
+          telefone: string | null
+          telegram_chat_id: string | null
           updated_at: string | null
         }
         Insert: {
+          canal?: string
           created_at?: string | null
           created_by?: string | null
           empresa_id: string
           id?: string
           numero_contrato?: string | null
           obra_id?: string | null
-          telefone: string
+          telefone?: string | null
+          telegram_chat_id?: string | null
           updated_at?: string | null
         }
         Update: {
+          canal?: string
           created_at?: string | null
           created_by?: string | null
           empresa_id?: string
           id?: string
           numero_contrato?: string | null
           obra_id?: string | null
-          telefone?: string
+          telefone?: string | null
+          telegram_chat_id?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -347,32 +353,32 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "contatos_whatsapp_obra_id_fkey"
-            columns: ["obra_id"]
+            foreignKeyName: "contatos_whatsapp_obra_fk"
+            columns: ["obra_id", "empresa_id"]
             isOneToOne: false
             referencedRelation: "obras"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "empresa_id"]
           },
           {
-            foreignKeyName: "contatos_whatsapp_obra_id_fkey"
-            columns: ["obra_id"]
+            foreignKeyName: "contatos_whatsapp_obra_fk"
+            columns: ["obra_id", "empresa_id"]
             isOneToOne: false
             referencedRelation: "obras_com_valores"
-            referencedColumns: ["id"]
+            referencedColumns: ["id", "empresa_id"]
           },
           {
-            foreignKeyName: "contatos_whatsapp_obra_id_fkey"
-            columns: ["obra_id"]
+            foreignKeyName: "contatos_whatsapp_obra_fk"
+            columns: ["obra_id", "empresa_id"]
             isOneToOne: false
             referencedRelation: "obras_financeiro"
-            referencedColumns: ["obra_id"]
+            referencedColumns: ["obra_id", "empresa_id"]
           },
           {
-            foreignKeyName: "contatos_whatsapp_obra_id_fkey"
-            columns: ["obra_id"]
+            foreignKeyName: "contatos_whatsapp_obra_fk"
+            columns: ["obra_id", "empresa_id"]
             isOneToOne: false
             referencedRelation: "receitas_obra"
-            referencedColumns: ["obra_id"]
+            referencedColumns: ["obra_id", "empresa_id"]
           },
         ]
       }
@@ -511,6 +517,8 @@ export type Database = {
       documentos_processamento: {
         Row: {
           arquivo_url: string
+          canal: string | null
+          canal_chat_id: string | null
           contrato_criado_id: string | null
           created_at: string | null
           created_by: string | null
@@ -520,12 +528,15 @@ export type Database = {
           motivo_revisao: string | null
           numero_contrato: string | null
           obra_id: string | null
+          proposta_criada_id: string | null
           status: string
           tipo_documento: string
           updated_at: string | null
         }
         Insert: {
           arquivo_url: string
+          canal?: string | null
+          canal_chat_id?: string | null
           contrato_criado_id?: string | null
           created_at?: string | null
           created_by?: string | null
@@ -535,12 +546,15 @@ export type Database = {
           motivo_revisao?: string | null
           numero_contrato?: string | null
           obra_id?: string | null
+          proposta_criada_id?: string | null
           status?: string
           tipo_documento: string
           updated_at?: string | null
         }
         Update: {
           arquivo_url?: string
+          canal?: string | null
+          canal_chat_id?: string | null
           contrato_criado_id?: string | null
           created_at?: string | null
           created_by?: string | null
@@ -550,6 +564,7 @@ export type Database = {
           motivo_revisao?: string | null
           numero_contrato?: string | null
           obra_id?: string | null
+          proposta_criada_id?: string | null
           status?: string
           tipo_documento?: string
           updated_at?: string | null
@@ -610,6 +625,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "receitas_obra"
             referencedColumns: ["obra_id"]
+          },
+          {
+            foreignKeyName: "documentos_processamento_proposta_criada_fk"
+            columns: ["proposta_criada_id", "empresa_id"]
+            isOneToOne: false
+            referencedRelation: "propostas"
+            referencedColumns: ["id", "empresa_id"]
+          },
+          {
+            foreignKeyName: "documentos_processamento_proposta_criada_fk"
+            columns: ["proposta_criada_id", "empresa_id"]
+            isOneToOne: false
+            referencedRelation: "propostas_financeiro"
+            referencedColumns: ["id", "empresa_id"]
           },
         ]
       }
