@@ -1,15 +1,30 @@
 'use client'
 
-import { Check, Eye, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Eye,
+  Loader2,
+  Pencil,
+  Percent,
+  Plus,
+  Trash2,
+  Upload,
+} from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import ConfirmDialog from '@/components/ConfirmDialog'
+import Modal from '@/components/Modal'
 import { formatCurrency } from '@/lib/format'
 import {
   UNIDADES,
   UNIDADE_LABELS,
+  AJUSTE_MAXIMO,
+  AJUSTE_MINIMO,
   areaDoItem,
   divergenciaDeValor,
   formatArea,
@@ -17,8 +32,11 @@ import {
   formatUnidade,
   formatUnidadeSufixo,
   proximoNumeroItem,
+  previaAjuste,
   totaisDosItens,
+  validarPercentual,
   valorTotalDoItem,
+  vizinhoParaMover,
 } from '@/lib/itens'
 import {
   itemFormVazio,
@@ -31,8 +49,12 @@ import ItemForm from './item-form'
 import ItensImportar from './itens-importar'
 
 import {
+  ajustarValorEmLote,
   createItem,
   deleteItem,
+  duplicarItem,
+  excluirItensEmLote,
+  moverItem,
   sincronizarValorComItens,
   updateItem,
   type ItemFormInput,
@@ -71,6 +93,95 @@ export default function ItensTab({
   const [estados, setEstados] = useState<Record<string, EstadoLinha>>({})
   const [adicionando, setAdicionando] = useState(false)
   const [importando, setImportando] = useState(false)
+
+  // ---- Bloco 5.7: seleção, lote, duplicar e reordenar ----
+  const [selecionadosBrutos, setSelecionados] = useState<Set<string>>(new Set())
+  // Item que saiu (excluído, ou a tela recarregou) sai da seleção sozinho.
+  const selecionados = new Set(
+    Array.from(selecionadosBrutos).filter((id) => itens.some((i) => i.id === id)),
+  )
+  const [ocupado, setOcupado] = useState<string | null>(null)
+  const [excluindoLote, setExcluindoLote] = useState(false)
+  const [ajustando, setAjustando] = useState(false)
+  const [percentual, setPercentual] = useState('')
+  const [aplicandoAjuste, setAplicandoAjuste] = useState(false)
+
+  function alternarSelecao(id: string) {
+    setSelecionados((s) => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  }
+
+  function alternarTodos() {
+    setSelecionados(
+      selecionados.size === itens.length ? new Set() : new Set(itens.map((i) => i.id)),
+    )
+  }
+
+  async function duplicar(item: Item) {
+    setOcupado(item.id)
+    const r = await duplicarItem(propostaId, item.id)
+    setOcupado(null)
+    if (!r.ok) {
+      toast.error(r.error)
+      return
+    }
+    toast.success(`Item duplicado como nº ${r.item.numero}`)
+    router.refresh()
+  }
+
+  async function mover(item: Item, direcao: 'subir' | 'descer') {
+    setOcupado(item.id)
+    const r = await moverItem(propostaId, item.id, direcao)
+    setOcupado(null)
+    if (!r.ok) {
+      toast.error(r.error)
+      return
+    }
+    router.refresh()
+  }
+
+  async function confirmarExclusaoLote() {
+    const ids = Array.from(selecionados)
+    const r = await excluirItensEmLote(propostaId, ids)
+    if (!r.ok) {
+      toast.error(r.error, { duration: 8000 })
+      return
+    }
+    toast.success(`${r.afetados} ${r.afetados === 1 ? 'item excluído' : 'itens excluídos'}`)
+    setExcluindoLote(false)
+    setSelecionados(new Set())
+    router.refresh()
+  }
+
+  const percentualNumero = Number(percentual.replace(',', '.'))
+  const erroPercentual = percentual === '' ? null : validarPercentual(percentual)
+  const itensSelecionados = itens.filter((i) => selecionados.has(i.id))
+  const previa =
+    percentual !== '' && !erroPercentual
+      ? previaAjuste(itensSelecionados, percentualNumero)
+      : null
+
+  async function aplicarAjuste() {
+    if (validarPercentual(percentual)) return
+    setAplicandoAjuste(true)
+    const r = await ajustarValorEmLote(propostaId, Array.from(selecionados), percentualNumero)
+    setAplicandoAjuste(false)
+    if (!r.ok) {
+      toast.error(r.error, { duration: 8000 })
+      return
+    }
+    toast.success(
+      `Valor ajustado em ${percentualNumero > 0 ? '+' : ''}${percentualNumero}% em ${r.afetados} ${r.afetados === 1 ? 'item' : 'itens'}`,
+    )
+    setAjustando(false)
+    setPercentual('')
+    setSelecionados(new Set())
+    router.refresh()
+  }
 
   /**
    * Último `updated_at` conhecido de cada linha, para o lock otimista.
@@ -264,6 +375,43 @@ export default function ItensTab({
         </div>
       )}
 
+      {podeEditar && selecionados.size > 0 && (
+        <div
+          role="toolbar"
+          aria-label="Ações nos itens selecionados"
+          className="flex flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-900"
+        >
+          <span className="font-medium">
+            {selecionados.size} {selecionados.size === 1 ? 'item selecionado' : 'itens selecionados'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setAjustando(true)}
+            className="inline-flex items-center gap-1 rounded-md border border-blue-300 bg-white px-3 py-1.5 font-medium hover:bg-blue-100"
+          >
+            <Percent className="h-4 w-4" />
+            Ajustar valor
+          </button>
+          {podeExcluir && (
+            <button
+              type="button"
+              onClick={() => setExcluindoLote(true)}
+              className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-3 py-1.5 font-medium text-red-700 hover:bg-red-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              Excluir selecionados
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setSelecionados(new Set())}
+            className="ml-auto text-blue-700 underline-offset-2 hover:underline"
+          >
+            Limpar seleção
+          </button>
+        </div>
+      )}
+
       <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
         <table
           aria-label="Itens da proposta"
@@ -278,29 +426,44 @@ export default function ItensTab({
             container, que é o contrato medido em 390px.
           */}
           {/*
-            Soma = 1108px (48+116+144+92+96+56+56+56+64+88+104+112+76), calibrada para caber no desktop de 1440 (que sobra
+            Soma = 1108px (32+68+116+112+84+88+56+52+52+60+80+96+112+100) desde o 5.7, que acrescentou seleção, sobe/desce e duplicar sem alargar a tabela. Calibrada para caber no desktop de 1440 (que sobra
             ~1136 depois da sidebar de 240 e do padding de 64). A primeira
             calibragem usou 1300 e empurrou "Valor total" para fora da tela —
             a coluna que mais importa exigindo rolagem. Descrição é a que cede
             espaço, porque é texto livre e tem `title` com o valor inteiro.
           */}
           <colgroup>
-            <col className="w-[48px]" />
+            <col className="w-[32px]" />
+            <col className="w-[68px]" />
             <col className="w-[116px]" />
-            <col className="w-[144px]" />
-            <col className="w-[92px]" />
-            <col className="w-[96px]" />
-            <col className="w-[56px]" />
-            <col className="w-[56px]" />
-            <col className="w-[56px]" />
-            <col className="w-[64px]" />
-            <col className="w-[88px]" />
-            <col className="w-[104px]" />
             <col className="w-[112px]" />
-            <col className="w-[76px]" />
+            <col className="w-[84px]" />
+            <col className="w-[88px]" />
+            <col className="w-[56px]" />
+            <col className="w-[52px]" />
+            <col className="w-[52px]" />
+            <col className="w-[60px]" />
+            <col className="w-[80px]" />
+            <col className="w-[96px]" />
+            <col className="w-[112px]" />
+            <col className="w-[100px]" />
           </colgroup>
           <thead className="bg-gray-50 text-gray-600">
             <tr>
+              <Th>
+                {podeEditar && itens.length > 0 && (
+                  <input
+                    type="checkbox"
+                    aria-label="Selecionar todos os itens"
+                    checked={selecionados.size === itens.length}
+                    ref={(el) => {
+                      if (el) el.indeterminate = selecionados.size > 0 && selecionados.size < itens.length
+                    }}
+                    onChange={alternarTodos}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                )}
+              </Th>
               <Th>Nº</Th>
               <Th>Tipo</Th>
               <Th>Descrição</Th>
@@ -320,7 +483,7 @@ export default function ItensTab({
             {itens.length === 0 ? (
               <tr>
                 <td
-                  colSpan={13}
+                  colSpan={14}
                   className="px-3 py-6 text-center text-sm text-gray-500"
                 >
                   Nenhum item ainda. Use &ldquo;Adicionar item&rdquo; abaixo.
@@ -333,6 +496,13 @@ export default function ItensTab({
                   item={item}
                   editavel={podeEditar}
                   podeExcluir={podeExcluir}
+                  selecionado={selecionados.has(item.id)}
+                  onSelecionar={() => alternarSelecao(item.id)}
+                  podeSubir={vizinhoParaMover(itens, item.id, 'subir') !== null}
+                  podeDescer={vizinhoParaMover(itens, item.id, 'descer') !== null}
+                  ocupado={ocupado === item.id}
+                  onMover={(d) => mover(item, d)}
+                  onDuplicar={() => duplicar(item)}
                   estado={estados[item.id] ?? 'parado'}
                   onSalvar={(campos) => salvarLinha(item, campos)}
                   onAbrirFormulario={() => abrirFormularioDe(item)}
@@ -344,7 +514,7 @@ export default function ItensTab({
           {itens.length > 0 && (
             <tfoot className="bg-gray-50 font-medium text-gray-900">
               <tr>
-                <td className="px-3 py-2" colSpan={7}>
+                <td className="px-3 py-2" colSpan={8}>
                   {totais.contagem} {totais.contagem === 1 ? 'item' : 'itens'}
                 </td>
                 <td className="px-3 py-2 text-right">{totais.quantidade}</td>
@@ -424,6 +594,81 @@ export default function ItensTab({
       />
 
 
+      <ConfirmDialog
+        open={excluindoLote}
+        onOpenChange={setExcluindoLote}
+        title={`Excluir ${selecionados.size} ${selecionados.size === 1 ? 'item' : 'itens'}?`}
+        description="Os itens selecionados e as fotos deles serão removidos permanentemente da proposta."
+        variant="danger"
+        confirmLabel="Sim, excluir"
+        onConfirm={confirmarExclusaoLote}
+      />
+
+      <Modal
+        open={ajustando}
+        onOpenChange={(o) => {
+          if (!o) setPercentual('')
+          setAjustando(o)
+        }}
+        title={`Ajustar o valor de ${selecionados.size} ${selecionados.size === 1 ? 'item' : 'itens'}`}
+        dismissible={!aplicandoAjuste}
+      >
+        <div className="space-y-4">
+          <label className="block text-sm font-medium text-gray-900" htmlFor="ajuste_percentual">
+            Percentual sobre o valor unitário
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              id="ajuste_percentual"
+              type="text"
+              inputMode="decimal"
+              value={percentual}
+              onChange={(e) => setPercentual(e.target.value)}
+              placeholder="ex.: 5 ou -10"
+              className="w-32 rounded-md border border-gray-300 px-3 py-2 text-sm"
+            />
+            <span className="text-sm text-gray-600">%</span>
+          </div>
+          <p className="text-xs text-gray-500">
+            Entre {AJUSTE_MINIMO}% (exclusivo) e +{AJUSTE_MAXIMO}%. O valor unitário é
+            arredondado para centavos; o total de cada item é recalculado pelo banco.
+          </p>
+          {erroPercentual && <p className="text-sm text-red-700">{erroPercentual}</p>}
+          {previa && (
+            <div className="rounded-md bg-gray-50 p-3 text-sm" data-testid="previa-ajuste">
+              <p>
+                Soma dos selecionados: <strong>{formatCurrency(previa.antes)}</strong> →{' '}
+                <strong>{formatCurrency(previa.depois)}</strong>
+              </p>
+              {previa.semValor > 0 && (
+                <p className="mt-1 text-gray-600">
+                  {previa.semValor} {previa.semValor === 1 ? 'item não tem' : 'itens não têm'}{' '}
+                  valor unitário e {previa.semValor === 1 ? 'fica' : 'ficam'} como está.
+                </p>
+              )}
+            </div>
+          )}
+          <div className="flex justify-end gap-2 border-t border-gray-200 pt-4">
+            <button
+              type="button"
+              onClick={() => setAjustando(false)}
+              disabled={aplicandoAjuste}
+              className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={aplicarAjuste}
+              disabled={aplicandoAjuste || percentual === '' || !!erroPercentual}
+              className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+            >
+              {aplicandoAjuste ? 'Aplicando...' : 'Aplicar ajuste'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
       <ItensImportar
         open={importando}
         onOpenChange={setImportando}
@@ -459,6 +704,13 @@ function LinhaItem({
   item,
   editavel,
   podeExcluir,
+  selecionado,
+  onSelecionar,
+  podeSubir,
+  podeDescer,
+  ocupado,
+  onMover,
+  onDuplicar,
   estado,
   onSalvar,
   onAbrirFormulario,
@@ -467,6 +719,13 @@ function LinhaItem({
   item: Item
   editavel: boolean
   podeExcluir: boolean
+  selecionado: boolean
+  onSelecionar: () => void
+  podeSubir: boolean
+  podeDescer: boolean
+  ocupado: boolean
+  onMover: (direcao: 'subir' | 'descer') => void
+  onDuplicar: () => void
   estado: EstadoLinha
   onSalvar: (campos: ItemFormInput) => void
   onAbrirFormulario: () => void
@@ -551,16 +810,55 @@ function LinhaItem({
     item.valor_total
 
   return (
-    <tr ref={linhaRef} className="hover:bg-gray-50">
+    <tr ref={linhaRef} className={selecionado ? 'bg-blue-50' : 'hover:bg-gray-50'}>
       <Td>
-        <NumeroInput
-          valor={rascunho.numero}
-          rotulo="Número do item"
-          editavel={editavel}
-          onChange={(v) => campo('numero', v)}
-          onBlur={salvarSeMudou}
-          className="text-right"
-        />
+        {editavel && (
+          <input
+            type="checkbox"
+            checked={selecionado}
+            onChange={onSelecionar}
+            aria-label={`Selecionar o item ${item.numero ?? ''}`.trim()}
+            className="h-4 w-4 rounded border-gray-300"
+          />
+        )}
+      </Td>
+      <Td>
+        <div className="flex items-center gap-0.5">
+          <NumeroInput
+            valor={rascunho.numero}
+            rotulo="Número do item"
+            editavel={editavel}
+            onChange={(v) => campo('numero', v)}
+            onBlur={salvarSeMudou}
+            className="text-right"
+          />
+          {/*
+            Sobe/desce troca o número com o vizinho (bloco 5.7). Só para item
+            com número: o sem número fica no fim, fora da sequência.
+          */}
+          {editavel && item.numero !== null && (
+            <div className="flex flex-col">
+              <button
+                type="button"
+                onClick={() => onMover('subir')}
+                disabled={!podeSubir || ocupado}
+                aria-label={`Subir o item ${item.numero}`}
+                className="rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-30"
+              >
+                <ChevronUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onMover('descer')}
+                disabled={!podeDescer || ocupado}
+                aria-label={`Descer o item ${item.numero}`}
+                className="rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-30"
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
       </Td>
       <Td>
         <TextoInput
@@ -677,7 +975,7 @@ function LinhaItem({
         {formatCurrency(totalPrevisto)}
       </Td>
       <Td>
-        <div className="flex items-center justify-end gap-1">
+        <div className="flex items-center justify-end gap-0.5">
           <IndicadorEstado estado={estado} />
           {/*
             Para todos: quem não pode editar abre o formulário em modo
@@ -693,6 +991,18 @@ function LinhaItem({
           >
             {editavel ? <Pencil className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
+          {editavel && (
+            <button
+              type="button"
+              onClick={onDuplicar}
+              disabled={ocupado}
+              aria-label={`Duplicar o item ${item.numero ?? ''}`.trim()}
+              title="Duplicar (a cópia vai para o fim, com o próximo número)"
+              className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-30"
+            >
+              <Copy className="h-4 w-4" />
+            </button>
+          )}
           {podeExcluir && (
             <button
               type="button"

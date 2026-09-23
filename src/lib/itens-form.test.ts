@@ -45,7 +45,7 @@ test('quantidade vazia é recusada — é dela que saem as colunas geradas', () 
 test('valor_unit aceita vazio e recusa negativo', () => {
   assert.equal(erros(base({ valor_unit: '' })).length, 0)
   assert.equal(erros(base({ valor_unit: 0 })).length, 0)
-  assert.match(erros(base({ valor_unit: -1 })).join(), /não pode ser negativa/)
+  assert.match(erros(base({ valor_unit: -1 })).join(), /Valor unitário não pode ser negativo/)
 })
 
 test('unidade aceita só QTD e M2', () => {

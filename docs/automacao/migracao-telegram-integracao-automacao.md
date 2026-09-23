@@ -897,7 +897,8 @@ Como construir:
   - `novaEntradaHistoricoProposta` exige `de` e `para`, ambos `PropostaStatus`. Para uma
     criação, use `de: 'rascunho', para: 'rascunho'` — a entrada marca a origem, não uma
     transição.
-  - `por` recebe o nome do profile de serviço (decisão 12), não uma string solta.
+  - `por` recebe o **uuid** do profile de serviço (decisão 12, corrigida em 21/09 — `por`
+    guarda uuid, e a tela resolve o nome). **[23/09] Corrigido aqui:** esta linha dizia "o nome".
   - O `documentoId` entra no rastro. `EntradaHistorico` não tem campo para ele, então
     **decida e registre**: ou o `documentoId` vai embutido em `por`
     (`automação (Telegram) · doc <id>`), ou o vínculo fica só em
@@ -959,6 +960,17 @@ Obrigações de validação desta fase — todas, não só as convenientes:
 **Aceite:** `npm run validar` inteiro, com os números novos registrados no documento de
 status do bloco, comparados com a baseline de 0.7. Uma proposta criada pela rota abre em
 `/propostas/[id]` com valor, obra, histórico e — se a aba da sprint 5 já existir — os itens.
+
+> **[23/09] Duas dependências que esta seção não previa.**
+> 1. **Sessão paralela.** A sprint 5 está ativa no mesmo working tree. Uma rota nova faz a
+>    camada build dela reprovar (diff de rotas), e um teste novo muda a contagem dela. A Fase 6
+>    foi escrita e testada **fora do repo**, em `/Users/a1234/gc-sistema-staging/fase-6/`, e
+>    entra quando a outra sessão parar.
+> 2. **Endereço público.** O n8n roda na nuvem; para chamar a rota, o gc-sistema precisa estar
+>    publicado apontando para o **gc-dev**. O único deploy hoje é o da Vercel, que aponta para
+>    gc-prod (fora do escopo) e tem login da Vercel na frente. A rota se testa inteira por HTTP
+>    local (camadas escrita/runtime); **trocar o REST direto do n8n pela rota espera essa
+>    decisão.** Ver `docs/automacao/fase-6-rota-ingestao-status-entrega.md`.
 
 ### Fase 7 — Painel no gc-sistema
 

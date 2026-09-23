@@ -499,3 +499,94 @@ export function divergenciaDeValor(
     somaAbaixoDoDesconto: diverge && soma < (desconto ?? 0),
   }
 }
+
+// ============================================================
+// Duplicar, reordenar e lote (bloco 5.7)
+// ============================================================
+
+/**
+ * O que a cópia leva: tudo que é editável, menos o número (a cópia recebe o
+ * próximo) — e menos `foto_url`, que nem está na whitelist.
+ *
+ * A foto NÃO é copiada de propósito: `foto_url` é o path de UM arquivo no
+ * Storage. Se as duas linhas apontassem para ele, excluir uma apagaria a foto
+ * da outra (o deleteItem remove o arquivo junto).
+ */
+export function camposParaDuplicar(item: Pick<Item, CampoEditavelItem>): CamposEditaveis {
+  const copia = camposEditaveisItem(item)
+  delete copia.numero
+  return copia
+}
+
+/**
+ * O vizinho com quem um item troca de número ao subir ou descer.
+ *
+ * `itens` tem de vir na ordem da tela (numero crescente, nulos no fim). Só
+ * itens COM número participam: o sem número está fora da sequência do
+ * documento e fica no fim, então não sobe, não desce, e ninguém troca com ele.
+ * Devolve `null` quando não há para onde ir (primeiro subindo, último descendo).
+ */
+export function vizinhoParaMover(
+  itens: Pick<Item, 'id' | 'numero'>[],
+  itemId: string,
+  direcao: 'subir' | 'descer',
+): string | null {
+  const numerados = itens.filter((i) => i.numero !== null && i.numero !== undefined)
+  const pos = numerados.findIndex((i) => i.id === itemId)
+  if (pos === -1) return null
+  const alvo = direcao === 'subir' ? pos - 1 : pos + 1
+  return numerados[alvo]?.id ?? null
+}
+
+/** Faixa aceita pelo ajuste em lote — a mesma de `ajustar_valor_itens`. */
+export const AJUSTE_MINIMO = -100
+export const AJUSTE_MAXIMO = 1000
+
+export function validarPercentual(p: unknown): string | null {
+  const n = typeof p === 'string' ? Number(p.replace(',', '.')) : Number(p)
+  if (p === '' || p === null || p === undefined || !Number.isFinite(n)) {
+    return 'Informe o percentual'
+  }
+  if (n === 0) return 'Um ajuste de 0% não muda nada'
+  if (n <= AJUSTE_MINIMO) return 'O ajuste tem de ser maior que -100% (o valor ficaria negativo)'
+  if (n > AJUSTE_MAXIMO) return 'Ajuste acima de 1000% — confira o número'
+  return null
+}
+
+/**
+ * Repete `round(valor_unit * (1 + p/100), 2)` da função do banco, para a
+ * PRÉVIA do diálogo. O valor que vale é o que o banco grava. O `EPSILON`
+ * existe porque 1,005 em ponto flutuante é 1,00499…, e o banco (numeric
+ * exato) arredonda para 1,01.
+ */
+export function ajustarValorUnit(valorUnit: number, percentual: number): number {
+  const x = valorUnit * (1 + percentual / 100)
+  return Math.round((x + Number.EPSILON) * 100) / 100
+}
+
+/** Soma antes e depois do ajuste, só dos itens escolhidos, para a prévia. */
+export function previaAjuste(
+  itens: Pick<Item, 'valor_unit' | 'quantidade' | 'valor_total'>[],
+  percentual: number,
+): { afetados: number; semValor: number; antes: number; depois: number } {
+  let antes = 0
+  let depois = 0
+  let afetados = 0
+  let semValor = 0
+  for (const i of itens) {
+    antes += i.valor_total ?? 0
+    if (i.valor_unit === null || i.valor_unit === undefined) {
+      semValor++
+      continue
+    }
+    afetados++
+    depois += ajustarValorUnit(i.valor_unit, percentual) * (i.quantidade ?? 0)
+  }
+  // Item sem valor entra no "depois" com o que tinha (zero).
+  return {
+    afetados,
+    semValor,
+    antes: Math.round(antes * 100) / 100,
+    depois: Math.round(depois * 100) / 100,
+  }
+}

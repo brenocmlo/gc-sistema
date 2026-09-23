@@ -31,16 +31,16 @@ const textoOpcional = (max: number) =>
  * campo em branco significa "não sei", e 0 é um valor que o banco aceitaria
  * como verdade (a mesma regra que a tabela do 5.2 segue).
  */
-const numeroOpcional = (rotulo: string) =>
+const numeroOpcional = (rotulo: string, genero: 'a' | 'o' = 'a') =>
   z
     .union([z.literal(''), z.coerce.number()])
     .optional()
     .transform((v) => (v === '' || v === undefined ? null : Number(v)))
     .refine((v) => v === null || Number.isFinite(v), {
-      message: `${rotulo} inválida`,
+      message: `${rotulo} inválid${genero}`,
     })
     .refine((v) => v === null || v >= 0, {
-      message: `${rotulo} não pode ser negativa`,
+      message: `${rotulo} não pode ser negativ${genero}`,
     })
 
 export type ContextoItemForm = {
@@ -94,7 +94,7 @@ export function criarItemFormSchema(ctx: ContextoItemForm) {
       message: 'Unidade tem de ser Quantidade (un) ou Metro quadrado (m²)',
     }),
 
-    valor_unit: numeroOpcional('Valor unitário'),
+    valor_unit: numeroOpcional('Valor unitário', 'o'),
   })
 }
 

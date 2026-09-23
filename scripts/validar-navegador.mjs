@@ -250,25 +250,17 @@ try {
   await b.esperar('!document.body.innerText.includes("Item excluído")',
     { rotulo: 'toast do item sair', ms: 15000 })
 
-  // 7d. Importação por planilha (bloco 5.4), com um .xlsx DE VERDADE.
-  // Até 2026-09-22 este passo só abria e fechava o modal: o parse com exceljs
-  // no navegador não tinha cobertura. A planilha é montada aqui com as colunas
-  // e as instruções reais do template (lidas da lib), e sobe pelo input.
+  // 7d. Importação por planilha (blocos 5.4 e 5.8), com um .xlsx DE VERDADE:
+  // a planilha de teste de 50 linhas do 5.8 (`scripts/planilha-teste.mjs`),
+  // com 6 linhas que o preview tem de recusar, cada uma por um motivo.
+  let esperadoPlanilha
   {
-    const { COLUNAS_IMPORTACAO, INSTRUCOES_TEMPLATE } = await import('../src/lib/itens-form.ts')
-    const { default: ExcelJS } = await import('exceljs')
-    const wb = new ExcelJS.Workbook()
-    const ws = wb.addWorksheet('Itens')
-    const linha = (v) => COLUNAS_IMPORTACAO.map((c) => v[c.chave] ?? null)
-    for (const i of INSTRUCOES_TEMPLATE) ws.addRow([i])
-    ws.addRow([])
-    ws.addRow(COLUNAS_IMPORTACAO.map((c) => c.titulo))
-    ws.addRow(linha(Object.fromEntries(COLUNAS_IMPORTACAO.map((c) => [c.chave, c.exemplo]))))
-    ws.addRow(linha({ numero: 50, tipo: 'Janela', descricao: 'Importada 1', quantidade: 2, unidade: 'M2', valor_unit: 150 }))
-    ws.addRow(linha({ numero: 51, tipo: 'Porta', descricao: 'Importada 2', quantidade: 1, unidade: 'QTD', valor_unit: 200 }))
-    ws.addRow(linha({ numero: 52, tipo: 'Erro', descricao: 'Quantidade zero', quantidade: 0, unidade: 'QTD', valor_unit: 10 }))
-    const planilha = `${SHOTS}/importacao-do-run.xlsx`
-    writeFileSync(planilha, Buffer.from(await wb.xlsx.writeBuffer()))
+    const { planilhaDeTeste } = await import('./planilha-teste.mjs')
+    const { buffer, esperado } = await planilhaDeTeste()
+    esperadoPlanilha = esperado
+    const planilha = `${SHOTS}/planilha-teste-50.xlsx`
+    writeFileSync(planilha, buffer)
+    const { INSTRUCOES_TEMPLATE } = await import('../src/lib/itens-form.ts')
 
     await b.clicar('button', { texto: 'Importar planilha' })
     await b.esperar('document.querySelector(\'input[aria-label="Planilha de itens"]\')', {
@@ -281,30 +273,31 @@ try {
       rotulo: 'preview da planilha', ms: 20000,
     })
     const preview = await b.texto()
-    checar('o preview lê a planilha no navegador: 4 linhas, 2 válidas, 2 com erro',
-      /4 linhas/.test(preview) && /2 válidas/.test(preview) && /2 com erro/.test(preview),
+    checar(`o preview lê as ${esperado.linhas} linhas: ${esperado.validas} válidas, ${esperado.comErro} com erro`,
+      preview.includes(`${esperado.linhas} linhas`) && preview.includes(`${esperado.validas} válidas`) &&
+        preview.includes(`${esperado.comErro} com erro`),
       preview.match(/Confira antes de gravar[\s\S]{0,80}/)?.[0])
-    checar('a linha de exemplo do template é recusada no preview',
-      /linha de exemplo do template/.test(preview))
-    checar('a quantidade zero é recusada com o motivo', /Quantidade: Quantidade tem de ser maior que zero/.test(preview))
+    const motivos = [/linha de exemplo do template/, /Quantidade tem de ser maior que zero/, /Unidade tem de ser/,
+      /Já existe um item com esse número/, /tem de ser inteiro/, /Valor unitário não pode ser negativo/]
+    const faltam = motivos.filter((m) => !m.test(preview)).map(String)
+    checar('cada uma das 6 linhas inválidas é recusada pelo seu motivo', faltam.length === 0, `sem: ${faltam.join(', ')}`)
     const primeiraLinha = await b.avaliar(`document.querySelector('table[aria-label="Preview da importação"] tbody tr td')?.innerText.trim()`)
     checar('o preview numera pela linha real do Excel (exemplo na linha 8, não na 2)',
       primeiraLinha === String(INSTRUCOES_TEMPLATE.length + 3), `primeira linha do preview: ${primeiraLinha}`)
     await b.screenshot(`${SHOTS}/06d-importar-preview.png`)
 
-    await b.clicar('button', { texto: 'Importar 2 itens' })
-    await b.esperar('document.querySelectorAll(\'table[aria-label="Itens da proposta"] input[aria-label="Tipo"]\').length === 2', {
-      rotulo: 'itens importados na tabela', ms: 30000,
+    await b.clicar('button', { texto: `Importar ${esperado.validas} itens` })
+    await b.esperar(`document.querySelectorAll('table[aria-label="Itens da proposta"] input[aria-label="Tipo"]').length === ${esperado.validas}`, {
+      rotulo: 'itens importados na tabela', ms: 45000,
     })
-    const tipos = await b.avaliar(`Array.from(document.querySelectorAll('table[aria-label="Itens da proposta"] input[aria-label="Tipo"]')).map(i => i.value).join('|')`)
-    checar('importar grava só as 2 válidas, e elas aparecem na tabela', tipos === 'Janela|Porta', tipos)
+    checar(`importar grava só as ${esperado.validas} válidas, e elas aparecem na tabela`, true)
     checar('o relatório final diz quantos entraram e quantos ficaram de fora',
-      /2 itens importados, 2 ignorados/.test(await b.texto()))
+      new RegExp(`${esperado.validas} itens importados, ${esperado.comErro} ignorados`).test(await b.texto()))
     await b.esperar('!document.body.innerText.includes("itens importados")', { rotulo: 'toast da importação sair', ms: 15000 })
   }
 
   // 7e. Divergência resolvida pela tela (bloco 5.6). O trigger mantém o valor
-  // igual à soma (2×150 + 200 = 500); a divergência é criada do jeito que ela
+  // igual à soma das linhas importadas; a divergência é criada do jeito que ela
   // acontece de verdade — escrita direta no valor, como o n8n faz — e o botão
   // tem de desfazê-la. Até 2026-09-22 esse clique não tinha cobertura.
   {
@@ -317,15 +310,78 @@ try {
     await b.esperar('document.querySelector(\'[data-testid="aviso-divergencia"]\')', {
       rotulo: 'aviso de divergência', ms: 20000,
     })
-    checar('o aviso mostra os dois valores', /9\.999,00/.test(await b.texto()) && /500,00/.test(await b.texto()))
+    const somaBR = esperadoPlanilha.soma.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    checar('o aviso mostra os dois valores', /9\.999,00/.test(await b.texto()) && (await b.texto()).includes(somaBR), somaBR)
     await b.clicar('button', { texto: 'Usar a soma dos itens' })
     await b.esperar('!document.querySelector(\'[data-testid="aviso-divergencia"]\')', {
       rotulo: 'aviso sumir depois do clique', ms: 25000,
     })
     const { data: depois } = await sb.from('propostas').select('valor_total').eq('id', idProposta).maybeSingle()
     checar('o clique em "Usar a soma dos itens" grava a soma e o aviso some',
-      Number(depois?.valor_total) === 500, `valor=${depois?.valor_total}`)
+      Math.abs(Number(depois?.valor_total) - esperadoPlanilha.soma) < 0.005, `valor=${depois?.valor_total} esperado=${esperadoPlanilha.soma}`)
     await b.esperar('!document.body.innerText.includes("ajustado para a soma")', { rotulo: 'toast do ajuste sair', ms: 15000 })
+  }
+
+  // 7f. Duplicar, reordenar e lote pela tela (bloco 5.7).
+  {
+    const sb = await clienteSupabase()
+    const idProposta = (await b.url()).split('/').pop()
+    const tiposNaTela = () => b.avaliar(`Array.from(document.querySelectorAll('table[aria-label="Itens da proposta"] tbody tr')).map(tr => tr.querySelector('input[aria-label="Tipo"]')?.value ?? '')`)
+    const linhasNaTela = async () => (await tiposNaTela()).length
+    const n0 = await linhasNaTela()
+
+    // Duplicar o primeiro: a cópia vai para o fim com o próximo número.
+    const primeiroTipo = (await tiposNaTela())[0]
+    await b.clicar(`button[aria-label="Duplicar o item ${esperadoPlanilha.primeiroNumero}"]`)
+    await b.esperar(`document.querySelectorAll('table[aria-label="Itens da proposta"] tbody tr').length === ${n0 + 1}`, {
+      rotulo: 'linha duplicada', ms: 25000,
+    })
+    const tiposDup = await tiposNaTela()
+    checar('duplicar pela tela põe a cópia no fim, com o mesmo tipo', tiposDup[tiposDup.length - 1] === primeiroTipo,
+      `${primeiroTipo} → último=${tiposDup[tiposDup.length - 1]}`)
+    await b.esperar('!document.body.innerText.includes("Item duplicado")', { rotulo: 'toast do duplicar sair', ms: 15000 })
+
+    // Descer o primeiro: troca de lugar com o segundo.
+    const [t1, t2] = await tiposNaTela()
+    await b.clicar(`button[aria-label="Descer o item ${esperadoPlanilha.primeiroNumero}"]`)
+    await b.esperar(`(() => { const t = Array.from(document.querySelectorAll('table[aria-label="Itens da proposta"] input[aria-label="Tipo"]')).map(i => i.value); return t[0] === ${JSON.stringify(t2)} && t[1] === ${JSON.stringify(t1)} })()`, {
+      rotulo: 'linhas trocadas de lugar', ms: 25000,
+    })
+    checar('descer troca o item com o de baixo, pela tela', true)
+    checar('o primeiro não tem como subir (botão desabilitado)',
+      await b.avaliar(`document.querySelector('table[aria-label="Itens da proposta"] tbody tr button[aria-label^="Subir"]')?.disabled === true`))
+
+    // Selecionar todos + ajuste de +10%, com prévia.
+    await b.clicar('input[aria-label="Selecionar todos os itens"]')
+    await b.esperar('document.querySelector(\'[role="toolbar"][aria-label="Ações nos itens selecionados"]\')', { rotulo: 'barra de lote' })
+    checar('selecionar todos mostra a barra com a contagem', (await b.texto()).includes(`${n0 + 1} itens selecionados`))
+    const { data: antesAj } = await sb.from('propostas').select('valor_total').eq('id', idProposta).single()
+    await b.clicar('button', { texto: 'Ajustar valor' })
+    await b.esperar('document.querySelector("#ajuste_percentual")', { rotulo: 'diálogo de ajuste' })
+    await b.preencher('#ajuste_percentual', '10')
+    await b.esperar('document.querySelector(\'[data-testid="previa-ajuste"]\')', { rotulo: 'prévia do ajuste' })
+    checar('a prévia mostra a soma antes e depois', /→/.test(await b.avaliar(`document.querySelector('[data-testid="previa-ajuste"]').innerText`)))
+    await b.screenshot(`${SHOTS}/06f-ajuste-lote.png`)
+    await b.clicar('button', { texto: 'Aplicar ajuste' })
+    await b.esperar('!document.querySelector("#ajuste_percentual")', { rotulo: 'diálogo de ajuste fechar', ms: 25000 })
+    const { data: depoisAj } = await sb.from('propostas').select('valor_total').eq('id', idProposta).single()
+    const razao = Number(depoisAj?.valor_total) / Number(antesAj?.valor_total)
+    checar('o ajuste de +10% sobe o valor da proposta em ~10% (centavos arredondados por item)',
+      Math.abs(razao - 1.1) < 0.001, `antes=${antesAj?.valor_total} depois=${depoisAj?.valor_total}`)
+    await b.esperar('!document.body.innerText.includes("Valor ajustado")', { rotulo: 'toast do ajuste sair', ms: 15000 })
+
+    // Selecionar 2 e excluir em lote.
+    await b.clicar(`input[aria-label="Selecionar o item ${esperadoPlanilha.primeiroNumero}"]`)
+    await b.clicar(`input[aria-label="Selecionar o item ${esperadoPlanilha.primeiroNumero + 1}"]`)
+    await b.esperar('document.body.innerText.includes("2 itens selecionados")', { rotulo: 'dois selecionados' })
+    await b.clicar('button', { texto: 'Excluir selecionados' })
+    await b.esperar('document.body.innerText.includes("Excluir 2 itens?")', { rotulo: 'confirmação do lote' })
+    await b.clicar('[role="dialog"] button', { texto: 'Sim, excluir' })
+    await b.esperar(`document.querySelectorAll('table[aria-label="Itens da proposta"] tbody tr').length === ${n0 - 1}`, {
+      rotulo: 'itens saírem da tabela', ms: 25000,
+    })
+    checar('exclusão em lote pela tela tira os 2 selecionados', (await linhasNaTela()) === n0 - 1)
+    await b.esperar('!document.body.innerText.includes("itens excluídos")', { rotulo: 'toast do lote sair', ms: 15000 })
   }
 
   // 8. Diálogo de status — a lógica condicional que só o navegador exercita
@@ -518,6 +574,35 @@ try {
     doze.includes('12 itens') && tiposNaTabela.includes('Guarda-corpo'),
     `rodapé: ${doze.match(/12 itens[\s\S]{0,50}/)?.[0]} · tipos: ${tiposNaTabela}`)
   await b.screenshot(`${SHOTS}/12-itens-12-linhas.png`)
+
+  // 12b. Tela × banco (bloco 5.8): área e valor total de cada linha, como
+  // aparecem na tela, contra as colunas GENERATED do banco, formatadas pelos
+  // MESMOS formatadores que a tela usa. A tela mostra previsão local enquanto
+  // se digita; aqui, sem digitação, ela tem de mostrar exatamente o do banco.
+  {
+    const { formatCurrency } = await import('../src/lib/format.ts')
+    const { formatArea } = await import('../src/lib/itens.ts')
+    const sb = await clienteSupabase()
+    const { data: doBanco } = await sb.from('propostas')
+      .select('itens(numero, tipo, area_m2, valor_total)').eq('numero', 'SEED-ITENS-001').single()
+    const naTela = await b.avaliar(`Array.from(document.querySelectorAll('table[aria-label="Itens da proposta"] tbody tr')).map(tr => {
+      const td = tr.querySelectorAll('td');
+      return { numero: tr.querySelector('input[aria-label="Número do item"]')?.value ?? '',
+               tipo: tr.querySelector('input[aria-label="Tipo"]')?.value ?? '',
+               area: td[10]?.innerText.trim(), total: td[12]?.innerText.trim() };
+    })`)
+    const norm = (t) => String(t ?? '').replace(/\s/g, ' ')
+    const divergentes = []
+    for (const it of doBanco?.itens ?? []) {
+      const linha = naTela.find((l) => it.numero === null ? l.numero === '' && l.tipo === it.tipo : l.numero === String(it.numero))
+      if (!linha) { divergentes.push(`item ${it.numero ?? it.tipo} não está na tela`); continue }
+      const areaBanco = it.area_m2 && Number(it.area_m2) > 0 ? formatArea(Number(it.area_m2)) : '—'
+      if (norm(linha.area) !== norm(areaBanco)) divergentes.push(`item ${it.numero}: área tela=${linha.area} banco=${areaBanco}`)
+      if (norm(linha.total) !== norm(formatCurrency(Number(it.valor_total)))) divergentes.push(`item ${it.numero}: total tela=${linha.total} banco=${formatCurrency(Number(it.valor_total))}`)
+    }
+    checar(`área e valor total da tela batem com o banco nas ${doBanco?.itens?.length} linhas`,
+      divergentes.length === 0 && (doBanco?.itens?.length ?? 0) === 12, divergentes.join(' | '))
+  }
 
   // Largura de celular (390px, iPhone). `viewport()` existia no helper CDP
   // desde o começo e nunca havia sido chamado: responsividade nunca tinha sido

@@ -4,11 +4,14 @@ import { revalidatePath } from 'next/cache'
 
 import {
   camposEditaveisItem,
+  camposParaDuplicar,
   isUnidade,
   limparColunasGeradas,
   proximoNumeroItem,
   somaItens,
+  validarPercentual,
   vinculoValido,
+  vizinhoParaMover,
 } from '@/lib/itens'
 import { buildStoragePath } from '@/lib/files'
 import {
@@ -113,15 +116,15 @@ function validarEntradaItem(input: ItemFormInput): string | null {
   if (input.numero !== null && !Number.isInteger(input.numero)) {
     return 'O número do item tem de ser inteiro'
   }
-  for (const [campo, rotulo] of [
-    ['quantidade', 'Quantidade'],
-    ['largura', 'Largura'],
-    ['altura', 'Altura'],
-    ['valor_unit', 'Valor unitário'],
+  for (const [campo, rotulo, g] of [
+    ['quantidade', 'Quantidade', 'a'],
+    ['largura', 'Largura', 'a'],
+    ['altura', 'Altura', 'a'],
+    ['valor_unit', 'Valor unitário', 'o'],
   ] as const) {
     const v = input[campo]
     if (v !== null && (!Number.isFinite(v) || v < 0)) {
-      return `${rotulo} não pode ser negativa nem inválida`
+      return `${rotulo} não pode ser negativ${g} nem inválid${g}`
     }
   }
   return null
@@ -635,4 +638,191 @@ export async function sincronizarValorComItens(
 
   revalidatePath(`/propostas/${propostaId}`)
   return { ok: true, valorTotal: soma }
+}
+
+// ============================================================
+// Duplicar, reordenar e lote (bloco 5.7)
+// ============================================================
+
+export type AcaoEmLoteResult =
+  | { ok: true; afetados: number }
+  | { ok: false; error: string }
+
+/** Mensagens das funções `trocar_numero_itens` e `ajustar_valor_itens`. */
+function mensagemDeErroLote(raw: string): string {
+  if (raw.includes('itens_proposta_fora_de_rascunho')) {
+    return 'Proposta fora de rascunho: os itens não podem mais ser alterados'
+  }
+  if (raw.includes('itens_troca_sem_numero')) {
+    return 'Item sem número não entra na ordenação: dê um número a ele primeiro'
+  }
+  if (raw.includes('itens_troca_nao_gravou') || raw.includes('itens_troca_nao_encontrado')) {
+    return 'Não foi possível reordenar (sem permissão ou item já removido)'
+  }
+  if (raw.includes('itens_ajuste_percentual_invalido')) {
+    return 'Percentual inválido: tem de ser maior que -100% e no máximo 1000%'
+  }
+  return mensagemDeErroItem(raw)
+}
+
+/** Ids que o chamador mandou, filtrados para os que são desta proposta. */
+async function idsDaProposta(
+  supabase: ReturnType<typeof createClient>,
+  propostaId: string,
+  ids: unknown,
+): Promise<string[]> {
+  if (!Array.isArray(ids) || ids.length === 0) return []
+  const texto = ids.filter((i): i is string => typeof i === 'string').slice(0, 500)
+  const { data } = await supabase
+    .from('itens')
+    .select('id')
+    .eq('proposta_id', propostaId)
+    .in('id', texto)
+  return (data ?? []).map((i) => i.id)
+}
+
+/**
+ * Duplica um item: copia os campos editáveis e dá à cópia o próximo número
+ * (`maior + 1`, no fim da lista). A foto não vai — ver `camposParaDuplicar`.
+ */
+export async function duplicarItem(
+  propostaId: string,
+  itemId: string,
+): Promise<ItemActionResult> {
+  const supabase = createClient()
+  const auth = await autorizarItem(supabase, propostaId, 'duplicar itens')
+  if (!auth.ok) return { ok: false, error: auth.error }
+
+  const [{ data: original }, { data: todos }] = await Promise.all([
+    supabase.from('itens').select(CAMPOS_ITEM).eq('id', itemId).eq('proposta_id', propostaId).maybeSingle(),
+    supabase.from('itens').select('numero').eq('proposta_id', propostaId),
+  ])
+  if (!original) return { ok: false, error: 'Item não encontrado nesta proposta' }
+
+  const payload: ItemPayload = {
+    ...camposParaDuplicar(original as Item),
+    numero: proximoNumeroItem((todos ?? []) as { numero: number | null }[]),
+    empresa_id: auth.empresaId,
+    obra_id: auth.obraId,
+    proposta_id: propostaId,
+    contrato_id: null,
+    created_by: auth.userId,
+  }
+
+  const { data, error } = await supabase.from('itens').insert(payload).select(CAMPOS_ITEM).single()
+  if (error) return { ok: false, error: mensagemDeErroItem(error.message) }
+
+  revalidatePath(`/propostas/${propostaId}`)
+  return { ok: true, item: data as Item }
+}
+
+/**
+ * Sobe ou desce um item uma posição, trocando o número com o vizinho.
+ *
+ * O vizinho é calculado AQUI, a partir do banco — a tela manda só o item e a
+ * direção. Aceitar "troque com este outro id" do cliente deixaria trocar com
+ * qualquer item, inclusive de outra proposta. A troca em si é
+ * `trocar_numero_itens`, que faz os três passos numa transação.
+ */
+export async function moverItem(
+  propostaId: string,
+  itemId: string,
+  direcao: 'subir' | 'descer',
+): Promise<AcaoEmLoteResult> {
+  if (direcao !== 'subir' && direcao !== 'descer') {
+    return { ok: false, error: 'Direção inválida' }
+  }
+  const supabase = createClient()
+  const auth = await autorizarItem(supabase, propostaId, 'reordenar itens')
+  if (!auth.ok) return { ok: false, error: auth.error }
+
+  const { data: todos } = await supabase
+    .from('itens')
+    .select('id, numero')
+    .eq('proposta_id', propostaId)
+    .order('numero', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: true })
+
+  const lista = (todos ?? []) as { id: string; numero: number | null }[]
+  const alvo = lista.find((i) => i.id === itemId)
+  if (!alvo) return { ok: false, error: 'Item não encontrado nesta proposta' }
+  if (alvo.numero === null) {
+    return { ok: false, error: 'Item sem número não entra na ordenação: dê um número a ele primeiro' }
+  }
+  const vizinho = vizinhoParaMover(lista, itemId, direcao)
+  if (!vizinho) {
+    return { ok: false, error: direcao === 'subir' ? 'O item já é o primeiro' : 'O item já é o último' }
+  }
+
+  const { error } = await supabase.rpc('trocar_numero_itens', { p_item_a: itemId, p_item_b: vizinho })
+  if (error) return { ok: false, error: mensagemDeErroLote(error.message) }
+
+  revalidatePath(`/propostas/${propostaId}`)
+  return { ok: true, afetados: 2 }
+}
+
+/**
+ * Exclui vários itens de uma vez. Só admin — a mesma policy do delete
+ * unitário. Uma instrução só: ou saem todos, ou nenhum. As fotos saem depois,
+ * pelo mesmo motivo do `deleteItem`.
+ */
+export async function excluirItensEmLote(
+  propostaId: string,
+  itemIds: string[],
+): Promise<AcaoEmLoteResult> {
+  const supabase = createClient()
+  const auth = await autorizarItem(supabase, propostaId, 'excluir itens', ['admin'])
+  if (!auth.ok) return { ok: false, error: auth.error }
+
+  const ids = await idsDaProposta(supabase, propostaId, itemIds)
+  if (ids.length === 0) return { ok: false, error: 'Nenhum item desta proposta foi selecionado' }
+
+  const { data: comFoto } = await supabase
+    .from('itens').select('id, foto_url').in('id', ids).not('foto_url', 'is', null)
+
+  const { data: apagados, error } = await supabase
+    .from('itens').delete().eq('proposta_id', propostaId).in('id', ids).select('id')
+  if (error) return { ok: false, error: mensagemDeErroItem(error.message) }
+  if (!apagados || apagados.length === 0) {
+    return { ok: false, error: 'Os itens não puderam ser excluídos (sem permissão ou já removidos)' }
+  }
+
+  const paths = (comFoto ?? [])
+    .filter((i) => pathEhDoItem(i.foto_url, auth.empresaId, i.id))
+    .map((i) => i.foto_url as string)
+  if (paths.length > 0) await supabase.storage.from(BUCKET_FOTOS).remove(paths)
+
+  revalidatePath(`/propostas/${propostaId}`)
+  return { ok: true, afetados: apagados.length }
+}
+
+/**
+ * Ajusta o valor unitário dos itens escolhidos em um percentual ("+5%").
+ * Uma instrução só, na função `ajustar_valor_itens`, que também confere o
+ * rascunho. Item sem valor unitário fica como está.
+ */
+export async function ajustarValorEmLote(
+  propostaId: string,
+  itemIds: string[],
+  percentual: number,
+): Promise<AcaoEmLoteResult> {
+  const invalido = validarPercentual(percentual)
+  if (invalido) return { ok: false, error: invalido }
+
+  const supabase = createClient()
+  const auth = await autorizarItem(supabase, propostaId, 'ajustar valores')
+  if (!auth.ok) return { ok: false, error: auth.error }
+
+  const ids = await idsDaProposta(supabase, propostaId, itemIds)
+  if (ids.length === 0) return { ok: false, error: 'Nenhum item desta proposta foi selecionado' }
+
+  const { data, error } = await supabase.rpc('ajustar_valor_itens', {
+    p_proposta: propostaId,
+    p_itens: ids,
+    p_percentual: percentual,
+  })
+  if (error) return { ok: false, error: mensagemDeErroLote(error.message) }
+
+  revalidatePath(`/propostas/${propostaId}`)
+  return { ok: true, afetados: Number(data ?? 0) }
 }

@@ -4,7 +4,12 @@ import assert from 'node:assert/strict'
 import {
   CAMPOS_EDITAVEIS_ITEM,
   COLUNAS_GERADAS_ITEM,
+  ajustarValorUnit,
   camposEditaveisItem,
+  camposParaDuplicar,
+  previaAjuste,
+  validarPercentual,
+  vizinhoParaMover,
   divergenciaDeValor,
   acrescentarObservacao,
   areaDoItem,
@@ -419,4 +424,64 @@ test('divergenciaDeValor: soma abaixo do desconto é divergência esperada, sina
   assert.equal(r.diverge, true)
   assert.equal(r.somaAbaixoDoDesconto, true)
   assert.equal(divergenciaDeValor(1000, [{ valor_total: 300 }], 100).somaAbaixoDoDesconto, false)
+})
+
+// ============================================================
+// Duplicar, reordenar e lote (bloco 5.7)
+// ============================================================
+
+test('camposParaDuplicar copia o editável, sem número e sem foto', () => {
+  const c = camposParaDuplicar({
+    numero: 4, tipo: 'Janela', descricao: 'D', linha: 'L', acabamento: 'A', localizacao: 'X',
+    vidros: 'V', observacao: 'O', largura: 1, altura: 2, quantidade: 3, unidade: 'M2', valor_unit: 10,
+    ...({ foto_url: 'empresa/itens/x/f.jpg', proposta_id: 'p' } as object),
+  } as Parameters<typeof camposParaDuplicar>[0])
+  assert.equal('numero' in c, false)
+  assert.equal('foto_url' in c, false)
+  assert.equal('proposta_id' in c, false)
+  assert.equal(c.tipo, 'Janela')
+  assert.equal(c.observacao, 'O')
+  assert.equal(c.valor_unit, 10)
+})
+
+test('vizinhoParaMover troca com o vizinho numerado', () => {
+  const lista = [{ id: 'a', numero: 1 }, { id: 'b', numero: 3 }, { id: 'c', numero: 7 }, { id: 'z', numero: null }]
+  assert.equal(vizinhoParaMover(lista, 'b', 'subir'), 'a')
+  assert.equal(vizinhoParaMover(lista, 'b', 'descer'), 'c')
+})
+
+test('vizinhoParaMover não passa das pontas e ignora item sem número', () => {
+  const lista = [{ id: 'a', numero: 1 }, { id: 'c', numero: 7 }, { id: 'z', numero: null }]
+  assert.equal(vizinhoParaMover(lista, 'a', 'subir'), null)
+  assert.equal(vizinhoParaMover(lista, 'c', 'descer'), null, 'o último numerado não desce para o sem número')
+  assert.equal(vizinhoParaMover(lista, 'z', 'subir'), null, 'o sem número não se move')
+  assert.equal(vizinhoParaMover(lista, 'inexistente', 'subir'), null)
+})
+
+test('validarPercentual aceita a faixa da função do banco', () => {
+  assert.equal(validarPercentual(5), null)
+  assert.equal(validarPercentual('-10'), null)
+  assert.equal(validarPercentual('2,5'), null, 'vírgula decimal')
+  assert.match(validarPercentual(0) ?? '', /0%/)
+  assert.match(validarPercentual(-100) ?? '', /negativo/)
+  assert.match(validarPercentual(1001) ?? '', /1000%/)
+  assert.match(validarPercentual('') ?? '', /Informe/)
+  assert.match(validarPercentual('abc') ?? '', /Informe/)
+})
+
+test('ajustarValorUnit arredonda para centavos como o banco', () => {
+  // Conferido contra ajustar_valor_itens em gc-dev: 33,33 × 1,05 = 35,00.
+  assert.equal(ajustarValorUnit(33.33, 5), 35)
+  assert.equal(ajustarValorUnit(100, 5), 105)
+  assert.equal(ajustarValorUnit(100, -10), 90)
+  assert.equal(ajustarValorUnit(1.005, 0.0001), 1.01)
+})
+
+test('previaAjuste soma antes e depois, e conta os itens sem valor', () => {
+  const r = previaAjuste([
+    { valor_unit: 100, quantidade: 2, valor_total: 200 },
+    { valor_unit: 33.33, quantidade: 1, valor_total: 33.33 },
+    { valor_unit: null, quantidade: 1, valor_total: null },
+  ], 5)
+  assert.deepEqual(r, { afetados: 2, semValor: 1, antes: 233.33, depois: 245 })
 })
