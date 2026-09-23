@@ -34,6 +34,10 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
+  // Rota de máquina (Fase 6 da automação): autentica por x-ingestao-token dentro
+  // do próprio handler, sem sessão. Sem esta exceção o n8n recebe 307 → /login.
+  if (pathname.startsWith('/api/ingestao/')) return supabaseResponse
+
   const isLoginRoute = pathname === '/login' || pathname.startsWith('/login/')
 
   if (!user && !isLoginRoute) {

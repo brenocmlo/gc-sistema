@@ -2348,6 +2348,10 @@ export type Database = {
       }
     }
     Functions: {
+      ajustar_valor_itens: {
+        Args: { p_itens: string[]; p_percentual: number; p_proposta: string }
+        Returns: number
+      }
       atualizar_parcelas_atrasadas: { Args: never; Returns: number }
       atualizar_status_nf_by_id: {
         Args: { p_nota_id: string }
@@ -2375,6 +2379,10 @@ export type Database = {
       current_perfil: { Args: never; Returns: string }
       has_perfil: { Args: { perfis: string[] }; Returns: boolean }
       storage_empresa_id_from_path: { Args: { path: string }; Returns: string }
+      trocar_numero_itens: {
+        Args: { p_item_a: string; p_item_b: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

@@ -4,6 +4,7 @@
 /api/export/obras
 /api/export/orcamentos
 /api/export/propostas
+/api/ingestao/proposta
 /api/relatorio/fd-conciliacao/[obraId]
 /api/template/itens
 /clientes

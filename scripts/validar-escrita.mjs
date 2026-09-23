@@ -91,6 +91,11 @@ const NECESSARIAS = [
   'importarItens',
   // Sincronização de valor (5.6)
   'sincronizarValorComItens',
+  // Duplicar, reordenar e lote (5.7)
+  'duplicarItem',
+  'moverItem',
+  'excluirItensEmLote',
+  'ajustarValorEmLote',
   // Orçamentos: só o que o histórico uniformizado (migration 013) exige.
   'createOrcamento',
   'changeOrcamentoStatus',
@@ -214,6 +219,12 @@ let proposta56Id = null
 /** Contrato e proposta de carga do fechamento da sprint 5 — apagados no finally. */
 let contratoTesteId = null
 let propostaCargaId = null
+/** Propostas do 5.7 e da matriz de perfis do 5.8 — apagadas no finally. */
+let proposta57Id = null
+let propostaPerfisId = null
+/** Fase 6 da automação: proposta criada pela rota de ingestão e os documentos de teste — apagados no finally. */
+let propostaIngestaoId = null
+const documentosIngestao = []
 
 
 try {
@@ -756,6 +767,168 @@ try {
       }
     }
 
+    // ------------------------------------------------------------
+    // 5m. Duplicar, reordenar e lote (bloco 5.7), numa proposta própria.
+    // ------------------------------------------------------------
+    {
+      const p57 = await chamar('createProposta', [{
+        ...base, numero: `${NUMERO}-57`, valor_total: 0, desconto: 0, pct_sinal: null, pct_fd: null,
+      }], { rota: '/propostas/nova' })
+      proposta57Id = p57.id ?? null
+      if (proposta57Id) {
+        const r57 = `/propostas/${proposta57Id}`
+        const l57 = (n, vu, extra = {}) => ({ numero: n, tipo: `T${n ?? 'x'}`, descricao: `5.7 item ${n ?? 'sem número'}`,
+          linha: null, acabamento: null, largura: 1, altura: 2, quantidade: 1, unidade: 'M2', valor_unit: vu,
+          localizacao: `Loc ${n}`, vidros: null, observacao: `Obs ${n}`, ...extra })
+        // A importação NUMERA sozinha quem vem sem número (regra do 5.4). O item
+        // sem número de verdade tem de entrar pelo createItem.
+        await chamar('importarItens', [proposta57Id, [l57(1, 100), l57(2, 33.33), l57(3, 10)], 0], { rota: r57 })
+        await chamar('createItem', [proposta57Id, l57(null, null)], { rota: r57 })
+        const ler57 = async () => (await supabase.from('itens')
+          .select('id, numero, tipo, valor_unit, valor_total, observacao, localizacao, foto_url')
+          .eq('proposta_id', proposta57Id).order('numero', { ascending: true, nullsFirst: false })).data ?? []
+        const valor57 = async () => Number((await supabase.from('propostas').select('valor_total').eq('id', proposta57Id).single()).data?.valor_total)
+        let itens57 = await ler57()
+        const porTipo = (t) => itens57.find((i) => i.tipo === t)
+
+        // Duplicar
+        const dup = await chamar('duplicarItem', [proposta57Id, porTipo('T2').id], { rota: r57 })
+        itens57 = await ler57()
+        checar('duplicar copia os campos e dá o próximo número (4, depois do maior)',
+          dup.ok && dup.item.numero === 4 && dup.item.tipo === 'T2' && dup.item.observacao === 'Obs 2' &&
+            dup.item.localizacao === 'Loc 2' && Number(dup.item.valor_unit) === 33.33,
+          JSON.stringify({ ok: dup.ok, n: dup.item?.numero, tipo: dup.item?.tipo, obs: dup.item?.observacao, erro: dup.error }))
+        checar('duplicar não copia a foto (o arquivo é de um item só)', dup.ok && dup.item.foto_url === null)
+
+        // Reordenar
+        const sobe = await chamar('moverItem', [proposta57Id, porTipo('T3').id, 'subir'], { rota: r57 })
+        itens57 = await ler57()
+        checar('subir troca o número com o vizinho (T3 vira 2, T2 vira 3)',
+          sobe.ok && porTipo('T3').numero === 2 && porTipo('T2').numero === 3,
+          `${sobe.error ?? ''} · ${itens57.map((i) => `${i.tipo}=${i.numero}`).join(' ')}`)
+        const topo = await chamar('moverItem', [proposta57Id, porTipo('T1').id, 'subir'], { rota: r57 })
+        checar('o primeiro não sobe', topo.ok === false && /primeiro/.test(topo.error ?? ''), topo.error)
+        const semNum = await chamar('moverItem', [proposta57Id, porTipo('Tx').id, 'descer'], { rota: r57 })
+        checar('item sem número não se move, com mensagem própria', semNum.ok === false && /sem número/.test(semNum.error ?? ''), semNum.error)
+
+        // Duas trocas simultâneas sobre o mesmo par: a trava da função
+        // serializa, e nenhum item pode ficar sem número no meio do caminho.
+        const [m1, m2] = await Promise.all([
+          chamar('moverItem', [proposta57Id, porTipo('T3').id, 'descer'], { rota: r57 }),
+          chamar('moverItem', [proposta57Id, porTipo('T2').id, 'subir'], { rota: r57 }),
+        ])
+        itens57 = await ler57()
+        const numeros = itens57.filter((i) => i.tipo !== 'Tx').map((i) => i.numero).sort((a, b) => a - b)
+        checar('2 reordenações simultâneas: nenhum número perdido nem repetido',
+          JSON.stringify(numeros) === JSON.stringify([1, 2, 3, 4]),
+          `${m1.error ?? 'ok'} | ${m2.error ?? 'ok'} · números=${numeros.join(',')}`)
+
+        // Ajuste em lote
+        const idsAjuste = [porTipo('T1').id, porTipo('T2').id, porTipo('Tx').id]
+        const aj = await chamar('ajustarValorEmLote', [proposta57Id, idsAjuste, 5], { rota: r57 })
+        itens57 = await ler57()
+        checar('ajuste de +5% muda só os com valor (2 de 3), com centavos arredondados',
+          aj.ok && aj.afetados === 2 && Number(porTipo('T1').valor_unit) === 105 && Number(porTipo('T2').valor_unit) === 35,
+          `${aj.error ?? ''} · afetados=${aj.afetados} T1=${porTipo('T1').valor_unit} T2=${porTipo('T2').valor_unit}`)
+        const somaAj = itens57.reduce((a, i) => a + Number(i.valor_total ?? 0), 0)
+        checar('o valor da proposta acompanha o ajuste (trigger do 5.6)',
+          Math.abs((await valor57()) - somaAj) < 0.005, `valor=${await valor57()} soma=${somaAj}`)
+        const ajRuim = await chamar('ajustarValorEmLote', [proposta57Id, idsAjuste, -100], { rota: r57 })
+        checar('ajuste de -100% é recusado', ajRuim.ok === false && /-100%/.test(ajRuim.error ?? ''), ajRuim.error)
+
+        const { data: alheio } = await supabase.from('itens').select('id, valor_unit')
+          .eq('proposta_id', outraProposta?.id).not('valor_unit', 'is', null).limit(1).single()
+        const ajAlheio = await chamar('ajustarValorEmLote', [proposta57Id, [alheio?.id], 50], { rota: r57 })
+        const { data: alheioDepois } = await supabase.from('itens').select('valor_unit').eq('id', alheio?.id).single()
+        checar('ajuste com id de OUTRA proposta não toca o item alheio',
+          ajAlheio.ok === false && Number(alheioDepois?.valor_unit) === Number(alheio?.valor_unit),
+          `${ajAlheio.error} · antes=${alheio?.valor_unit} depois=${alheioDepois?.valor_unit}`)
+
+        // A função é exposta pelo PostgREST: chamá-la direto, sem a action,
+        // como visualizador, não pode mudar nada.
+        const visSb = await (async () => {
+          const { createClient } = await import('@supabase/supabase-js')
+          const c = createClient(URL_SUPABASE, ANON)
+          const s = await sessaoDePerfil('visualizador')
+          await c.auth.setSession({ access_token: s.session.access_token, refresh_token: s.session.refresh_token })
+          return c
+        })()
+        const direto = await visSb.rpc('ajustar_valor_itens', { p_proposta: proposta57Id, p_itens: idsAjuste, p_percentual: 50 })
+        const { data: t1Depois } = await supabase.from('itens').select('valor_unit').eq('id', porTipo('T1').id).single()
+        checar('visualizador chamando a função direto no banco não muda nenhum valor (RLS)',
+          Number(t1Depois?.valor_unit) === 105, `rpc=${JSON.stringify(direto.data ?? direto.error?.message)} T1=${t1Depois?.valor_unit}`)
+
+        // Exclusão em lote
+        const sessaoCom57 = await sessaoDePerfil('comercial')
+        const lotCom = await chamar('excluirItensEmLote', [proposta57Id, [porTipo('T1').id]], {
+          cookie: cookieDeSessao(sessaoCom57.session), rota: r57 })
+        checar('comercial não exclui em lote', lotCom.ok === false && /permissão/i.test(lotCom.error ?? ''), lotCom.error)
+        const lot = await chamar('excluirItensEmLote', [proposta57Id, [porTipo('T1').id, dup.item?.id, alheio?.id]], { rota: r57 })
+        itens57 = await ler57()
+        const { count: alheioExiste } = await supabase.from('itens').select('id', { count: 'exact', head: true }).eq('id', alheio?.id)
+        checar('exclusão em lote apaga só os desta proposta (2), e o alheio fica',
+          lot.ok && lot.afetados === 2 && itens57.length === 3 && alheioExiste === 1,
+          `${lot.error ?? ''} · afetados=${lot.afetados} restam=${itens57.length} alheio=${alheioExiste}`)
+      }
+    }
+
+    // ------------------------------------------------------------
+    // 5n. Matriz de perfis (bloco 5.8): cada ação de item, em cada perfil.
+    // Regra esperada, a mesma do RLS de `itens`: admin tudo; comercial tudo
+    // menos excluir; financeiro, medição, produção e visualizador, nada.
+    // ------------------------------------------------------------
+    {
+      const pp = await chamar('createProposta', [{
+        ...base, numero: `${NUMERO}-PERFIS`, valor_total: 0, desconto: 0, pct_sinal: null, pct_fd: null,
+      }], { rota: '/propostas/nova' })
+      propostaPerfisId = pp.id ?? null
+      if (propostaPerfisId) {
+        const rp = `/propostas/${propostaPerfisId}`
+        const lp = (n) => ({ numero: n, tipo: 'Perfil', descricao: `perfis ${n}`, linha: null, acabamento: null,
+          largura: null, altura: null, quantidade: 1, unidade: 'QTD', valor_unit: 10,
+          localizacao: null, vidros: null, observacao: null })
+        // Números espaçados de 10 em 10: o duplicar pega `maior + 1`, e com
+        // números seguidos a cópia colidia com o item seguinte do teste.
+        let seq = 1000
+        const novoItem = async () => {
+          seq += 10
+          const r = await chamar('createItem', [propostaPerfisId, lp(seq)], { rota: rp })
+          return r.item
+        }
+        const PERFIS = ['admin', 'comercial', 'financeiro', 'medicao', 'producao', 'visualizador']
+        const PODE = {
+          createItem: ['admin', 'comercial'], updateItem: ['admin', 'comercial'],
+          duplicarItem: ['admin', 'comercial'], moverItem: ['admin', 'comercial'],
+          ajustarValorEmLote: ['admin', 'comercial'], importarItens: ['admin', 'comercial'],
+          deleteItem: ['admin'], excluirItensEmLote: ['admin'],
+        }
+        for (const perfil of PERFIS) {
+          const cookie = perfil === 'admin' ? admin.cookie : cookieDeSessao((await sessaoDePerfil(perfil)).session)
+          const a = await novoItem()
+          const b = await novoItem()
+          const alvos = {
+            createItem: [propostaPerfisId, lp(null)],
+            updateItem: [propostaPerfisId, a.id, { ...lp(a.numero), descricao: `editado por ${perfil}` }],
+            duplicarItem: [propostaPerfisId, a.id],
+            moverItem: [propostaPerfisId, b.id, 'subir'],
+            ajustarValorEmLote: [propostaPerfisId, [a.id], 1],
+            importarItens: [propostaPerfisId, [lp(null)], 0],
+            deleteItem: [propostaPerfisId, a.id],
+            excluirItensEmLote: [propostaPerfisId, [b.id]],
+          }
+          const erradas = []
+          for (const [acao, args] of Object.entries(alvos)) {
+            const r = await chamar(acao, args, { cookie, rota: rp })
+            const deveriaPoder = PODE[acao].includes(perfil)
+            if (deveriaPoder && !r.ok) erradas.push(`${acao} recusou: ${r.error}`)
+            if (!deveriaPoder && r.ok) erradas.push(`${acao} PASSOU sem permissão`)
+            if (!deveriaPoder && !r.ok && !/permissão/i.test(r.error ?? '')) erradas.push(`${acao} recusou pelo motivo errado: ${r.error}`)
+          }
+          checar(`perfil ${perfil}: as 8 ações de item obedecem à regra`, erradas.length === 0, erradas.join(' | '))
+        }
+      }
+    }
+
     // 5c. Perfis nas actions de ITEM. As três checagens de perfil que já
     // existiam são das actions de proposta — as de item nunca tinham sido
     // exercitadas com outra sessão. A proposta ainda é rascunho aqui.
@@ -1171,7 +1344,121 @@ try {
       )
     }
   }
+  // ============================================================
+  // Fase 6 da automação — POST /api/ingestao/proposta
+  // ============================================================
+  // Rota de máquina: autentica por x-ingestao-token, sem sessão. Os passos
+  // montam documentos_processamento de teste como o n8n montaria.
+  {
+    const TOKEN = process.env.INGESTAO_TOKEN
+    const AUTOR = process.env.INGESTAO_PROFILE_ID
+    const { data: obraIng } = await supabase.from('obras').select('id, empresa_id').eq('id', obra.id).single()
+    const novoDocumento = async () => {
+      const { data, error } = await supabase
+        .from('documentos_processamento')
+        .insert({ empresa_id: obraIng.empresa_id, tipo_documento: 'PROPOSTA', arquivo_url: 'validacao://ingestao', status: 'PENDENTE', canal: 'TELEGRAM', canal_chat_id: 'validacao' })
+        .select('id')
+        .single()
+      if (error) throw new Error(`documento de teste: ${error.message}`)
+      documentosIngestao.push(data.id)
+      return data.id
+    }
+    const ingerir = async (corpo, token = TOKEN) => {
+      const res = await fetch(BASE + '/api/ingestao/proposta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'x-ingestao-token': token } : {}) },
+        body: JSON.stringify(corpo),
+        redirect: 'manual',
+      })
+      let json = null
+      try { json = await res.json() } catch { json = null }
+      return { status: res.status, json }
+    }
+    checar('INGESTAO_TOKEN e INGESTAO_PROFILE_ID estão no .env.local', Boolean(TOKEN && AUTOR))
+
+    const NUMERO_ING = `VALIDA-INGESTAO-${Date.now()}`
+    const docId = await novoDocumento()
+    const corpo = {
+      documentoId: docId,
+      empresaId: obraIng.empresa_id,
+      obraId: obraIng.id,
+      numero: NUMERO_ING,
+      valorTotal: 'R$ 1.410,00',
+      pct: { sinal: 30, fd: 70 },
+      origem: { canal: 'TELEGRAM', chatId: 'validacao' },
+      itens: [
+        { numero: '1', descricao: 'só com valor total', quantidade: '02', valor_unitario: null, valor_total: 'R$ 1.000,00' },
+        { numero: '2', descricao: 'unidade UN', quantidade: 1, unidade: 'UN', valor_unitario: 200, valor_total: 200 },
+        { numero: '3', descricao: 'porta em mm', quantidade: 1, unidade: 'm²', valor_unitario: 210, valor_total: 210, largura: 950, altura: 2100 },
+      ],
+    }
+
+    const semToken = await ingerir(corpo, null)
+    checar('ingestão sem token é recusada com 401 (e não redireciona pro /login)', semToken.status === 401, `status ${semToken.status}`)
+    const tokenErrado = await ingerir(corpo, 'x'.repeat(64))
+    checar('ingestão com token errado é recusada com 401', tokenErrado.status === 401, `status ${tokenErrado.status}`)
+
+    const pctRuim = await ingerir({ ...corpo, pct: { sinal: 60, fd: 50 } })
+    checar('soma de percentuais acima de 100% é recusada com 422', pctRuim.status === 422 && /100%/.test(pctRuim.json?.error ?? ''), JSON.stringify(pctRuim))
+    const obraAlheia = await ingerir({ ...corpo, obraId: '00000000-0000-4000-8000-000000000000' })
+    checar('obra que não é da empresa é recusada com 422', obraAlheia.status === 422 && /Obra não pertence/.test(obraAlheia.json?.error ?? ''), JSON.stringify(obraAlheia))
+    const semConserto = await ingerir({ ...corpo, itens: [...corpo.itens, { numero: '4', quantidade: 0, valor_total: null }] })
+    checar('item com quantidade zero e sem valor recusa a ingestão inteira (422)', semConserto.status === 422 && /item 4/.test(semConserto.json?.error ?? ''), JSON.stringify(semConserto))
+    const { count: antes } = await supabase.from('propostas').select('id', { count: 'exact', head: true }).eq('numero', NUMERO_ING)
+    checar('nenhuma recusa deixou proposta gravada', antes === 0, `linhas: ${antes}`)
+
+    const feliz = await ingerir(corpo)
+    checar('ingestão válida cria a proposta (201) com 3 itens', feliz.status === 201 && feliz.json?.ok === true && feliz.json?.itens === 3, JSON.stringify(feliz))
+    propostaIngestaoId = feliz.json?.propostaId ?? null
+
+    if (propostaIngestaoId) {
+      const { data: pIng } = await supabase
+        .from('propostas')
+        .select('status, created_by, historico, valor_total, pct_sinal, pct_fd, observacao, obra_id')
+        .eq('id', propostaIngestaoId)
+        .single()
+      checar('proposta da ingestão nasce rascunho, com o profile de serviço como autor', pIng?.status === 'rascunho' && pIng?.created_by === AUTOR, JSON.stringify({ status: pIng?.status, created_by: pIng?.created_by }))
+      const h0 = Array.isArray(pIng?.historico) ? pIng.historico[0] : null
+      checar('histórico desde o nascimento: rascunho → rascunho, por = uuid do profile', h0?.de === 'rascunho' && h0?.para === 'rascunho' && h0?.por === AUTOR, JSON.stringify(h0))
+      checar('percentuais gravados como fração (30% / 70%)', pIng?.pct_sinal === 0.3 && pIng?.pct_fd === 0.7, JSON.stringify({ s: pIng?.pct_sinal, f: pIng?.pct_fd }))
+      checar('observacao leva o rastro do documento', (pIng?.observacao ?? '').includes(`documento ${docId}`), pIng?.observacao)
+
+      const { data: itIng } = await supabase
+        .from('itens')
+        .select('numero, quantidade, unidade, valor_unit, valor_total, largura, altura, area_m2, observacao')
+        .eq('proposta_id', propostaIngestaoId)
+        .order('numero')
+      const [i1, i2, i3] = itIng ?? []
+      checar('item só com total grava valor_unit inferido (1.000 / 2 = 500) e marca observacao', Number(i1?.valor_unit) === 500 && Number(i1?.valor_total) === 1000 && /inferido/.test(i1?.observacao ?? ''), JSON.stringify(i1))
+      checar("item com unidade 'UN' grava 'QTD'", i2?.unidade === 'QTD', JSON.stringify(i2))
+      checar("item em m² grava 'M2', medidas em mm convertidas para metro", i3?.unidade === 'M2' && Number(i3?.largura) === 0.95 && Number(i3?.altura) === 2.1 && /lidas como mm/.test(i3?.observacao ?? ''), JSON.stringify(i3))
+      checar('area_m2 e valor_total dos itens vêm calculados pelo banco', Number(i3?.area_m2) === 1.995 && Number(i3?.valor_total) === 210, JSON.stringify({ area: i3?.area_m2, total: i3?.valor_total }))
+      checar('valor da proposta = soma dos itens (trigger da 5.6)', Number(pIng?.valor_total) === 1410, `valor_total ${pIng?.valor_total}`)
+
+      const { data: dIng } = await supabase.from('documentos_processamento').select('status, proposta_criada_id, obra_id').eq('id', docId).single()
+      checar('documento vinculado: APROVADO, proposta_criada_id e obra preenchidos', dIng?.status === 'APROVADO' && dIng?.proposta_criada_id === propostaIngestaoId && dIng?.obra_id === obraIng.id, JSON.stringify(dIng))
+
+      const repetida = await ingerir(corpo)
+      checar('segunda chamada com o mesmo documentoId devolve 200 e o mesmo id', repetida.status === 200 && repetida.json?.jaExistia === true && repetida.json?.propostaId === propostaIngestaoId, JSON.stringify(repetida))
+      const { count: depois } = await supabase.from('propostas').select('id', { count: 'exact', head: true }).eq('numero', NUMERO_ING)
+      checar('a repetição não criou segunda proposta', depois === 1, `linhas: ${depois}`)
+
+      const doc2 = await novoDocumento()
+      const duplicada = await ingerir({ ...corpo, documentoId: doc2 })
+      checar('número de proposta repetido responde 409 com mensagem legível (decisão 9)', duplicada.status === 409 && /Já existe uma proposta com esse número/.test(duplicada.json?.error ?? ''), JSON.stringify(duplicada))
+    }
+  }
 } finally {
+  // Fase 6: a proposta da ingestão sai com os itens pelo mesmo caminho da tela;
+  // os documentos de teste saem depois (a FK de proposta_criada_id é set null).
+  if (propostaIngestaoId) {
+    const r = await chamar('deleteProposta', [propostaIngestaoId], { rota: `/propostas/${propostaIngestaoId}` })
+    checar('proposta da ingestão apagada com os itens', r.ok === true, r.error)
+  }
+  if (documentosIngestao.length > 0) {
+    const { error: ed } = await supabase.from('documentos_processamento').delete().in('id', documentosIngestao)
+    checar(`limpeza dos ${documentosIngestao.length} documentos de teste da ingestão`, !ed, ed?.message)
+  }
   // Limpeza: nem a proposta nem o orçamento de teste ficam em gc-dev, mesmo se
   // algo falhou no meio.
   if (orcamentoId) {
@@ -1202,6 +1489,11 @@ try {
   if (propostaCargaId) {
     const excCarga = await chamar('deleteProposta', [propostaCargaId], { rota: `/propostas/${propostaCargaId}` })
     checar('proposta de carga apagada com os 500 itens', excCarga.ok === true, excCarga.error)
+  }
+  for (const [id, rotulo] of [[proposta57Id, 'do 5.7'], [propostaPerfisId, 'da matriz de perfis']]) {
+    if (!id) continue
+    const r = await chamar('deleteProposta', [id], { rota: `/propostas/${id}` })
+    checar(`proposta ${rotulo} apagada com os itens`, r.ok === true, r.error)
   }
   if (proposta56Id) {
     const exc56 = await chamar('deleteProposta', [proposta56Id], { rota: `/propostas/${proposta56Id}` })
