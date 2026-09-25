@@ -727,6 +727,118 @@ const CHECKS = [
       return null
     },
   },
+  {
+    // Query de src/app/(app)/execucao/page.tsx, na obra do SEED-CT-EXEC: a
+    // execução com o item por JOIN !inner, filtrada pela obra do item. A
+    // regra da quantidade mudou no 7.4 (várias execuções por item).
+    nome: 'execucao: execuções da obra com o item (JOIN !inner filtrado pela obra)',
+    bloco: '7.2',
+    query: async (sb) => {
+      const { data: ct } = await sb.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+      if (!ct) return { data: [] }
+      const r = await sb
+        .from('execucao')
+        .select('*, item:itens!inner(id, numero, tipo, descricao, quantidade, unidade, obra_id)')
+        .eq('item.obra_id', ct.obra_id)
+        .limit(1000)
+      return r.error ? r : { data: r.data, obra: ct.obra_id }
+    },
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.length === 0) return null
+      for (const e of linhas) {
+        if (!e.item || Array.isArray(e.item)) return 'item veio nulo ou como array, esperado objeto'
+        if (e.item.obra_id !== r.obra) return `execução de outra obra (${e.item.obra_id}) passou pelo filtro`
+        // Status GENERATED tem de bater com a regra de statusDaEtapa.
+        for (const etapa of ['fab', 'ent', 'inst', 'med']) {
+          const q = Number(e[`${etapa}_qtd`])
+          const esperado = q === 0 ? 'pendente' : q >= Number(e.quantidade_total) ? 'concluido' : 'andamento'
+          if (e[`${etapa}_status`] !== esperado) return `${etapa}_status ${e[`${etapa}_status`]}, esperado ${esperado}`
+        }
+      }
+      // 7.4: com uma execução, ela é o item inteiro (o trigger sincroniza);
+      // com várias, cada uma tem a sua parte e a soma cabe no item.
+      const porItem = new Map()
+      for (const e of linhas) {
+        const g = porItem.get(e.item_id) ?? { n: 0, soma: 0, item: Number(e.item.quantidade) }
+        g.n += 1
+        g.soma += Math.round(Number(e.quantidade_total) * 1000)
+        porItem.set(e.item_id, g)
+      }
+      for (const [itemId, g] of porItem) {
+        if (g.n === 1 && g.soma !== Math.round(g.item * 1000)) {
+          return `item ${itemId}: a execução única tem ${g.soma / 1000}, o item tem ${g.item}`
+        }
+        if (g.soma > Math.round(g.item * 1000)) {
+          return `item ${itemId}: as ${g.n} execuções somam ${g.soma / 1000}, acima do item (${g.item})`
+        }
+      }
+      return null
+    },
+  },
+  {
+    // Query de src/app/(app)/execucao/queries.ts (itensSemExecucao): itens de
+    // contrato não rescindido, pelo JOIN !inner com o filtro no status.
+    nome: 'execucao: itens de contrato sem execução (ação em lote)',
+    bloco: '7.2',
+    query: async (sb) => {
+      const { data: ct } = await sb.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+      if (!ct) return { data: [] }
+      const r = await sb
+        .from('itens')
+        .select('id, descricao, contrato:contratos!inner(status)')
+        .eq('obra_id', ct.obra_id)
+        .not('contrato_id', 'is', null)
+        .neq('contrato.status', 'rescindido')
+      return r
+    },
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.some((i) => Array.isArray(i.contrato))) return 'contrato veio como array, esperado objeto'
+      if (linhas.some((i) => i.contrato?.status === 'rescindido')) return 'item de contrato rescindido passou pelo filtro'
+      return null
+    },
+  },
+  {
+    // Query de src/app/(app)/configuracoes/contatos/page.tsx: contatos do bot
+    // com a obra pelo JOIN. Seed não tem contato Telegram; os 2 de WhatsApp
+    // antigos da LC EMPRESA bastam para exercitar o join e a RLS.
+    nome: 'contatos_whatsapp: listagem dos contatos do bot com JOIN de obra',
+    bloco: 'automação · Fase 7',
+    query: (sb) =>
+      sb
+        .from('contatos_whatsapp')
+        .select('id, nome, canal, telegram_chat_id, telefone, obra_id, created_at, obra:obras(codigo_obra, nome)')
+        .order('created_at', { ascending: false }),
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.some((c) => Array.isArray(c.obra))) return 'obra veio como array, esperado objeto'
+      if (linhas.some((c) => !('nome' in c))) return 'coluna nome ausente (migration 20260924100000)'
+      return null
+    },
+  },
+  {
+    // Query de src/app/(app)/documentos/page.tsx: caixa de entrada com a obra
+    // pelo JOIN. gc-dev tem os 29 documentos do fluxo de agosto.
+    nome: 'documentos_processamento: listagem da caixa de entrada com JOIN de obra',
+    bloco: 'automação · Fase 7',
+    query: (sb) =>
+      sb
+        .from('documentos_processamento')
+        .select(
+          'id, status, tipo_documento, canal, obra_id, created_at, motivo_revisao, proposta_criada_id, contrato_criado_id, dados_extraidos, obra:obras(codigo_obra, nome)',
+          { count: 'exact' },
+        )
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(0, 19),
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.some((x) => Array.isArray(x.obra))) return 'obra veio como array, esperado objeto'
+      if (linhas.some((x) => !['PENDENTE', 'ERRO_VALIDACAO', 'REVISAO_HUMANA', 'APROVADO'].includes(x.status))) return 'status fora dos quatro do CHECK'
+      return null
+    },
+  },
 ]
 
 const supabase = createClient(URL_SUPABASE, ANON)

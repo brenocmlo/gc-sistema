@@ -279,6 +279,14 @@ const obraSemContrato = (todasAsObras ?? []).find(
   (o) => !(obrasComContrato ?? []).some((c) => c.obra_id === o.id),
 )?.id ?? null
 
+// {obraExecucao} → a obra do SEED-CT-EXEC (supabase/seed_execucao.sql): 4
+// execuções em estágios diferentes e 1 item de contrato sem execução (7.2).
+const { data: ctExecucao } = await supabase
+  .from('contratos')
+  .select('obra_id')
+  .eq('numero', 'SEED-CT-EXEC')
+  .maybeSingle()
+
 const { data: obraPrimeira } = await supabase
   .from('obras')
   .select('id')
@@ -369,6 +377,14 @@ for (const rota of rotas) {
     continue
   }
 
+  if (rota.path.includes('{obraExecucao}') && !ctExecucao) {
+    falhas += 1
+    console.log(
+      `  FALHA ${rota.path} — sem SEED-CT-EXEC; rode bash scripts/aplicar-seed.sh supabase/seed_execucao.sql`,
+    )
+    continue
+  }
+
   if (rota.path.includes('{obraPrimeira}') && !obraPrimeira) {
     falhas += 1
     console.log(`  FALHA ${rota.path} — gc-dev não tem nenhuma obra`)
@@ -392,6 +408,7 @@ for (const rota of rotas) {
     .replace('{obraDosContratos}', ctComObra?.obra_id ?? '')
     .replace('{clienteDosContratos}', encodeURIComponent(clienteDosContratos ?? ''))
     .replace('{obraSemContrato}', obraSemContrato ?? '')
+    .replace('{obraExecucao}', ctExecucao?.obra_id ?? '')
     .replace('{obraPrimeira}', obraPrimeira?.id ?? '')
     .replace('{orcamentoPrimeiro}', orcamentoPrimeiro?.id ?? '')
   const cookieDaRota = cookiesPorPerfil[perfil ?? 'admin']

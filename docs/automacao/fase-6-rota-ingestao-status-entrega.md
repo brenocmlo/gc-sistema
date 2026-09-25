@@ -213,3 +213,18 @@ tem 60 linhas a mais da sprint 6 (bloco 6.4), só exportações novas — não m
    desligado só era preciso para descobrir o `chat_id` do grupo, que já está anotado: para
    **enviar** ao grupo ele não é necessário. Religar o privacy no `@obraminds_ingestao_v2_bot`
    corta essas execuções — decisão do Breno, porque contraria o texto da decisão 5.
+
+---
+
+## 5. 23/09 — PDF anexado, privacy religado, contratos reabertos
+
+- **PDF como anexo (decisão 24):** depois de `Documento aprovado`, `Preparar anexo` →
+  `Supabase - Subir anexo` → `Supabase - Registrar anexo`. Mesmo formato de
+  `uploadAnexo` (`src/app/(app)/propostas/[id]/actions.ts`) e de `sanitizeFilename`. Teste
+  offline **5/5** (path, as 6 chaves do tipo `Anexo`, nome padrão sem Telegram).
+  `n8n_validate_workflow`: **0 erros**, 38 nós. **Nunca rodou no n8n** (limite de execuções).
+- **Privacy religado (decisão 22)** pelo Breno.
+- **Contratos pelo bot reabertos (decisão 23).** Desenho pendente de conversa.
+- **O n8n continua no limite de execuções**: em 23/09 o bot respondeu ao PDF com
+  "Execution limit reached" (execução `4460`). O aviso chegou ao grupo pelo Error Trigger
+  do `Notificar`.

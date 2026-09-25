@@ -1059,5 +1059,269 @@
       "SEED-CT-001"
     ],
     "nota": "pendência do 6.1: a busca pelo nome do cliente acha o contrato pela obra (obraIdsDaBusca)"
+  },
+  {
+    "path": "/execucao",
+    "esperaHtml": [
+      "Selecione uma obra",
+      "Escolha uma obra"
+    ],
+    "naoEsperaHtml": [
+      "Em construção"
+    ],
+    "nota": "bloco 7.2: sem obra, a tela pede a obra (a execução é sempre no contexto de uma)"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}",
+    "esperaHtml": [
+      "Progresso da obra",
+      "Fabricação",
+      "Entrega",
+      "Instalação",
+      "Medição",
+      "Janela de correr",
+      "Porta pivotante",
+      "Guarda-corpo",
+      "Box de vidro",
+      "Em andamento",
+      "Concluído",
+      "Pendente",
+      "Criar execução para",
+      "Buscar pela descrição do item",
+      "Todos os responsáveis",
+      "Serralheria Norte"
+    ],
+    "nota": "bloco 7.2: totalizador, as 4 etapas por linha com o status, filtros e a ação em lote (o Espelho do seed não tem execução)"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}",
+    "perfil": "producao",
+    "esperaHtml": [
+      "Janela de correr",
+      "Criar execução para"
+    ],
+    "nota": "produção cria execução"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}",
+    "perfil": "medicao",
+    "esperaHtml": [
+      "Janela de correr",
+      "Criar execução para"
+    ]
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Janela de correr",
+      "Progresso da obra"
+    ],
+    "naoEsperaHtml": [
+      "Criar execução para"
+    ],
+    "nota": "visualizador vê a execução e não cria"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}",
+    "perfil": "comercial",
+    "esperaStatus": 307,
+    "nota": "o layout de /execucao não libera comercial"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}",
+    "perfil": "financeiro",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}&etapa=ent",
+    "esperaHtml": [
+      "Porta pivotante"
+    ],
+    "naoEsperaHtml": [
+      "Guarda-corpo",
+      "Box de vidro"
+    ],
+    "nota": "filtro de etapa: só a execução que está na entrega"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}&status=concluido",
+    "esperaHtml": [
+      "Janela de correr"
+    ],
+    "naoEsperaHtml": [
+      "Porta pivotante",
+      "Guarda-corpo"
+    ],
+    "nota": "filtro de status: só a concluída nas 4 etapas"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}&responsavel=Serralheria%20Norte",
+    "esperaHtml": [
+      "Guarda-corpo"
+    ],
+    "naoEsperaHtml": [
+      "Porta pivotante",
+      "Janela de correr"
+    ],
+    "nota": "filtro de responsável, em qualquer etapa"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}&busca=pivotante",
+    "esperaHtml": [
+      "Porta pivotante"
+    ],
+    "naoEsperaHtml": [
+      "Guarda-corpo"
+    ],
+    "nota": "busca pela descrição do item"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}&busca=zzz-inexistente",
+    "esperaHtml": [
+      "Nenhuma execução encontrada com esses filtros."
+    ]
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}&ordem=atraso",
+    "esperaHtml": [
+      "Ordem: etapa mais atrasada",
+      "Janela de correr"
+    ],
+    "nota": "a ordenação abre; a ordem em si é conferida no unitário (ordenarExecucoes) e no navegador"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}&page=99",
+    "esperaStatus": 307,
+    "nota": "página além do fim volta pra primeira"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}",
+    "esperaHtml": [
+      "aria-label=\"Apontar Box de vidro\"",
+      ">Apontar</button>"
+    ],
+    "nota": "bloco 7.3: cada linha tem o botão que abre o painel de apontamento"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}",
+    "perfil": "producao",
+    "esperaHtml": [
+      ">Apontar</button>"
+    ]
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      ">Ver etapas</button>"
+    ],
+    "naoEsperaHtml": [
+      ">Apontar</button>"
+    ],
+    "nota": "visualizador abre as etapas só para ler"
+  },
+  {
+    "path": "/configuracoes/contatos",
+    "esperaHtml": [
+      "Contatos do bot",
+      "Novo contato",
+      "Código"
+    ],
+    "nota": "Fase 7 da automação: cadastro de contatos do bot (admin)"
+  },
+  {
+    "path": "/configuracoes/contatos",
+    "perfil": "comercial",
+    "esperaStatus": 307,
+    "nota": "o layout de /configuracoes só libera admin"
+  },
+  {
+    "path": "/configuracoes/contatos",
+    "perfil": "visualizador",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}",
+    "esperaHtml": [
+      "Fachada de vidro",
+      "execução 1 de 2",
+      "↳ Execução 2 de 2",
+      "Torre A",
+      "Torre B"
+    ],
+    "nota": "bloco 7.4: as duas execuções da Fachada aparecem agrupadas, com a localização de cada uma"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}&ordem=atraso",
+    "esperaHtml": [
+      "Fachada de vidro",
+      "Torre B"
+    ],
+    "naoEsperaHtml": [
+      "↳ Execução"
+    ],
+    "nota": "na ordem por atraso as execuções não são agrupadas (cada uma vai para a posição dela)"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}",
+    "esperaHtml": [
+      "Próximos vencimentos (7 dias)",
+      "Atrasada · prev.",
+      "Só atrasados",
+      "execução atrasada"
+    ],
+    "nota": "bloco 7.5: painel de vencimentos, o selo de atraso com a previsão (Guarda-corpo do seed) e o filtro"
+  },
+  {
+    "path": "/execucao?obra={obraExecucao}&atrasados=1",
+    "esperaHtml": [
+      "Guarda-corpo"
+    ],
+    "naoEsperaHtml": [
+      "Porta pivotante",
+      "Janela de correr",
+      "Box de vidro"
+    ],
+    "nota": "só atrasados: o Guarda-corpo (previsão vencida). A Janela tem previsão vencida mas está concluída, e não entra"
+  },
+  {
+    "path": "/documentos",
+    "esperaHtml": [
+      "Documentos",
+      "Enviar documento",
+      "Todos os status"
+    ],
+    "nota": "Fase 7 da automação: caixa de entrada do bot (admin)"
+  },
+  {
+    "path": "/documentos",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "Enviar documento"
+    ],
+    "nota": "comercial envia documento pela tela"
+  },
+  {
+    "path": "/documentos",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Todos os status"
+    ],
+    "naoEsperaHtml": [
+      "Enviar documento"
+    ],
+    "nota": "visualizador lê a caixa de entrada e não envia"
+  },
+  {
+    "path": "/documentos",
+    "perfil": "financeiro",
+    "esperaStatus": 307,
+    "nota": "o layout de /documentos não libera financeiro"
+  },
+  {
+    "path": "/documentos",
+    "perfil": "producao",
+    "esperaStatus": 307
   }
 ]

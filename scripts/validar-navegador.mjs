@@ -987,6 +987,16 @@ try {
         !(await b.avaliar('Boolean(document.querySelector("#motivo_rescisao"))')))
 
       await b.preencher('#novo_status', 'rescindido')
+      // No next dev, o reset do diálogo ao abrir às vezes chega depois do
+      // primeiro change e devolve o select para "suspenso" (fechamento da
+      // sprint 7: falhou na rodada completa e passou isolado). Se voltou,
+      // escolhe de novo; a asserção de baixo continua a mesma.
+      for (let i = 0; i < 3 && !(await b.avaliar('Boolean(document.querySelector("#motivo_rescisao"))')); i++) {
+        await new Promise((r) => setTimeout(r, 1000))
+        if ((await b.avaliar('document.querySelector("#novo_status").value')) !== 'rescindido') {
+          await b.preencher('#novo_status', 'rescindido')
+        }
+      }
       await b.esperar('document.querySelector("#motivo_rescisao")', { rotulo: 'select de motivo' })
       await b.clicar('button[type="submit"]', { texto: 'Salvar mudança' })
       await b.esperar('document.body.innerText.includes("Motivo é obrigatório")', { rotulo: 'erro de motivo' })
@@ -1041,7 +1051,9 @@ try {
       checar('os 2 itens da proposta foram inseridos', !eit, eit?.message)
 
       await b.ir(`${BASE}/propostas/${pci.id}/gerar-contrato`)
-      await b.esperar('document.querySelector("input[name=copiar_itens]") && document.querySelector("#valor_total")', { rotulo: 'form de gerar com itens', ms: 25000 })
+      // O register do react-hook-form só põe o valor no input ao hidratar; antes
+      // disso o HTML do servidor tem o input vazio, e Number('') daria 0.
+      await b.esperar('document.querySelector("input[name=copiar_itens]") && document.querySelector("#valor_total")?.value !== ""', { rotulo: 'form de gerar com itens', ms: 25000 })
       const pre = await b.avaliar(`(() => ({
         marcada: document.querySelector('input[name=copiar_itens]').checked,
         valor: Number(document.querySelector('#valor_total').value),
@@ -1073,6 +1085,307 @@ try {
       checar('a aba do detalhe mostra "Itens (2)"',
         await b.avaliar('Array.from(document.querySelectorAll("[role=tab]")).some((t) => t.innerText.trim() === "Itens (2)")'))
     }
+  }
+
+  // 23. Execução por obra (7.2), sobre o SEED-CT-EXEC. Antes do passo 22,
+  //     que troca a sessão para a do comercial (e comercial não entra aqui).
+  //     Não clica em "Criar execução": criaria execução para todo item de
+  //     contrato da obra — a camada escrita cobre a ação numa obra isolada.
+  {
+    const sb = await clienteSupabase()
+    const { data: ctExe } = await sb.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    checar('seed: SEED-CT-EXEC existe (supabase/seed_execucao.sql)', Boolean(ctExe))
+    if (ctExe) {
+      await b.ir(`${BASE}/execucao`)
+      await b.esperar('document.querySelector("select[aria-label=Obra]")', { rotulo: 'seletor de obra', ms: 25000 })
+      checar('sem obra, a tela pede a obra', (await b.texto()).includes('Escolha uma obra'))
+      await b.preencher('select[aria-label=Obra]', ctExe.obra_id)
+      await b.esperar(`location.search.includes(${JSON.stringify(`obra=${ctExe.obra_id}`)}) && document.querySelector("table tbody tr")`, {
+        rotulo: 'execução da obra', ms: 25000,
+      })
+      const topo = await b.avaliar(`Array.from(document.querySelectorAll('[aria-label="Progresso da obra"] > div')).map((d) => d.innerText.replace(/\s+/g, ' ').trim())`)
+      checar('o totalizador mostra as 4 etapas com percentual', topo.length === 4 && topo.every((t) => /%$/.test(t)), JSON.stringify(topo))
+      await b.screenshot(`${SHOTS}/27-execucao-obra.png`)
+
+      await b.preencher('select[aria-label=Etapa]', 'ent')
+      await b.esperar('location.search.includes("etapa=ent")', { rotulo: 'filtro de etapa na URL' })
+      await b.esperar('!document.body.innerText.includes("Guarda-corpo") || document.body.innerText.includes("Nenhuma execução")', { rotulo: 'filtro aplicado' })
+      const emEntrega = await b.texto()
+      checar('filtro "Em entrega" deixa a Porta pivotante e tira o Guarda-corpo',
+        emEntrega.includes('Porta pivotante') && !emEntrega.includes('Box de vidro'))
+
+      await b.ir(`${BASE}/execucao?obra=${ctExe.obra_id}&ordem=atraso`)
+      await b.esperar('document.querySelector("table tbody tr")', { rotulo: 'ordem por atraso', ms: 25000 })
+      const ordem = await b.avaliar(`Array.from(document.querySelectorAll('table tbody tr')).map((tr) => tr.querySelector('td p + p')?.innerText.trim())`)
+      // 7.5: o Guarda-corpo tem a previsão da fabricação vencida (seed), e
+      // previsão vencida vem antes de tudo na ordem por atraso.
+      const seed = ['Guarda-corpo', 'Box de vidro', 'Porta pivotante', 'Janela de correr']
+      const posicoes = seed.map((d) => ordem.indexOf(d))
+      checar('ordem por atraso: previsão vencida, zerada, entrega pela metade e concluída, nessa ordem',
+        posicoes.every((p) => p >= 0) && posicoes.every((p, i) => i === 0 || p > posicoes[i - 1]), JSON.stringify(ordem))
+
+      await b.preencher('input[aria-label="Buscar itens"]', 'pivotante')
+      await b.esperar('location.search.includes("busca=pivotante")', { rotulo: 'busca com debounce na URL', ms: 10000 })
+      await b.esperar('document.querySelectorAll("table tbody tr").length === 1', { rotulo: 'uma linha na busca' })
+      checar('a busca pela descrição chega à URL (debounce) e deixa uma linha', true)
+    }
+  }
+
+  // 24. Painel de apontamento (7.3), sobre o "Box de vidro" do seed (4
+  //     unidades, zerado). O que só roda no cliente: o máximo que muda ao
+  //     vivo, a mensagem da cascata, o "Concluir etapa" e a troca só da linha.
+  //     O seed é devolvido ao estado zerado no fim do passo.
+  {
+    const sb = await clienteSupabase()
+    const { data: ctExe } = await sb.from('contratos').select('id, obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    const { data: box } = ctExe
+      ? await sb.from('execucao').select('id, item:itens!inner(descricao, contrato_id)').eq('item.contrato_id', ctExe.id).eq('item.descricao', 'Box de vidro').maybeSingle()
+      : { data: null }
+    checar('seed: execução "Box de vidro" do SEED-CT-EXEC existe', Boolean(box))
+    if (box) {
+      try {
+        const url = `${BASE}/execucao?obra=${ctExe.obra_id}`
+        await b.ir(url)
+        await b.esperar('document.querySelector(\'button[aria-label="Apontar Box de vidro"]\')', { rotulo: 'botão Apontar', ms: 25000 })
+        await b.clicar('button[aria-label="Apontar Box de vidro"]')
+        await b.esperar('document.querySelector("#qtd-fab")', { rotulo: 'painel de apontamento' })
+        const etapas = await b.avaliar('Array.from(document.querySelectorAll("[data-etapa]")).map((li) => li.dataset.etapa)')
+        checar('o painel mostra as 4 etapas em sequência', JSON.stringify(etapas) === JSON.stringify(['fab', 'ent', 'inst', 'med']), JSON.stringify(etapas))
+        checar('com nada fabricado, a entrega nasce com máximo 0 no input',
+          (await b.avaliar('document.querySelector("#qtd-ent").max')) === '0')
+
+        await b.preencher('#qtd-ent', '1')
+        await b.esperar('document.querySelector("#erro-ent")', { rotulo: 'mensagem da cascata' })
+        checar('entregar sem fabricar mostra a mensagem e desabilita o salvar',
+          (await b.avaliar('document.querySelector("#erro-ent").innerText')).includes('nenhuma unidade foi fabricada') &&
+            (await b.avaliar('Array.from(document.querySelectorAll("button")).find((x) => x.innerText.includes("Salvar apontamento")).disabled')))
+        await b.screenshot(`${SHOTS}/28-apontamento-bloqueio.png`)
+
+        await b.clicar('[data-etapa="fab"] button', { texto: 'Concluir etapa' })
+        await b.esperar('document.querySelector("#qtd-fab").value === "4"', { rotulo: 'concluir etapa preenche o máximo' })
+        checar('"Concluir etapa" preenche a fabricação com o total (4), e a entrega passa a aceitar até 4',
+          (await b.avaliar('document.querySelector("#qtd-ent").max')) === '4' && !(await b.avaliar('Boolean(document.querySelector("#erro-ent"))')))
+        await b.preencher('#qtd-ent', '2')
+        await b.preencher('#resp-ent', 'Validação navegador')
+        await b.clicar('button', { texto: 'Salvar apontamento' })
+        await b.esperar('!document.querySelector("#qtd-fab")', { rotulo: 'painel fecha depois de salvar', ms: 20000 })
+        await b.esperar(`(() => { const tr = document.querySelector('tr[data-execucao="${box.id}"]'); return tr && tr.innerText.includes('4 / 4') && tr.innerText.includes('2 / 4') })()`, {
+          rotulo: 'linha atualizada', ms: 20000,
+        })
+        checar('salvo, a linha mostra 4 / 4 e 2 / 4 sem sair da tela', (await b.url()).startsWith('/execucao'))
+        const { data: gravado } = await sb.from('execucao').select('fab_qtd, ent_qtd, ent_responsavel, fab_data_fim').eq('id', box.id).maybeSingle()
+        checar('no banco: fabricação 4, entrega 2, responsável gravado e fim da fabricação preenchido pelo trigger',
+          Number(gravado?.fab_qtd) === 4 && Number(gravado?.ent_qtd) === 2 && gravado?.ent_responsavel === 'Validação navegador' && Boolean(gravado?.fab_data_fim),
+          JSON.stringify(gravado ?? null))
+
+        await b.clicar('button[aria-label="Apontar Box de vidro"]')
+        await b.esperar('document.querySelector("#qtd-fab")', { rotulo: 'painel reaberto' })
+        checar('reaberto, o painel mostra as datas que o trigger preencheu',
+          (await b.avaliar('document.querySelector(\'[data-etapa="fab"]\').innerText')).match(/Fim \d{2}\/\d{2}\/\d{4}/) !== null)
+        await b.screenshot(`${SHOTS}/29-apontamento-datas.png`)
+        await b.clicar('button', { texto: 'Cancelar' })
+      } finally {
+        // Devolve o seed: execução zerada, sem responsável e sem datas.
+        await sb.from('execucao').update({
+          med_qtd: 0, inst_qtd: 0, ent_qtd: 0, fab_qtd: 0, ent_responsavel: null,
+        }).eq('id', box.id)
+        await sb.from('execucao').update({
+          fab_data_inicio: null, fab_data_atualizacao: null, fab_data_fim: null,
+          ent_data_inicio: null, ent_data_atualizacao: null, ent_data_fim: null,
+        }).eq('id', box.id)
+      }
+    }
+  }
+
+  // 25. Contatos do bot (automação, Fase 7), antes do passo 22 porque ele
+  //     troca a sessão para comercial. Aba em Configurações, formulário em
+  //     modal com o zod do cliente, toast e exclusão pelo ConfirmDialog.
+  {
+    const CODIGO_NAV = String(8_000_000_000 + (Date.now() % 1_000_000_000))
+    await b.ir(`${BASE}/configuracoes`)
+    await b.clicar('a', { texto: 'Contatos do bot' })
+    await b.esperar('location.pathname === "/configuracoes/contatos"', { rotulo: '/configuracoes/contatos' })
+    await b.esperar('document.body.innerText.includes("Novo contato")', { rotulo: 'botão Novo contato' })
+    checar('aba "Contatos do bot" navega a partir de Configurações', (await b.url()) === '/configuracoes/contatos')
+
+    await b.clicar('button', { texto: 'Novo contato' })
+    await b.esperar('document.querySelector("#telegram_chat_id")', { rotulo: 'modal do contato' })
+    await b.clicar('[role="dialog"] button', { texto: 'Salvar' })
+    await b.esperar('document.body.innerText.includes("Informe o código que o bot enviou")', { rotulo: 'erro do zod', ms: 5000 })
+    checar('zod do cliente barra o contato sem código e sem obra',
+      (await b.texto()).includes('Escolha a obra'))
+    await b.screenshot(`${SHOTS}/25-contato-invalido.png`)
+
+    const obraCt = await b.avaliar(`(() => {
+      const o = [...document.querySelectorAll('#obra_id option')].find((x) => x.value)
+      return o ? o.value : ''
+    })()`)
+    await b.preencher('#telegram_chat_id', CODIGO_NAV)
+    await b.preencher('#obra_id', obraCt)
+    await b.preencher('#nome', `${NUMERO} contato`)
+    await b.clicar('[role="dialog"] button', { texto: 'Salvar' })
+    await b.esperar('document.body.innerText.includes("Contato cadastrado")', { rotulo: 'toast de contato cadastrado' })
+    await b.esperar(`document.body.innerText.includes(${JSON.stringify(CODIGO_NAV)})`, { rotulo: 'contato na tabela' })
+    checar('contato salvo pela tela aparece na tabela com o código', (await b.texto()).includes(`${NUMERO} contato`))
+    await b.screenshot(`${SHOTS}/25b-contato-na-tabela.png`)
+
+    await b.clicar(`button[aria-label="Excluir ${NUMERO} contato"]`)
+    await b.esperar('document.body.innerText.includes("deixa de poder mandar propostas")', { rotulo: 'ConfirmDialog do contato' })
+    await b.clicar('[role="dialog"] button', { texto: 'Excluir' })
+    await b.esperar(`!document.body.innerText.includes(${JSON.stringify(CODIGO_NAV)})`, { rotulo: 'contato sumir', ms: 15000 })
+    checar('contato excluído pela tela some da tabela', !(await b.texto()).includes(`${NUMERO} contato`))
+  }
+
+  // 26. Várias execuções por item (7.4), sobre a Fachada do seed (10 un, Torre
+  //     A 6 e Torre B 4). Só o que roda no cliente: o resumo do item no painel
+  //     e o limite da quantidade. Não grava nada.
+  {
+    const sb = await clienteSupabase()
+    const { data: ctExe } = await sb.from('contratos').select('id, obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    const { data: torreA } = ctExe
+      ? await sb.from('execucao').select('id, item:itens!inner(contrato_id, descricao)')
+        .eq('item.contrato_id', ctExe.id).eq('item.descricao', 'Fachada de vidro').eq('sequencial', 1).maybeSingle()
+      : { data: null }
+    checar('seed: Fachada com a execução "Torre A"', Boolean(torreA))
+    if (torreA) {
+      await b.ir(`${BASE}/execucao?obra=${ctExe.obra_id}`)
+      await b.esperar(`document.querySelector('tr[data-execucao="${torreA.id}"]')`, { rotulo: 'linha da Torre A', ms: 25000 })
+      await b.clicar(`tr[data-execucao="${torreA.id}"] button`)
+      await b.esperar('document.querySelector("#quantidade-execucao")', { rotulo: 'painel da Torre A' })
+      checar('o painel diz quanto o item tem e quanto as outras execuções somam',
+        (await b.avaliar('document.querySelector("[data-testid=resumo-item]").innerText')).includes('em 2 execuções; as outras somam 4'))
+      await b.preencher('#quantidade-execucao', '7')
+      await b.esperar('document.querySelector("#erro-quantidade")', { rotulo: 'erro da quantidade' })
+      checar('aumentar a Torre A para 7 é barrado: só cabem 6, e o Salvar desabilita',
+        (await b.avaliar('document.querySelector("#erro-quantidade").innerText')).includes('Só cabem 6') &&
+          (await b.avaliar('Array.from(document.querySelectorAll("button")).find((x) => x.innerText.includes("Salvar apontamento")).disabled')))
+      await b.clicar('button', { texto: 'Nova execução deste item' })
+      await b.esperar('document.querySelector("#nova-quantidade")', { rotulo: 'form de nova execução' })
+      checar('com o item todo distribuído, "Criar execução" fica desabilitado e a tela explica',
+        (await b.texto()).includes('já está todo distribuído') &&
+          (await b.avaliar('Array.from(document.querySelectorAll("button")).find((x) => x.innerText.trim() === "Criar execução").disabled')))
+      await b.screenshot(`${SHOTS}/30-varias-execucoes.png`)
+      await b.clicar('button', { texto: 'Cancelar' })
+    }
+  }
+
+  // 27. Previsões e atrasos (7.5). Previsão futura depende do dia, então não
+  //     mora no seed: o passo põe uma na entrega da Porta pivotante (hoje + 3)
+  //     e a tira no fim. O Guarda-corpo já vem do seed com a fabricação vencida.
+  {
+    const sb = await clienteSupabase()
+    const { data: ctExe } = await sb.from('contratos').select('id, obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    const { data: porta } = ctExe
+      ? await sb.from('execucao').select('id, item:itens!inner(contrato_id, descricao)')
+        .eq('item.contrato_id', ctExe.id).eq('item.descricao', 'Porta pivotante').maybeSingle()
+      : { data: null }
+    checar('seed: execução "Porta pivotante" existe', Boolean(porta))
+    if (porta) {
+      const daqui3 = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10)
+      try {
+        await sb.from('execucao').update({ ent_previsao_fim: daqui3 }).eq('id', porta.id)
+        await b.ir(`${BASE}/execucao?obra=${ctExe.obra_id}`)
+        await b.esperar('document.querySelector("[aria-label=\\"Próximos vencimentos\\"]")', { rotulo: 'painel de vencimentos', ms: 25000 })
+        const painel = await b.avaliar('document.querySelector("[aria-label=\\"Próximos vencimentos\\"]").innerText')
+        checar('o painel lista a entrega da Porta pivotante "em 3 dias" e conta o atraso do seed',
+          painel.includes('Porta pivotante') && painel.includes('Entrega') && painel.includes('em 3 dias') && /execuç(ão|ões) atrasada/.test(painel),
+          painel.replace(/\s+/g, ' ').slice(0, 200))
+        const selo = await b.avaliar(`Array.from(document.querySelectorAll('table tbody tr')).filter((tr) => tr.innerText.includes('Atrasada')).map((tr) => tr.querySelector('td p + p')?.innerText.trim())`)
+        checar('o selo "Atrasada" aparece no Guarda-corpo e não na Janela (concluída, com previsão vencida)',
+          selo.includes('Guarda-corpo') && !selo.includes('Janela de correr'), JSON.stringify(selo))
+        await b.screenshot(`${SHOTS}/31-vencimentos.png`)
+
+        // Pendência de 7.2, 7.3 e 7.5: /execucao nunca tinha sido medida em
+        // 390px. A mesma guarda do shell de /contratos, a tabela de seis colunas
+        // rolando no próprio container e o painel de apontamento cabendo na
+        // janela. Medição, não conferência estética.
+        await b.viewport(390, 844)
+        await b.ir(`${BASE}/execucao?obra=${ctExe.obra_id}`)
+        await b.esperar('document.querySelector("[aria-label=\\"Próximos vencimentos\\"]") && document.querySelector("table tbody tr")', { rotulo: '/execucao em 390px', ms: 25000 })
+        const exe390 = await b.avaliar(`(() => {
+          const caixa = document.querySelector('table').closest('.overflow-x-auto');
+          return {
+            paginaScroll: document.documentElement.scrollWidth, janela: window.innerWidth,
+            tabelaRolaDentro: Boolean(caixa) && caixa.scrollWidth > caixa.clientWidth,
+          };
+        })()`)
+        checar(`/execucao em 390px não estoura além do shell conhecido (${SHELL_OVERFLOW_CONHECIDO}px), e a tabela rola no próprio container`,
+          exe390.paginaScroll <= SHELL_OVERFLOW_CONHECIDO && exe390.tabelaRolaDentro, `medido: ${JSON.stringify(exe390)}`)
+        await b.screenshot(`${SHOTS}/31b-execucao-390px.png`, { largura: 390, altura: 844 })
+        await b.clicar('button[aria-label="Apontar Porta pivotante"]')
+        await b.esperar('document.querySelector("#qtd-fab")', { rotulo: 'painel em 390px' })
+        const painel390 = await b.avaliar(`(() => {
+          const r = document.querySelector('[role=dialog]').getBoundingClientRect();
+          return { esquerda: Math.round(r.left), direita: Math.round(r.right), janela: window.innerWidth };
+        })()`)
+        checar('em 390px o painel de apontamento cabe na janela, sem cortar nas laterais',
+          painel390.esquerda >= 0 && painel390.direita <= painel390.janela, `medido: ${JSON.stringify(painel390)}`)
+        await b.screenshot(`${SHOTS}/31c-apontamento-390px.png`, { largura: 390, altura: 844 })
+        await b.viewport(1440, 900)
+        await b.ir(`${BASE}/execucao?obra=${ctExe.obra_id}`)
+        await b.esperar('document.querySelector("select[aria-label=Prazo]") && document.querySelector("table tbody tr")', { rotulo: '/execucao de volta em 1440px', ms: 25000 })
+
+        await b.preencher('select[aria-label=Prazo]', '1')
+        await b.esperar('location.search.includes("atrasados=1")', { rotulo: 'filtro só atrasados na URL' })
+        // O painel de vencimentos não é filtrado (é da obra inteira): a espera olha só a tabela.
+        await b.esperar(`document.querySelectorAll('table tbody tr').length > 0 && !Array.from(document.querySelectorAll('table tbody tr')).some((tr) => tr.innerText.includes('Porta pivotante'))`, { rotulo: 'filtro aplicado', ms: 15000 })
+        const linhasAtraso = await b.avaliar(`Array.from(document.querySelectorAll('table tbody tr')).map((tr) => tr.querySelector('td p + p')?.innerText.trim())`)
+        checar('"Só atrasados" deixa o Guarda-corpo e tira a Porta pivotante (a vencer) e a Janela',
+          linhasAtraso.includes('Guarda-corpo') && !linhasAtraso.includes('Porta pivotante') && !linhasAtraso.includes('Janela de correr'),
+          JSON.stringify(linhasAtraso))
+
+        await b.ir(`${BASE}/execucao?obra=${ctExe.obra_id}`)
+        await b.esperar('document.querySelector(\'button[aria-label="Apontar Porta pivotante"]\')', { rotulo: 'botão da Porta', ms: 25000 })
+        await b.clicar('button[aria-label="Apontar Porta pivotante"]')
+        await b.esperar('document.querySelector("#prev-ent")', { rotulo: 'painel da Porta' })
+        checar('o painel traz a previsão gravada no campo da entrega', (await b.avaliar('document.querySelector("#prev-ent").value')) === daqui3)
+        await b.preencher('#prev-fab', new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10))
+        await b.esperar('document.querySelector("#erro-prev-ent")', { rotulo: 'erro de ordem das previsões' })
+        checar('previsão da entrega antes da fabricação é barrada no painel, com o Salvar desabilitado',
+          (await b.avaliar('document.querySelector("#erro-prev-ent").innerText')).includes('não pode ser antes da de fabricação') &&
+            (await b.avaliar('Array.from(document.querySelectorAll("button")).find((x) => x.innerText.includes("Salvar apontamento")).disabled')))
+        await b.clicar('button', { texto: 'Cancelar' })
+      } finally {
+        await sb.from('execucao').update({ ent_previsao_fim: null }).eq('id', porta.id)
+      }
+    }
+  }
+
+  // 28. Documentos (automação, Fase 7), antes do passo 22 (que troca a
+  //     sessão). Menu, listagem com filtro na URL, detalhe de um documento do
+  //     gc-dev e a validação do envio pela tela — sem subir arquivo: o envio
+  //     de verdade aciona o n8n (camada escrita, com VALIDACAO_ENVIO_REAL=1).
+  {
+    await b.ir(`${BASE}/`)
+    await b.clicar('a[href="/documentos"]')
+    await b.esperar('location.pathname === "/documentos"', { rotulo: '/documentos pelo menu' })
+    await b.esperar('document.body.innerText.includes("Todos os status")', { rotulo: 'filtros de documentos' })
+    checar('item "Documentos" do menu abre a caixa de entrada', (await b.url()) === '/documentos')
+    await b.screenshot(`${SHOTS}/28-documentos.png`)
+
+    await b.preencher('select[aria-label="Status"]', 'REVISAO_HUMANA')
+    await b.esperar('location.search.includes("status=REVISAO_HUMANA")', { rotulo: 'filtro de status na URL' })
+    checar('filtro de status vai para a URL', (await b.url()).includes('status=REVISAO_HUMANA'))
+
+    const temLinha = await b.avaliar('Boolean(document.querySelector("table tbody tr"))')
+    if (temLinha) {
+      await b.clicar('table tbody tr')
+      await b.esperar('location.pathname.startsWith("/documentos/")', { rotulo: 'detalhe do documento' })
+      await b.esperar('document.body.innerText.includes("Itens lidos")', { rotulo: 'itens lidos' })
+      const det = await b.texto()
+      checar('detalhe mostra o status "Precisa de revisão" e a seção de itens', det.includes('Precisa de revisão') && det.includes('Itens lidos'), det.slice(0, 200))
+      await b.screenshot(`${SHOTS}/28b-documento-detalhe.png`)
+    } else {
+      console.log('  nota  gc-dev sem documento em revisão: detalhe não exercitado')
+    }
+
+    await b.ir(`${BASE}/documentos`)
+    await b.clicar('button', { texto: 'Enviar documento' })
+    await b.esperar('document.querySelector("#envio_arquivo")', { rotulo: 'modal de envio' })
+    await b.clicar('[role="dialog"] button', { texto: 'Enviar' })
+    await b.esperar('document.body.innerText.includes("Escolha a obra")', { rotulo: 'validação do envio', ms: 5000 })
+    checar('envio sem obra é barrado na tela, antes de subir qualquer arquivo', true)
+    await b.clicar('[role="dialog"] button', { texto: 'Cancelar' })
   }
 
   // 22. Pendência de anexos: o ícone de excluir só aparece no anexo que a
@@ -1170,6 +1483,10 @@ async function limparRestosDoRoteiro() {
       await sb.from('contratos').delete().in('id', ctRestos.map((c) => c.id))
       console.log(`  limpeza: ${ctRestos.length} contrato(s) ${NUMERO}-CT*/-AV apagado(s)`)
     }
+
+    // Contato do passo 25, se o roteiro parou antes de excluí-lo pela tela.
+    const { data: ctContato } = await sb.from('contatos_whatsapp').delete().eq('nome', `${NUMERO} contato`).select('id')
+    if (ctContato?.length) console.log(`  limpeza: ${ctContato.length} contato(s) ${NUMERO} apagado(s)`)
 
     const { data: restos } = await sb.from('propostas').select('id').in('numero', [NUMERO, `${NUMERO}-CI`])
     for (const { id } of restos ?? []) {

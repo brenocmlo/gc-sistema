@@ -32,6 +32,21 @@ export const PERFIS_DE_TESTE = {
  * PERFIS_DE_TESTE ou um e-mail `@teste.com` direto.
  */
 export async function sessaoDePerfil(perfil) {
+  // Uma sessão por perfil e por processo. A camada escrita pede a do mesmo
+  // perfil dezenas de vezes, e cada pedido é um verifyOtp; no fechamento da
+  // sprint 7 isso estourou o rate limit do Auth no meio da rodada. A sessão
+  // vale 1 h e nenhum script faz signOut, então reaproveitar é seguro.
+  if (!SESSOES.has(perfil)) {
+    const pedido = gerarSessao(perfil)
+    SESSOES.set(perfil, pedido)
+    pedido.catch(() => SESSOES.delete(perfil))
+  }
+  return SESSOES.get(perfil)
+}
+
+const SESSOES = new Map()
+
+async function gerarSessao(perfil) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -60,10 +75,21 @@ export async function sessaoDePerfil(perfil) {
   if (error) throw new Error(`generateLink de ${email}: ${error.message}`)
 
   const cliente = createClient(url, anon, { auth: { persistSession: false } })
-  const { data: sessao, error: erroSessao } = await cliente.auth.verifyOtp({
-    type: 'magiclink',
-    token_hash: data.properties.hashed_token,
-  })
+  let sessao = null
+  let erroSessao = null
+  // Rate limit ainda pode vir de rodadas seguidas: espera e tenta de novo, com
+  // um link novo a cada vez (o token do anterior pode ter sido consumido).
+  for (let tentativa = 1; tentativa <= 5; tentativa++) {
+    const link = tentativa === 1
+      ? data
+      : (await admin.auth.admin.generateLink({ type: 'magiclink', email })).data
+    ;({ data: sessao, error: erroSessao } = await cliente.auth.verifyOtp({
+      type: 'magiclink',
+      token_hash: link.properties.hashed_token,
+    }))
+    if (!erroSessao || !/rate limit/i.test(erroSessao.message)) break
+    await new Promise((r) => setTimeout(r, 30_000 * tentativa))
+  }
   if (erroSessao) throw new Error(`verifyOtp de ${email}: ${erroSessao.message}`)
 
   return { session: sessao.session, user: sessao.user, email }

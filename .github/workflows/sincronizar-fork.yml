@@ -1,0 +1,30 @@
+# Mantém a main do fork (brenocmlo/gc-sistema) igual à main do repositório
+# principal (cremalet/gc-sistema). É a main do fork que a Vercel publica em
+# gc-sistema-nine.vercel.app — o endereço ligado ao gc-dev que o n8n chama na
+# rota POST /api/ingestao/proposta. Sem isto, cada merge no principal exigia o
+# botão "Sync fork" à mão.
+#
+# O arquivo mora nos dois repositórios (vem junto no próprio sync), mas só age
+# no fork: no principal o `if` pula o job.
+name: Sincronizar fork com o principal
+
+on:
+  schedule:
+    - cron: '*/30 * * * *' # a cada 30 min (o GitHub pode atrasar alguns minutos)
+  workflow_dispatch: {} # botão "Run workflow" para sincronizar na hora
+
+permissions:
+  contents: write
+
+jobs:
+  sincronizar:
+    if: github.event.repository.fork
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trazer a main do principal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Só avança (fast-forward). Se a main do fork tiver commit próprio, o
+          # GitHub recusa em vez de misturar — aí é resolver à mão.
+          gh api -X POST "repos/${{ github.repository }}/merge-upstream" -f branch=main

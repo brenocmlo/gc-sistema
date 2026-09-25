@@ -12,10 +12,13 @@
 /clientes/[id]/editar
 /clientes/novo
 /configuracoes
+/configuracoes/contatos
 /contratos
 /contratos/[id]
 /contratos/[id]/editar
 /contratos/novo
+/documentos
+/documentos/[id]
 /execucao
 /fd
 /fd/[id]

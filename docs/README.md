@@ -67,6 +67,19 @@ Aberta em 2026-09-23. Blocos fechados um de cada vez.
 | 6.5 Contratos: mudança de status e rescisão | `6.5-status-entrega.md` — implementado, validação pendente para o fechamento da sprint |
 | 6.6 Contratos: anexos, export e testes (fechamento) | `6.6-status-entrega.md` — implementado; rodada de fechamento a cargo do Breno |
 
+## Sprint 7 — Execução: estrutura e apontamento · `sprint-7/`
+
+Aberta em 2026-09-23. Validação no fechamento da sprint, rodada pelo Breno.
+
+| Bloco | Documento |
+|---|---|
+| 7.1 Execução: types, helpers e regras de cascata | `7.1-status-entrega.md` — implementado, validação pendente |
+| 7.2 Execução: listagem por obra | `7.2-status-entrega.md` — implementado, validação pendente |
+| 7.3 Execução: painel de apontamento | `7.3-status-entrega.md` — implementado, validação pendente |
+| 7.4 Execução: múltiplas execuções por item | `7.4-status-entrega.md` — implementado, validação pendente; migration aplicada em gc-dev |
+| 7.5 Execução: previsões, responsáveis e alertas de atraso | `7.5-status-entrega.md` — implementado, validação pendente |
+| 7.6 Execução: testes de cascata (fechamento) | `7.6-status-entrega.md` — implementado; rodada de fechamento a cargo do Breno |
+
 ## Sprint 13 — Administração, qualidade e segurança · `sprint-13/`
 
 Um bloco **adiantado** em 2026-09-23, a pedido do Breno: a tela de logs e auditoria.
@@ -101,6 +114,7 @@ Trilha separada, com **numeração própria de 1 a 8** na lista do ClickUp — n
 | `fase-4-telegram-como-gatilho-status-entrega.md` | Fase 4: o Telegram vira gatilho do `Processar Documento`; testado até a extração (cota do Gemini pendente) |
 | `fase-5-extracao-itens-status-entrega.md` | Fase 5: extração dos itens, Gemini real 4/4; reserva pela Groq (decisão 20) com trava para texto embaralhado |
 | `fase-6-rota-ingestao-status-entrega.md` | Fase 6: rota `/api/ingestao/proposta` pronta; até ela ser alcançável, o n8n grava proposta e itens com a mesma regra (decisão 21) |
+| `fase-7-painel-status-entrega.md` | Fase 7: `/configuracoes/contatos` e `/documentos` (lista, detalhe, envio pela tela) implementadas, validação pendente |
 
 ## Técnicos · `tecnicos/`
 

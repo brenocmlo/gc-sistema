@@ -4,6 +4,7 @@ import {
   Building2,
   FileCheck,
   FileText,
+  Inbox,
   LayoutDashboard,
   ScrollText,
   Settings,
@@ -56,6 +57,13 @@ export const MENU_ITEMS: readonly MenuItem[] = [
     label: 'Contratos',
     href: '/contratos',
     icon: FileCheck,
+    perfis: ['admin', 'comercial', 'visualizador'],
+  },
+  {
+    // Automação, Fase 7: o que chega pelo bot do Telegram ou pela tela.
+    label: 'Documentos',
+    href: '/documentos',
+    icon: Inbox,
     perfis: ['admin', 'comercial', 'visualizador'],
   },
   {

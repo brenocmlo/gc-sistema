@@ -563,6 +563,19 @@ lista de 7 workflows. Onde uma fase abaixo contradisser uma delas, vale a decis�
     chamada à rota. Na mesma mudança, o envio saiu do sub-workflow `Notificar` para dentro do
     `Processar Documento`: **1 execução do n8n por documento, não 2**.
 
+22. **Privacy mode do bot de produção religado (revisa a decisão 5).** O Breno religou em
+    23/09. O privacy desligado só servia para descobrir o `chat_id` do grupo, já anotado; para
+    **enviar** ao grupo não é preciso. Com ele ligado, as mensagens do grupo não chegam mais
+    ao bot e não gastam execução do n8n. O destino de admin continua sendo o grupo.
+23. **Contratos pelo bot: reabertos (revoga a decisão 18).** Decidido pelo Breno em 23/09,
+    depois de a sprint 6 entregar o módulo de contratos. Desenho a combinar — ver o documento
+    da Fase 6, seção 5. Até lá, documento classificado como contrato continua indo para
+    revisão.
+24. **O PDF recebido fica anexado à proposta criada**, na aba Anexos, como um upload pela
+    tela: bucket `anexos`, path `{empresa}/propostas/{id}/{ts}_{nome}`, entrada no jsonb
+    `anexos` com autor = profile de serviço. Falha no anexo não desfaz a proposta; o aviso ao
+    grupo diz que o PDF não foi anexado.
+
 ---
 
 ## 5. Plano por fases

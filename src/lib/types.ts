@@ -274,9 +274,26 @@ export type ItemUpdatePayload = Omit<
   unidade?: Unidade | null
 }
 
-export type Execucao = Tables['execucao']['Row']
+// Execução (sprint 7). Os `*_status` são GENERATED a partir da quantidade de
+// cada etapa (pendente / andamento / concluido); o gen tipa como string.
+export type EtapaStatus = 'pendente' | 'andamento' | 'concluido'
+
+export type Execucao = Omit<
+  Tables['execucao']['Row'],
+  'fab_status' | 'ent_status' | 'inst_status' | 'med_status'
+> & {
+  fab_status: EtapaStatus | null
+  ent_status: EtapaStatus | null
+  inst_status: EtapaStatus | null
+  med_status: EtapaStatus | null
+}
 export type ExecucaoInsert = Tables['execucao']['Insert']
 export type ExecucaoUpdate = Tables['execucao']['Update']
+
+/** Linha da listagem de execução (7.2): a execução com o item dela. */
+export type ExecucaoListItem = Execucao & {
+  item: Pick<Item, 'id' | 'numero' | 'tipo' | 'descricao' | 'quantidade' | 'unidade' | 'obra_id'> | null
+}
 
 // Financeiro
 export type NotaFiscal = Tables['notas_fiscais']['Row']

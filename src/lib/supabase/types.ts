@@ -370,6 +370,7 @@ export type Database = {
           created_by: string | null
           empresa_id: string
           id: string
+          nome: string | null
           numero_contrato: string | null
           obra_id: string | null
           telefone: string | null
@@ -382,6 +383,7 @@ export type Database = {
           created_by?: string | null
           empresa_id: string
           id?: string
+          nome?: string | null
           numero_contrato?: string | null
           obra_id?: string | null
           telefone?: string | null
@@ -394,6 +396,7 @@ export type Database = {
           created_by?: string | null
           empresa_id?: string
           id?: string
+          nome?: string | null
           numero_contrato?: string | null
           obra_id?: string | null
           telefone?: string | null

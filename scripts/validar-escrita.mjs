@@ -67,7 +67,10 @@ function mapaDeActions() {
   // A chave perde as aspas quando o hash começa por letra, daí o ["']? — e o
   // corpo é lido sem cruzar aspas, pra não vazar pro próximo par.
   const padrao = /["']?([0-9a-f]{40})["']?:\(\)=>[^"']{0,200}?\.then\(\w+=>\w+\.(\w+)\)/g
-  for (const arquivo of arquivosDoBuild('.next/server/app')) {
+  // `.next/server` inteiro, e não só `app/`: action usada por mais de uma rota
+  // (as de item, desde o 6.4, servem proposta e contrato) vai para um chunk
+  // compartilhado em `.next/server/chunks/`.
+  for (const arquivo of arquivosDoBuild('.next/server')) {
     const conteudo = readFileSync(arquivo, 'utf8')
     for (const m of conteudo.matchAll(padrao)) mapa[m[2]] = m[1]
   }
@@ -114,13 +117,25 @@ const NECESSARIAS = [
   // Anexos do orçamento, renomeados para não colidirem com os da proposta
   'uploadAnexoOrcamento',
   'deleteAnexoOrcamento',
+  // Execução: ação em lote da listagem (7.2) e apontamento (7.3)
+  'criarExecucoesFaltantes',
+  'apontarExecucao',
+  'lerExecucao',
+  // Várias execuções por item (7.4)
+  'criarNovaExecucao',
+  // Automação, Fase 7: contatos do bot em /configuracoes/contatos
+  'createContato',
+  'updateContato',
+  'deleteContato',
+  // Automação, Fase 7: envio de documento pela tela (/documentos)
+  'registrarEnvioDocumento',
 ]
 
 const faltando = NECESSARIAS.filter((n) => !ACTIONS[n])
 if (faltando.length > 0) {
   console.error(
     `FALHA: não achei no build as actions: ${faltando.join(', ')}.\n` +
-      '  Rode a camada build antes (o mapa vem de .next/server/app).',
+      '  Rode a camada build antes (o mapa vem de .next/server).',
   )
   process.exit(1)
 }
@@ -241,6 +256,11 @@ let propostaPerfisId = null
 /** Bloco 6.2: proposta aprovada de teste e os contratos gerados dela — apagados no finally. */
 let proposta62Id = null
 const contratos62 = []
+/** Fase 7 da automação: PDF de teste no bucket e documento do envio pela tela — apagados no finally. */
+let envioTesteCaminho = null
+let envioTesteDocId = null
+/** Fase 7 da automação: contato de teste criado em /configuracoes/contatos — apagado no finally. */
+let contatoTesteId = null
 /** Fase 6 da automação: proposta criada pela rota de ingestão e os documentos de teste — apagados no finally. */
 let propostaIngestaoId = null
 const documentosIngestao = []
@@ -763,7 +783,7 @@ try {
       const soma5k = (somaPar ?? []).reduce((a, i) => a + Number(i.valor_total), 0)
       checar('6 criações simultâneas: valor da proposta == soma dos itens (trigger com trava)',
         muitas.every((r) => r.ok) && Math.abs(Number(valorPar?.valor_total) - soma5k) < 0.005,
-        `valor=${valorPar?.valor_total} soma=${soma5k}`)
+        `valor=${valorPar?.valor_total} soma=${soma5k} · ${muitas.filter((r) => !r.ok).map((r) => r.error).join(' | ') || 'todas ok'}`)
     }
 
     // ------------------------------------------------------------
@@ -2001,6 +2021,482 @@ try {
   }
 
   // ============================================================
+  // Bloco 7.2 — criar execução para os itens que ainda não têm
+  // ============================================================
+  // A ação é por obra, e cria para TODO item de contrato sem execução daquela
+  // obra. Por isso o passo usa uma obra sem contrato nenhum: só os itens
+  // criados aqui entram. Os contratos levam `-AVEXE` (saem com os avulsos) e
+  // os itens entram em itensCriados; a execução sai junto com o item (FK
+  // execucao_item_fk é on delete cascade).
+  {
+    const { data: comContrato } = await supabase.from('contratos').select('obra_id')
+    const { data: obrasTodas } = await supabase.from('obras').select('id')
+    const obraLivre = (obrasTodas ?? []).find((o) => !(comContrato ?? []).some((c) => c.obra_id === o.id))
+    checar('7.2: gc-dev tem uma obra sem contrato para a ação em lote', Boolean(obraLivre))
+    if (obraLivre) {
+      const ctExe = async (sufixo) => chamar('createContrato', [{
+        numero: `${NUMERO}-AVEXE${sufixo}`, obra_id: obraLivre.id, descricao: 'execução 7.2', data_assinatura: null,
+        prazo_execucao: null, valor_total: 0, desconto: 0, pct_sinal: null, pct_fd: null, pct_entrega_material: null,
+        pct_medicao_instalacao: null, condicoes_pagamento: null, observacao: null,
+      }], { rota: '/contratos/novo' })
+      const itemExe = async (contratoId, numero, quantidade) => {
+        const r = await chamar('createItem', [{ tipo: 'contrato', id: contratoId }, {
+          numero, tipo: 'Janela', descricao: `execução 7.2 item ${numero}`, linha: null, acabamento: null,
+          largura: null, altura: null, quantidade, unidade: 'QTD', valor_unit: 100,
+        }], { rota: `/contratos/${contratoId}` })
+        if (r.ok) itensCriados.push(r.item.id)
+        return r
+      }
+      const c1 = await ctExe('1')
+      const c2 = await ctExe('2')
+      const i1 = c1.ok ? await itemExe(c1.id, 1, 5) : { ok: false }
+      const i2 = c1.ok ? await itemExe(c1.id, 2, 3) : { ok: false }
+      const i3 = c2.ok ? await itemExe(c2.id, 1, 7) : { ok: false }
+      checar('7.2: dois contratos e três itens de teste na obra livre', c1.ok && c2.ok && i1.ok && i2.ok && i3.ok, c1.error ?? c2.error)
+      // O segundo contrato é rescindido: o item dele não recebe execução.
+      if (c2.ok) {
+        await chamar('changeContratoStatus', [c2.id, { novo_status: 'rescindido', motivo_rescisao: 'acordo_partes', detalhe_rescisao: null }], { rota: `/contratos/${c2.id}` })
+      }
+      const execDe = async () =>
+        (await supabase.from('execucao').select('id, updated_at, item_id, sequencial, quantidade_total, valor_unit, fab_qtd, fab_status')
+          .in('item_id', [i1.item?.id, i2.item?.id, i3.item?.id].filter(Boolean))).data ?? []
+
+      for (const perfil of ['comercial', 'visualizador', 'financeiro']) {
+        const cookie = cookieDeSessao((await sessaoDePerfil(perfil)).session)
+        const r = await chamar('criarExecucoesFaltantes', [obraLivre.id], { rota: '/execucao', cookie })
+        checar(`7.2: ${perfil} não cria execução`, r.ok === false && /permissão/.test(r.error ?? '') && (await execDe()).length === 0, r.error)
+      }
+
+      const cookieProd = cookieDeSessao((await sessaoDePerfil('producao')).session)
+      const criou = await chamar('criarExecucoesFaltantes', [obraLivre.id], { rota: '/execucao', cookie: cookieProd })
+      const execs = await execDe()
+      checar('7.2: produção cria a execução dos 2 itens do contrato ativo, e não a do rescindido',
+        criou.ok === true && criou.criadas === 2 && execs.length === 2 && !execs.some((e) => e.item_id === i3.item?.id),
+        `${criou.error ?? ''} · criadas=${criou.criadas} · ${JSON.stringify(execs)}`)
+      const e1 = execs.find((e) => e.item_id === i1.item?.id)
+      checar('7.2: a execução nasce zerada, sequencial 1, com a quantidade e o valor do item (triggers de INSERT)',
+        e1?.sequencial === 1 && Number(e1?.quantidade_total) === 5 && Number(e1?.valor_unit) === 100 &&
+          Number(e1?.fab_qtd) === 0 && e1?.fab_status === 'pendente', JSON.stringify(e1 ?? null))
+      const denovo = await chamar('criarExecucoesFaltantes', [obraLivre.id], { rota: '/execucao', cookie: cookieProd })
+      checar('7.2: rodar de novo não duplica (0 criadas)', denovo.ok === true && denovo.criadas === 0 && (await execDe()).length === 2, denovo.error)
+      const semObra = await chamar('criarExecucoesFaltantes', [''], { rota: '/execucao', cookie: cookieProd })
+      checar('7.2: sem obra é recusado', semObra.ok === false && /obra/.test(semObra.error ?? ''), semObra.error)
+
+      // ----------------------------------------------------------
+      // Bloco 7.3 — apontamento, sobre a execução do item 1 (5 unidades)
+      // ----------------------------------------------------------
+      if (e1) {
+        const ap = (q, extra = {}) => ({
+          fab_qtd: q[0], ent_qtd: q[1], inst_qtd: q[2], med_qtd: q[3],
+          fab_responsavel: null, ent_responsavel: null, inst_responsavel: null, med_responsavel: null,
+          fab_observacao: null, ent_observacao: null, inst_observacao: null, med_observacao: null, ...extra,
+        })
+        const ler = async () => (await supabase.from('execucao').select('*').eq('id', e1.id).maybeSingle()).data
+        const apontar = (payload, visto, cookie = cookieProd) =>
+          chamar('apontarExecucao', [e1.id, payload, visto], { rota: '/execucao', cookie })
+        const hoje = new Date().toISOString().slice(0, 10)
+
+        let linha = await ler()
+        const a1 = await apontar(ap([3, 0, 0, 0], { fab_responsavel: '  Serralheria  ', fab_observacao: 'primeiro lote' }), linha.updated_at)
+        linha = await ler()
+        checar('7.3: produção aponta 3 de 5 na fabricação; o trigger preenche início e atualização, sem fim',
+          a1.ok === true && Number(linha.fab_qtd) === 3 && linha.fab_status === 'andamento' &&
+            linha.fab_data_inicio === hoje && linha.fab_data_atualizacao === hoje && linha.fab_data_fim === null,
+          `${a1.error ?? ''} · ${JSON.stringify({ q: linha?.fab_qtd, s: linha?.fab_status, i: linha?.fab_data_inicio, f: linha?.fab_data_fim })}`)
+        checar('7.3: responsável aparado e observação gravados; a linha volta pronta com o item',
+          linha.fab_responsavel === 'Serralheria' && linha.fab_observacao === 'primeiro lote' &&
+            a1.execucao?.id === e1.id && a1.execucao?.item?.id === i1.item?.id, JSON.stringify(a1.execucao?.item ?? null))
+
+        const bloqueios = [
+          ['entregar mais do que foi fabricado', [3, 4, 0, 0], /Só é possível entregar 3 porque só 3 foram fabricados/],
+          ['fabricar mais do que o total do item', [6, 0, 0, 0], /quantidade total do item/],
+          ['instalar sem entregar', [3, 0, 1, 0], /nenhuma unidade foi entregue/],
+          ['quantidade negativa', [-1, 0, 0, 0], /negativa/],
+          ['mais de 3 casas decimais', [1.2345, 0, 0, 0], /3 casas/],
+        ]
+        for (const [rotulo, q, esperado] of bloqueios) {
+          const r = await apontar(ap(q), linha.updated_at)
+          const depois = await ler()
+          checar(`7.3: ${rotulo} é recusado com a mensagem da cascata, sem gravar`,
+            r.ok === false && esperado.test(r.error ?? '') && Number(depois.fab_qtd) === 3, r.error)
+        }
+
+        for (const perfil of ['comercial', 'visualizador', 'financeiro']) {
+          const cookie = cookieDeSessao((await sessaoDePerfil(perfil)).session)
+          const r = await apontar(ap([5, 0, 0, 0]), linha.updated_at, cookie)
+          checar(`7.3: ${perfil} não aponta`, r.ok === false && /permissão/.test(r.error ?? '') && Number((await ler()).fab_qtd) === 3, r.error)
+        }
+
+        const velho = linha.updated_at
+        const a2 = await apontar(ap([5, 2, 0, 0], { fab_responsavel: 'Serralheria' }), velho)
+        linha = await ler()
+        checar('7.3: concluir a fabricação (5 de 5) preenche o fim; a entrega começa',
+          a2.ok === true && linha.fab_status === 'concluido' && linha.fab_data_fim === hoje &&
+            linha.ent_status === 'andamento' && linha.ent_data_inicio === hoje, a2.error)
+        const conflito = await apontar(ap([5, 5, 0, 0]), velho)
+        checar('7.3: updated_at velho é recusado como conflito, sem sobrescrever',
+          conflito.ok === false && conflito.conflito === true && Number((await ler()).ent_qtd) === 2, conflito.error)
+        const releitura = await chamar('lerExecucao', [e1.id], { rota: '/execucao', cookie: cookieProd })
+        checar('7.3: lerExecucao devolve a linha atual depois do conflito',
+          releitura.ok === true && releitura.execucao?.id === e1.id && Number(releitura.execucao?.ent_qtd) === 2,
+          releitura.error ?? JSON.stringify(releitura.execucao ?? null).slice(0, 120))
+
+        const cookieMed = cookieDeSessao((await sessaoDePerfil('medicao')).session)
+        const a3 = await apontar(ap([5, 5, 5, 5], { med_responsavel: 'Cliente' }), linha.updated_at, cookieMed)
+        linha = await ler()
+        checar('7.3: medição conclui as 4 etapas; os 4 status GENERATED ficam concluídos, com as 4 datas de fim',
+          a3.ok === true && ['fab', 'ent', 'inst', 'med'].every((e) => linha[`${e}_status`] === 'concluido' && linha[`${e}_data_fim`] !== null),
+          a3.error)
+        const a4 = await apontar(ap([5, 5, 5, 4]), linha.updated_at)
+        linha = await ler()
+        checar('7.3: voltar a medição para 4 reabre a etapa (andamento) e limpa o fim só dela',
+          a4.ok === true && linha.med_status === 'andamento' && linha.med_data_fim === null && linha.inst_data_fim !== null,
+          a4.error)
+        const baixar = await apontar(ap([3, 5, 5, 4]), linha.updated_at)
+        checar('7.3: baixar a fabricação abaixo do que já foi entregue é recusado',
+          baixar.ok === false && /Só é possível entregar 3/.test(baixar.error ?? ''), baixar.error)
+      }
+
+      // ----------------------------------------------------------
+      // Bloco 7.4 — várias execuções por item, sobre o item 2 (3 unidades)
+      // ----------------------------------------------------------
+      const e2 = execs.find((e) => e.item_id === i2.item?.id)
+      if (e2) {
+        const ap4 = (extra) => ({
+          fab_qtd: 0, ent_qtd: 0, inst_qtd: 0, med_qtd: 0,
+          fab_responsavel: null, ent_responsavel: null, inst_responsavel: null, med_responsavel: null,
+          fab_observacao: null, ent_observacao: null, inst_observacao: null, med_observacao: null, ...extra,
+        })
+        const execsDoItem2 = async () =>
+          (await supabase.from('execucao').select('id, sequencial, quantidade_total, localizacao, valor_unit, updated_at, fab_qtd')
+            .eq('item_id', i2.item.id).order('sequencial')).data ?? []
+        const nova = (quantidade, localizacao, cookie = cookieProd) =>
+          chamar('criarNovaExecucao', [i2.item.id, { quantidade, localizacao }], { rota: '/execucao', cookie })
+
+        const cheio = await nova(1, 'Torre B')
+        checar('7.4: com a execução única ocupando o item todo, a nova é recusada',
+          cheio.ok === false && /todo distribuído/.test(cheio.error ?? '') && (await execsDoItem2()).length === 1, cheio.error)
+
+        let [p1] = await execsDoItem2()
+        const reduz = await chamar('apontarExecucao', [e2.id, ap4({ quantidade_total: 2, localizacao: ' Torre A ' }), p1.updated_at], { rota: '/execucao', cookie: cookieProd })
+        ;[p1] = await execsDoItem2()
+        checar('7.4: a primeira execução é reduzida para 2 e ganha a localização "Torre A"',
+          reduz.ok === true && Number(p1.quantidade_total) === 2 && p1.localizacao === 'Torre A', reduz.error)
+
+        const demais = await nova(2, 'Torre B')
+        checar('7.4: a nova não pode passar do que sobra (1)',
+          demais.ok === false && /Só cabem 1 nesta execução/.test(demais.error ?? ''), demais.error)
+        const criada = await nova(1, 'Torre B')
+        const doItem = await execsDoItem2()
+        const p2 = doItem.find((e) => e.sequencial === 2)
+        checar('7.4: a nova nasce com sequencial 2, a quantidade enviada (a migration 20260924110000) e o valor do item',
+          criada.ok === true && criada.sequencial === 2 && Number(p2?.quantidade_total) === 1 &&
+            p2?.localizacao === 'Torre B' && Number(p2?.valor_unit) === 100, `${criada.error ?? ''} · ${JSON.stringify(doItem)}`)
+
+        ;[p1] = await execsDoItem2()
+        const aumenta = await chamar('apontarExecucao', [e2.id, ap4({ quantidade_total: 3 }), p1.updated_at], { rota: '/execucao', cookie: cookieProd })
+        checar('7.4: aumentar a primeira de volta para 3 é recusado (a outra já tem 1)',
+          aumenta.ok === false && /Só cabem 2/.test(aumenta.error ?? ''), aumenta.error)
+
+        const fab2 = await chamar('apontarExecucao', [e2.id, ap4({ fab_qtd: 2 }), p1.updated_at], { rota: '/execucao', cookie: cookieProd })
+        ;[p1] = await execsDoItem2()
+        const abaixo = await chamar('apontarExecucao', [e2.id, ap4({ quantidade_total: 1, fab_qtd: 2 }), p1.updated_at], { rota: '/execucao', cookie: cookieProd })
+        checar('7.4: reduzir a execução abaixo do que já foi fabricado é recusado',
+          fab2.ok === true && abaixo.ok === false && /Já foram fabricados 2/.test(abaixo.error ?? ''), abaixo.error ?? fab2.error)
+
+        const semLoc = await chamar('apontarExecucao', [e2.id, { ...ap4({ fab_qtd: 2 }), localizacao: undefined }], { rota: '/execucao', cookie: cookieProd })
+        ;[p1] = await execsDoItem2()
+        checar('7.4: apontar sem mandar a localização não apaga a que existe',
+          p1.localizacao === 'Torre A', `${semLoc.error ?? ''} · ${p1.localizacao}`)
+
+        const cookieCom74 = cookieDeSessao((await sessaoDePerfil('comercial')).session)
+        const com = await nova(0.5, 'x', cookieCom74)
+        checar('7.4: comercial não cria execução', com.ok === false && /permissão/.test(com.error ?? ''), com.error)
+        const rescindido = await chamar('criarNovaExecucao', [i3.item.id, { quantidade: 1, localizacao: null }], { rota: '/execucao', cookie: cookieProd })
+        checar('7.4: item de contrato rescindido não recebe execução',
+          rescindido.ok === false && /contrato vigente/.test(rescindido.error ?? ''), rescindido.error)
+
+        // Sincronização da quantidade (20260924110000): com várias execuções,
+        // mudar o item não reparte; com uma só, ela acompanha o item.
+        await supabase.from('itens').update({ quantidade: 4 }).eq('id', i2.item.id)
+        const aposItem2 = await execsDoItem2()
+        checar('7.4: com 2 execuções, mudar a quantidade do item não mexe nelas',
+          aposItem2.map((e) => Number(e.quantidade_total)).join(',') === '2,1', JSON.stringify(aposItem2))
+        await supabase.from('itens').update({ quantidade: 6 }).eq('id', i1.item.id)
+        const unica = (await supabase.from('execucao').select('quantidade_total').eq('item_id', i1.item.id)).data ?? []
+        checar('7.4: com execução única, ela acompanha a quantidade do item (5 → 6)',
+          unica.length === 1 && Number(unica[0].quantidade_total) === 6, JSON.stringify(unica))
+      }
+
+      // ----------------------------------------------------------
+      // Bloco 7.5 — previsões de fim, sobre a Torre A do item 2
+      // ----------------------------------------------------------
+      if (e2) {
+        const prev = async () =>
+          (await supabase.from('execucao').select('fab_previsao_fim, ent_previsao_fim, inst_previsao_fim, med_previsao_fim, localizacao')
+            .eq('id', e2.id).maybeSingle()).data
+        const base5 = {
+          fab_qtd: 2, ent_qtd: 0, inst_qtd: 0, med_qtd: 0,
+          fab_responsavel: null, ent_responsavel: null, inst_responsavel: null, med_responsavel: null,
+          fab_observacao: null, ent_observacao: null, inst_observacao: null, med_observacao: null,
+        }
+        const ap5 = (extra) => chamar('apontarExecucao', [e2.id, { ...base5, ...extra }], { rota: '/execucao', cookie: cookieProd })
+
+        const ok5 = await ap5({ fab_previsao_fim: '2026-10-01', ent_previsao_fim: '2026-10-05', med_previsao_fim: '2026-10-20' })
+        let pv = await prev()
+        checar('7.5: as previsões gravam em ordem, e a vazia (instalação) fica nula',
+          ok5.ok === true && pv.fab_previsao_fim === '2026-10-01' && pv.ent_previsao_fim === '2026-10-05' &&
+            pv.inst_previsao_fim === null && pv.med_previsao_fim === '2026-10-20', `${ok5.error ?? ''} · ${JSON.stringify(pv)}`)
+        const fora = await ap5({ inst_previsao_fim: '2026-09-30' })
+        checar('7.5: previsão da instalação antes da entrega é recusada, sem gravar',
+          fora.ok === false && /não pode ser antes da de entrega/.test(fora.error ?? '') && (await prev()).inst_previsao_fim === null, fora.error)
+        const invalida = await ap5({ fab_previsao_fim: '01/10/2026' })
+        checar('7.5: data fora do formato é recusada', invalida.ok === false && /inválida/.test(invalida.error ?? ''), invalida.error)
+        const semPrev = await ap5({})
+        pv = await prev()
+        checar('7.5: apontar sem mandar as previsões não apaga as que existem',
+          semPrev.ok === true && pv.fab_previsao_fim === '2026-10-01' && pv.med_previsao_fim === '2026-10-20' && pv.localizacao === 'Torre A',
+          `${semPrev.error ?? ''} · ${JSON.stringify(pv)}`)
+        const limpa = await ap5({ med_previsao_fim: '' })
+        checar('7.5: previsão enviada vazia é limpa', limpa.ok === true && (await prev()).med_previsao_fim === null, limpa.error)
+      }
+
+      // ----------------------------------------------------------
+      // Bloco 7.6 — testes de cascata (fechamento da sprint 7)
+      // ----------------------------------------------------------
+      // Um item novo (10 un) no contrato ativo da obra isolada, com a execução
+      // criada pela ação em lote. As regras do helper (statusDaEtapa e a
+      // tradução dos CHECKs) vêm do próprio src/lib, e não de cópia aqui.
+      const { statusDaEtapa, mensagemDeErroExecucao } = await import('../src/lib/execucao.ts')
+      const i6 = c1.ok ? await itemExe(c1.id, 6, 10) : { ok: false }
+      const i7 = c1.ok ? await itemExe(c1.id, 7, 100) : { ok: false }
+      await chamar('criarExecucoesFaltantes', [obraLivre.id], { rota: '/execucao', cookie: cookieProd })
+      const execDoItem = async (itemId) =>
+        (await supabase.from('execucao').select('*').eq('item_id', itemId).order('sequencial')).data ?? []
+      const [e6] = i6.ok ? await execDoItem(i6.item.id) : []
+      const [e7] = i7.ok ? await execDoItem(i7.item.id) : []
+      checar('7.6: itens e execuções de teste da cascata criados', Boolean(e6 && e7), `${i6.error ?? ''} ${i7.error ?? ''}`)
+
+      if (e6 && e7) {
+        const base6 = {
+          fab_responsavel: null, ent_responsavel: null, inst_responsavel: null, med_responsavel: null,
+          fab_observacao: null, ent_observacao: null, inst_observacao: null, med_observacao: null,
+        }
+        const ap6 = (id, q, cookie = cookieProd) => chamar('apontarExecucao', [id, {
+          ...base6, fab_qtd: q[0], ent_qtd: q[1], inst_qtd: q[2], med_qtd: q[3],
+        }], { rota: '/execucao', cookie })
+        const statusBatem = (linha) => ['fab', 'ent', 'inst', 'med'].every(
+          (et) => linha[`${et}_status`] === statusDaEtapa(Number(linha[`${et}_qtd`]), Number(linha.quantidade_total)),
+        )
+        const ler6 = async () => (await supabase.from('execucao').select('*').eq('id', e6.id).maybeSingle()).data
+
+        // 1. Conclusão completa, etapa por etapa, com os GENERATED batendo em cada passo.
+        const passos = [
+          ['fabricação', [10, 0, 0, 0], ['concluido', 'pendente', 'pendente', 'pendente']],
+          ['entrega', [10, 10, 0, 0], ['concluido', 'concluido', 'pendente', 'pendente']],
+          ['instalação', [10, 10, 10, 0], ['concluido', 'concluido', 'concluido', 'pendente']],
+          ['medição', [10, 10, 10, 10], ['concluido', 'concluido', 'concluido', 'concluido']],
+        ]
+        for (const [etapa, q, esperado] of passos) {
+          const r = await ap6(e6.id, q)
+          const l = await ler6()
+          const status = ['fab', 'ent', 'inst', 'med'].map((et) => l[`${et}_status`])
+          checar(`7.6: concluir a ${etapa} — status GENERATED ${esperado.join('/')} e iguais aos do helper`,
+            r.ok === true && JSON.stringify(status) === JSON.stringify(esperado) && statusBatem(l),
+            `${r.error ?? ''} · ${status.join('/')}`)
+        }
+        const final6 = await ler6()
+        checar('7.6: concluída nas 4 etapas, com as 4 datas de início e de fim preenchidas pelo trigger',
+          ['fab', 'ent', 'inst', 'med'].every((et) => final6[`${et}_data_inicio`] && final6[`${et}_data_fim`]),
+          JSON.stringify(['fab', 'ent', 'inst', 'med'].map((et) => [final6[`${et}_data_inicio`], final6[`${et}_data_fim`]])))
+
+        // Migration 20260924130000: o total que sobe reabre as etapas, e o fim
+        // tem de sumir junto com o "concluido". Direto no banco, sem a action.
+        await supabase.from('execucao').update({ quantidade_total: 12 }).eq('id', e6.id)
+        const reaberta = await ler6()
+        checar('7.6: total sobe de 10 para 12 numa concluída, as 4 etapas voltam a andamento e os 4 data_fim são limpos (início fica)',
+          ['fab', 'ent', 'inst', 'med'].every((et) => reaberta[`${et}_status`] === 'andamento' &&
+            reaberta[`${et}_data_fim`] === null && reaberta[`${et}_data_inicio`] === final6[`${et}_data_inicio`]),
+          JSON.stringify(['fab', 'ent', 'inst', 'med'].map((et) => [reaberta[`${et}_status`], reaberta[`${et}_data_inicio`], reaberta[`${et}_data_fim`]])))
+        await supabase.from('execucao').update({ quantidade_total: 10 }).eq('id', e6.id)
+        const refechada = await ler6()
+        checar('7.6: total volta para 10, as 4 etapas voltam a concluido com data_fim de novo',
+          ['fab', 'ent', 'inst', 'med'].every((et) => refechada[`${et}_status`] === 'concluido' && refechada[`${et}_data_fim`] !== null),
+          JSON.stringify(['fab', 'ent', 'inst', 'med'].map((et) => [refechada[`${et}_status`], refechada[`${et}_data_fim`]])))
+
+        // 2. Decimais e parciais: os GENERATED batem com a regra do helper.
+        const dec = await ap6(e6.id, [2.5, 1.25, 0.001, 0])
+        const lDec = await ler6()
+        checar('7.6: com decimais (2,5 / 1,25 / 0,001 / 0), os 4 status GENERATED batem com o helper',
+          dec.ok === true && statusBatem(lDec) && lDec.fab_status === 'andamento' && lDec.med_status === 'pendente', dec.error)
+
+        // 3. Cada bloqueio da cascata pela action, com a mensagem.
+        const bloqueios = [
+          ['fabricação acima do total', [11, 0, 0, 0], 'Só é possível fabricar 10: é a quantidade total do item'],
+          ['entrega acima da fabricação', [4, 5, 0, 0], 'Só é possível entregar 4 porque só 4 foram fabricados'],
+          ['instalação acima da entrega', [4, 1, 2, 0], 'Só é possível instalar 1 porque só 1 foi entregue'],
+          ['medição acima da instalação', [4, 3, 2, 3], 'Só é possível medir 2 porque só 2 foram instalados'],
+        ]
+        const antes = await ler6()
+        for (const [rotulo, q, mensagem] of bloqueios) {
+          const r = await ap6(e6.id, q)
+          const depois = await ler6()
+          checar(`7.6: ${rotulo} — recusada pela action com "${mensagem}", sem gravar`,
+            r.ok === false && r.error === mensagem && depois.updated_at === antes.updated_at, r.error)
+        }
+
+        // 4. Os 4 CHECKs no banco, sem passar pela action, e a tradução de cada erro.
+        const checks = [
+          ['execucao_fab_qtd_check', { fab_qtd: 11 }, /quantidade total/],
+          ['execucao_ent_qtd_check', { fab_qtd: 4, ent_qtd: 5 }, /fabricado/],
+          ['execucao_inst_qtd_check', { fab_qtd: 4, ent_qtd: 1, inst_qtd: 2 }, /entregue/],
+          ['execucao_med_qtd_check', { fab_qtd: 4, ent_qtd: 3, inst_qtd: 2, med_qtd: 3 }, /instalado/],
+        ]
+        for (const [constraint, campos, traducao] of checks) {
+          const { error } = await supabase.from('execucao').update({ fab_qtd: 0, ent_qtd: 0, inst_qtd: 0, med_qtd: 0, ...campos }).eq('id', e6.id)
+          checar(`7.6: o banco recusa direto pelo ${constraint}, e mensagemDeErroExecucao traduz`,
+            Boolean(error) && error.message.includes(constraint) && traducao.test(mensagemDeErroExecucao(error.message)),
+            error?.message ?? 'o update passou')
+        }
+
+        // 5. RLS: comercial não atualiza execução nem direto no banco.
+        const sessCom = await sessaoDePerfil('comercial')
+        const sbCom = createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+        await sbCom.auth.setSession(sessCom.session)
+        const { data: rlsCom } = await sbCom.from('execucao').update({ fab_qtd: 1 }).eq('id', e6.id).select('id')
+        checar('7.6: a policy de update recusa o comercial direto no banco (0 linhas, nada muda)',
+          (rlsCom ?? []).length === 0 && Number((await ler6()).fab_qtd) === Number(lDec.fab_qtd), JSON.stringify(rlsCom))
+        const sessProd = await sessaoDePerfil('producao')
+        const sbProd = createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+        await sbProd.auth.setSession(sessProd.session)
+        const { data: rlsProd } = await sbProd.from('execucao').update({ fab_qtd: 3 }).eq('id', e6.id).select('id')
+        checar('7.6: a mesma policy deixa a produção atualizar', (rlsProd ?? []).length === 1 && Number((await ler6()).fab_qtd) === 3, JSON.stringify(rlsProd))
+
+        // 6. Matriz de perfis das actions de execução, sobre o item 7 (100 un):
+        //    a execução dele é reduzida para 10, e cada perfil que pode cria uma
+        //    nova de 1. admin, produção e medição fazem tudo; visualizador só lê;
+        //    comercial e financeiro, nada — e recusados pela checagem de perfil.
+        await ap6(e7.id, [0, 0, 0, 0])
+        await chamar('apontarExecucao', [e7.id, { ...base6, quantidade_total: 10, fab_qtd: 0, ent_qtd: 0, inst_qtd: 0, med_qtd: 0 }], { rota: '/execucao', cookie: cookieProd })
+        const PODEM_APONTAR = ['admin', 'producao', 'medicao']
+        const PODEM_LER = ['admin', 'producao', 'medicao', 'visualizador']
+        for (const perfil of ['admin', 'comercial', 'financeiro', 'medicao', 'producao', 'visualizador']) {
+          const cookie = perfil === 'admin' ? admin.cookie : cookieDeSessao((await sessaoDePerfil(perfil)).session)
+          const erradas = []
+          const conferir = (acao, r, pode) => {
+            if (pode && !r.ok) erradas.push(`${acao} recusou: ${r.error}`)
+            if (!pode && r.ok) erradas.push(`${acao} PASSOU sem permissão`)
+            if (!pode && !r.ok && !/permissão/i.test(r.error ?? '')) erradas.push(`${acao} recusou pelo motivo errado: ${r.error}`)
+          }
+          const aponta = PODEM_APONTAR.includes(perfil)
+          conferir('apontarExecucao', await ap6(e7.id, [1, 0, 0, 0], cookie), aponta)
+          conferir('criarNovaExecucao', await chamar('criarNovaExecucao', [i7.item.id, { quantidade: 1, localizacao: `matriz ${perfil}` }], { rota: '/execucao', cookie }), aponta)
+          conferir('criarExecucoesFaltantes', await chamar('criarExecucoesFaltantes', [obraLivre.id], { rota: '/execucao', cookie }), aponta)
+          conferir('lerExecucao', await chamar('lerExecucao', [e7.id], { rota: '/execucao', cookie }), PODEM_LER.includes(perfil))
+          checar(`7.6: perfil ${perfil}: as 4 actions de execução obedecem à regra`, erradas.length === 0, erradas.join(' | '))
+        }
+        const doItem7 = await execDoItem(i7.item.id)
+        checar('7.6: as 3 execuções da matriz (admin, produção, medição) nasceram com sequencial 2, 3 e 4',
+          doItem7.map((e) => e.sequencial).join(',') === '1,2,3,4', JSON.stringify(doItem7.map((e) => [e.sequencial, e.localizacao])))
+      }
+    }
+  }
+
+  // ============================================================
+  // Fase 7 da automação — envio de documento pela tela (/documentos)
+  // ============================================================
+  // O navegador sobe o PDF direto para o Storage e a action só registra e
+  // aciona o n8n. Aqui o upload é feito com o cliente da sessão do admin (a
+  // mesma policy do navegador). O caminho feliz chama o webhook do n8n de
+  // verdade — gasta execução e roda o Gemini —, então só roda com
+  // VALIDACAO_ENVIO_REAL=1; as recusas rodam sempre e param antes do webhook.
+  {
+    const ROTA_DOC = '/documentos'
+    const { data: perfilAdm } = await supabase.from('profiles').select('empresa_id').eq('id', admin.userId ?? (await supabase.auth.getUser()).data.user.id).single()
+    const EMP = perfilAdm.empresa_id
+    const { data: obraDoc } = await supabase.from('obras').select('id').eq('empresa_id', EMP).order('codigo_obra').limit(1).single()
+    envioTesteCaminho = `${EMP}/sistema/${Date.now()}_validacao-escrita.pdf`
+    const pdf = new Blob(['%PDF-1.4\n% validacao da escrita\n%%EOF\n'], { type: 'application/pdf' })
+    const { error: erroUp } = await supabase.storage.from('documentos-processamento').upload(envioTesteCaminho, pdf, { contentType: 'application/pdf' })
+    checar('admin sobe o PDF direto no bucket, na pasta sistema/ da empresa', !erroUp, erroUp?.message)
+
+    const base = { caminho: envioTesteCaminho, obraId: obraDoc.id, nomeArquivo: 'validacao-escrita.pdf' }
+    const sessaoVisDoc = await sessaoDePerfil('visualizador')
+    const visDoc = await chamar('registrarEnvioDocumento', [base], { rota: ROTA_DOC, cookie: cookieDeSessao(sessaoVisDoc.session) })
+    checar('visualizador não envia documento (a action repete a regra)', visDoc.ok === false && /permissão/i.test(visDoc.error ?? ''), JSON.stringify(visDoc))
+    const outraEmp = await chamar('registrarEnvioDocumento', [{ ...base, caminho: `00000000-0000-4000-8000-000000000000/sistema/1_x.pdf` }], { rota: ROTA_DOC })
+    checar('arquivo fora da pasta da empresa é recusado', outraEmp.ok === false && /fora da pasta/.test(outraEmp.error ?? ''), JSON.stringify(outraEmp))
+    const traversal = await chamar('registrarEnvioDocumento', [{ ...base, caminho: `${EMP}/sistema/../telegram/x.pdf` }], { rota: ROTA_DOC })
+    checar('caminho com .. é recusado', traversal.ok === false, JSON.stringify(traversal))
+    const semObra = await chamar('registrarEnvioDocumento', [{ ...base, obraId: '' }], { rota: ROTA_DOC })
+    checar('envio sem obra é recusado', semObra.ok === false && /obra/i.test(semObra.error ?? ''), JSON.stringify(semObra))
+    const obraAlheia = await chamar('registrarEnvioDocumento', [{ ...base, obraId: '00000000-0000-4000-8000-000000000000' }], { rota: ROTA_DOC })
+    checar('obra de outra empresa é recusada', obraAlheia.ok === false && /Obra inválida/.test(obraAlheia.error ?? ''), JSON.stringify(obraAlheia))
+    const inexistente = await chamar('registrarEnvioDocumento', [{ ...base, caminho: `${EMP}/sistema/1_nao-existe.pdf` }], { rota: ROTA_DOC })
+    checar('arquivo que não está no bucket é recusado', inexistente.ok === false && /não encontrado/.test(inexistente.error ?? ''), JSON.stringify(inexistente))
+    const { count: docsRecusa } = await supabase.from('documentos_processamento').select('id', { count: 'exact', head: true }).like('arquivo_url', `%${envioTesteCaminho.split('/').pop()}%`)
+    checar('nenhuma recusa deixou documento gravado', docsRecusa === 0, `linhas: ${docsRecusa}`)
+
+    if (process.env.VALIDACAO_ENVIO_REAL === '1') {
+      const envio = await chamar('registrarEnvioDocumento', [base], { rota: ROTA_DOC })
+      envioTesteDocId = envio.id ?? null
+      checar('envio válido grava o documento como PENDENTE e aciona o n8n', envio.ok === true && envio.automacao === 'acionada', JSON.stringify(envio))
+      if (envioTesteDocId) {
+        const { data: d } = await supabase.from('documentos_processamento').select('status, canal, obra_id, created_by').eq('id', envioTesteDocId).single()
+        checar('documento pela tela: canal nulo, obra e autor preenchidos', d?.canal === null && d?.obra_id === obraDoc.id && Boolean(d?.created_by), JSON.stringify(d))
+      }
+    } else {
+      console.log('  nota  envio válido pulado: chama o n8n de verdade (rode com VALIDACAO_ENVIO_REAL=1)')
+    }
+  }
+
+  // ============================================================
+  // Fase 7 da automação — contatos do bot (/configuracoes/contatos)
+  // ============================================================
+  {
+    const ROTA_CT = '/configuracoes/contatos'
+    // Código fictício e único por rodada: o índice de chat_id é global.
+    const CODIGO = String(9_000_000_000 + (Date.now() % 1_000_000_000))
+    const { data: obraCt } = await supabase.from('obras').select('id').order('codigo_obra').limit(1).single()
+
+    const semObra = await chamar('createContato', [{ nome: 'Validação', telegram_chat_id: CODIGO, obra_id: '' }], { rota: ROTA_CT })
+    checar('createContato sem obra é recusado pelo schema', semObra.ok === false && /obra/i.test(semObra.error ?? ''), JSON.stringify(semObra))
+    const letra = await chamar('createContato', [{ telegram_chat_id: '12ab5678', obra_id: obraCt.id }], { rota: ROTA_CT })
+    checar('createContato com código não numérico é recusado', letra.ok === false, JSON.stringify(letra))
+
+    const criado = await chamar('createContato', [{ nome: 'Validação da escrita', telegram_chat_id: ` ${CODIGO.slice(0, 3)} ${CODIGO.slice(3)} `, obra_id: obraCt.id }], { rota: ROTA_CT })
+    checar('createContato cria o contato Telegram (código colado com espaço)', criado.ok === true, criado.error)
+    contatoTesteId = criado.id ?? null
+
+    if (contatoTesteId) {
+      const { data: ct } = await supabase.from('contatos_whatsapp').select('canal, telegram_chat_id, telefone, obra_id, nome, created_by').eq('id', contatoTesteId).single()
+      checar('contato gravado: canal TELEGRAM, código sem espaço, telefone nulo, obra e nome', ct?.canal === 'TELEGRAM' && ct?.telegram_chat_id === CODIGO && ct?.telefone === null && ct?.obra_id === obraCt.id && ct?.nome === 'Validação da escrita', JSON.stringify(ct))
+
+      const dup = await chamar('createContato', [{ telegram_chat_id: CODIGO, obra_id: obraCt.id }], { rota: ROTA_CT })
+      checar('código repetido é recusado com mensagem legível', dup.ok === false && dup.error === 'Esse código já está cadastrado', JSON.stringify(dup))
+
+      const editado = await chamar('updateContato', [contatoTesteId, { nome: '', telegram_chat_id: CODIGO, obra_id: obraCt.id }], { rota: ROTA_CT })
+      const { data: ct2 } = await supabase.from('contatos_whatsapp').select('nome').eq('id', contatoTesteId).single()
+      checar('updateContato edita; nome vazio vira nulo', editado.ok === true && ct2?.nome === null, JSON.stringify({ editado, nome: ct2?.nome }))
+
+      const { data: whats } = await supabase.from('contatos_whatsapp').select('id').eq('canal', 'WHATSAPP').limit(1).maybeSingle()
+      if (whats) {
+        const naoEdita = await chamar('updateContato', [whats.id, { telegram_chat_id: CODIGO + '9', obra_id: obraCt.id }], { rota: ROTA_CT })
+        checar('contato antigo de WhatsApp não é convertido pela edição', naoEdita.ok === false, JSON.stringify(naoEdita))
+      }
+
+      const sessaoComCt = await sessaoDePerfil('comercial')
+      const semPermissao = await chamar('deleteContato', [contatoTesteId], { rota: ROTA_CT, cookie: cookieDeSessao(sessaoComCt.session) })
+      const { count: aindaCt } = await supabase.from('contatos_whatsapp').select('id', { count: 'exact', head: true }).eq('id', contatoTesteId)
+      checar('comercial não exclui contato (a action repete a regra do layout)', semPermissao.ok === false && aindaCt === 1, JSON.stringify(semPermissao))
+
+      const excluido = await chamar('deleteContato', [contatoTesteId], { rota: ROTA_CT })
+      checar('deleteContato exclui o contato', excluido.ok === true, excluido.error)
+      if (excluido.ok) contatoTesteId = null
+    }
+  }
+
+  // ============================================================
   // Fase 6 da automação — POST /api/ingestao/proposta
   // ============================================================
   // Rota de máquina: autentica por x-ingestao-token, sem sessão. Os passos
@@ -2221,6 +2717,18 @@ try {
   })
   checar('auditoria: anon não chama registrar_evento', Boolean(anon.error), 'anon conseguiu registrar')
 } finally {
+  if (envioTesteDocId) {
+    const { error: ed } = await supabase.from('documentos_processamento').delete().eq('id', envioTesteDocId)
+    checar('documento do envio pela tela apagado na limpeza', !ed, ed?.message)
+  }
+  if (envioTesteCaminho) {
+    const { error: es } = await supabase.storage.from('documentos-processamento').remove([envioTesteCaminho])
+    checar('PDF de teste do envio pela tela removido do bucket', !es, es?.message)
+  }
+  if (contatoTesteId) {
+    const { error: ec } = await supabase.from('contatos_whatsapp').delete().eq('id', contatoTesteId)
+    checar('contato de teste da Fase 7 apagado na limpeza', !ec, ec?.message)
+  }
   // Fase 6: a proposta da ingestão sai com os itens pelo mesmo caminho da tela;
   // os documentos de teste saem depois (a FK de proposta_criada_id é set null).
   if (propostaIngestaoId) {
