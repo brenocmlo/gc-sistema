@@ -1,8 +1,7 @@
 import { redirect } from 'next/navigation'
 import { Toaster } from 'sonner'
 
-import Header from '@/components/Header'
-import Sidebar from '@/components/Sidebar'
+import AppShell from '@/components/AppShell'
 import { getCurrentProfile } from '@/lib/supabase/profile'
 
 export default async function AppLayout({
@@ -38,19 +37,17 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-[#f8f9fa]">
-      <Sidebar perfil={profile.perfil} />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Header
-          user={{
-            nome: profile.nome,
-            email: profile.email,
-            perfil: profile.perfil,
-          }}
-        />
-        <main className="flex-1 p-8">{children}</main>
-      </div>
+    <>
+      <AppShell
+        user={{
+          nome: profile.nome,
+          email: profile.email,
+          perfil: profile.perfil,
+        }}
+      >
+        {children}
+      </AppShell>
       <Toaster position="top-right" richColors closeButton />
-    </div>
+    </>
   )
 }

@@ -36,7 +36,6 @@ export default function EnviarDocumento({
   }
 
   async function enviar() {
-    if (!obraId) return setErro('Escolha a obra')
     if (!arquivo) return setErro('Escolha o PDF')
     const invalido = validarPdfParaEnvio(arquivo)
     if (invalido) return setErro(invalido)
@@ -80,11 +79,11 @@ export default function EnviarDocumento({
       <Modal open={aberto} onOpenChange={(o) => !o && fechar()} title="Enviar documento" dismissible={!enviando}>
         <div className="space-y-4">
           <p className="text-sm text-gray-600">
-            O PDF passa pela mesma leitura automática do bot do Telegram. Proposta vira proposta
-            com os itens; o que não der para ler vai para revisão.
+            O PDF passa pela mesma leitura automática do bot do Telegram: proposta ou contrato,
+            com os itens, na obra que o documento indicar. O que não der para ler vai para revisão.
           </p>
-          <FormField label="Obra" htmlFor="envio_obra" required>
-            <Select id="envio_obra" options={obraOptions} placeholder="Escolha a obra" value={obraId} onChange={(e) => setObraId(e.target.value)} disabled={enviando} />
+          <FormField label="Obra" htmlFor="envio_obra" hint="Opcional. Em branco, o sistema identifica a obra lendo o PDF">
+            <Select id="envio_obra" options={obraOptions} placeholder="Identificar pelo documento" value={obraId} onChange={(e) => setObraId(e.target.value)} disabled={enviando} />
           </FormField>
           <FormField label="Arquivo PDF" htmlFor="envio_arquivo" required hint="Até 20 MB">
             <input

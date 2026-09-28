@@ -7,6 +7,7 @@ import DetailField from '@/components/DetailField'
 import HistoricoTab from '@/components/HistoricoTab'
 import ItensTab from '@/components/itens/itens-tab'
 import Tabs from '@/components/Tabs'
+import ConferenciaAutomacao from '@/components/ConferenciaAutomacao'
 import { isContratoEditavel, type EntradaHistoricoContrato } from '@/lib/contratos'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { historicoOrdenado } from '@/lib/historico'
@@ -83,8 +84,26 @@ export default async function ContratoDetalhePage({ params }: PageProps) {
 
   const autores = new Map((perfis ?? []).map((p) => [p.id, p.nome]))
 
+  // Automação: contrato criado pelo bot e ainda não conferido (aceitar ou não).
+  const { data: docConferir } = await supabase
+    .from('documentos_processamento')
+    .select('id')
+    .eq('contrato_criado_id', contrato.id)
+    .eq('status', 'APROVADO')
+    .eq('conferencia', 'pendente')
+    .limit(1)
+    .maybeSingle()
+
   return (
     <div className="space-y-6">
+      {docConferir && (
+        <ConferenciaAutomacao
+          documentoId={docConferir.id}
+          oQue="contrato"
+          podeAceitar={profile.perfil === 'admin' || profile.perfil === 'comercial'}
+          podeRecusar={profile.perfil === 'admin'}
+        />
+      )}
       <DetailHeader
         id={contrato.id}
         numero={contrato.numero}

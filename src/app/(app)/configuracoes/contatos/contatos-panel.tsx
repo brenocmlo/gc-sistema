@@ -10,7 +10,6 @@ import { toast } from 'sonner'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import FormField from '@/components/form/FormField'
 import Input from '@/components/form/Input'
-import Select from '@/components/form/Select'
 import Modal from '@/components/Modal'
 import {
   contatoSchema,
@@ -21,15 +20,15 @@ import {
   type ContatoFormValues,
   type ContatoListItem,
 } from '@/lib/contatos'
+import { formatDate } from '@/lib/format'
 
 import { createContato, deleteContato, updateContato } from './actions'
 
 type Props = {
   contatos: ContatoListItem[]
-  obraOptions: { value: string; label: string }[]
 }
 
-export default function ContatosPanel({ contatos, obraOptions }: Props) {
+export default function ContatosPanel({ contatos }: Props) {
   const router = useRouter()
   // null = fechado; 'novo' = criando; item = editando
   const [editando, setEditando] = useState<ContatoListItem | 'novo' | null>(null)
@@ -96,7 +95,7 @@ export default function ContatosPanel({ contatos, obraOptions }: Props) {
         <div className="px-4 py-12 text-center">
           <MessageCircle className="h-8 w-8 text-gray-300 mx-auto" aria-hidden />
           <p className="mt-2 text-sm text-gray-600">Nenhum contato cadastrado.</p>
-          <p className="text-xs text-gray-500">Sem contato, o bot não aceita documentos de ninguém.</p>
+          <p className="text-xs text-gray-500">Sem contato cadastrado, o bot não aceita documentos de ninguém.</p>
         </div>
       ) : (
         <table className="w-full text-sm">
@@ -105,7 +104,7 @@ export default function ContatosPanel({ contatos, obraOptions }: Props) {
               <th className="px-4 py-2">Nome</th>
               <th className="px-4 py-2">Código</th>
               <th className="px-4 py-2">Canal</th>
-              <th className="px-4 py-2">Obra</th>
+              <th className="px-4 py-2">Cadastrado em</th>
               <th className="px-4 py-2 sr-only">Ações</th>
             </tr>
           </thead>
@@ -115,9 +114,7 @@ export default function ContatosPanel({ contatos, obraOptions }: Props) {
                 <td className="px-4 py-2 text-gray-900">{c.nome ?? <span className="text-gray-400">sem nome</span>}</td>
                 <td className="px-4 py-2 font-mono text-gray-700">{identificadorDoContato(c)}</td>
                 <td className="px-4 py-2 text-gray-600">{rotuloCanal(c.canal)}</td>
-                <td className="px-4 py-2 text-gray-600">
-                  {c.obra ? [c.obra.codigo_obra, c.obra.nome].filter(Boolean).join(' — ') : <span className="text-amber-700">sem obra</span>}
-                </td>
+                <td className="px-4 py-2 text-gray-600 tabular-nums">{formatDate(c.created_at)}</td>
                 <td className="px-4 py-2">
                   <div className="flex justify-end gap-1">
                     {c.canal === 'TELEGRAM' && (
@@ -162,10 +159,7 @@ export default function ContatosPanel({ contatos, obraOptions }: Props) {
           >
             <Input id="telegram_chat_id" inputMode="numeric" disabled={isSubmitting} {...register('telegram_chat_id')} />
           </FormField>
-          <FormField label="Obra" htmlFor="obra_id" required hint="As propostas dessa pessoa entram nesta obra" error={errors.obra_id?.message}>
-            <Select id="obra_id" options={obraOptions} placeholder="Escolha a obra" disabled={isSubmitting} {...register('obra_id')} />
-          </FormField>
-          <FormField label="Nome" htmlFor="nome" hint="Opcional. Ex.: Lúcio - comprador" error={errors.nome?.message}>
+          <FormField label="Nome" htmlFor="nome" hint="Quem é: nome e função (ex.: Lúcio - comprador)" error={errors.nome?.message}>
             <Input id="nome" disabled={isSubmitting} {...register('nome')} />
           </FormField>
           <div className="flex justify-end gap-2 pt-2">

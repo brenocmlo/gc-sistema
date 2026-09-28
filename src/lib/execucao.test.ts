@@ -28,6 +28,9 @@ import {
   diasEntre,
   validarQuantidadeDaExecucao,
   validarReducaoDaExecucao,
+  progressoGeralDaObra,
+  maisAtrasadas,
+  linkDoApontamento,
 } from './execucao.ts'
 
 test('ETAPAS segue a ordem da cascata', () => {
@@ -314,4 +317,34 @@ test('validarPrevisoes: datas válidas e na ordem da cascata, sem contar as vazi
   // A comparação pula a etapa vazia: instalação contra fabricação.
   assert.equal(validarPrevisoes({ fab: '2026-10-10', ent: null, inst: '2026-10-05', med: null }).ok, false)
   assert.equal(validarPrevisoes({ fab: '10/10/2026', ent: null, inst: null, med: null }).ok, false)
+})
+
+test('8.3: progressoGeralDaObra é a média das quatro etapas agregadas', () => {
+  assert.equal(progressoGeralDaObra({ fab: 100, ent: 50, inst: 0, med: 0 }), 37.5)
+  assert.equal(progressoGeralDaObra({ fab: 100, ent: 100, inst: 100, med: 100 }), 100)
+  assert.equal(progressoGeralDaObra({ fab: 0, ent: 0, inst: 0, med: 0 }), 0)
+})
+
+test('8.3: maisAtrasadas pega a etapa vencida mais antiga de cada execução, ordena e corta no limite', () => {
+  const hoje = '2026-09-25'
+  const base = { quantidade_total: 10, fab_qtd: 0, ent_qtd: 0, inst_qtd: 0, med_qtd: 0 }
+  const linhas = [
+    { id: 'a', ...base, fab_previsao_fim: '2026-09-20', ent_previsao_fim: '2026-09-22' },
+    { id: 'b', ...base, fab_qtd: 10, fab_previsao_fim: '2026-09-01', ent_previsao_fim: '2026-09-10' },
+    { id: 'c', ...base, fab_previsao_fim: '2026-09-25' },
+    { id: 'd', ...base, fab_qtd: 10, ent_qtd: 10, inst_qtd: 10, med_qtd: 10, med_previsao_fim: '2026-08-01' },
+    { id: 'e', ...base, fab_previsao_fim: '2026-09-24' },
+  ]
+  const r = maisAtrasadas(linhas, hoje)
+  assert.deepEqual(r.map((x) => [x.execucao.id, x.etapa, x.diasDeAtraso]), [
+    ['b', 'ent', 15], // a fabricação da b está concluída: vale a entrega
+    ['a', 'fab', 5],
+    ['e', 'fab', 1],
+  ]) // c vence hoje (não é atraso); d está toda concluída
+  assert.equal(maisAtrasadas(linhas, hoje, 2).length, 2)
+  assert.deepEqual(maisAtrasadas([], hoje), [])
+})
+
+test('8.3: linkDoApontamento abre o painel da execução na ordem por atraso', () => {
+  assert.equal(linkDoApontamento('o1', 'e1'), '/execucao?obra=o1&ordem=atraso&apontar=e1')
 })

@@ -12,6 +12,11 @@ type ModalProps = {
   size?: 'sm' | 'md' | 'lg'
   /** Se false, clique fora e ESC não fecham (usar durante loading). Default true. */
   dismissible?: boolean
+  /**
+   * Abaixo de `sm`, ocupa a tela inteira, sem margem nem borda arredondada
+   * (8.2, painel de apontamento no celular). Os demais modais continuam cartão.
+   */
+  telaCheiaNoCelular?: boolean
 }
 
 const SIZE_CLASS: Record<NonNullable<ModalProps['size']>, string> = {
@@ -32,6 +37,7 @@ export default function Modal({
   footer,
   size = 'sm',
   dismissible = true,
+  telaCheiaNoCelular = false,
 }: ModalProps) {
   useEffect(() => {
     if (!open) return
@@ -49,14 +55,21 @@ export default function Modal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-8 overflow-y-auto"
+      className={`fixed inset-0 z-50 flex justify-center bg-black/40 overflow-y-auto ${
+        // items-start + my-auto no cartão, e não items-center: com items-center,
+        // o cartão mais alto que a tela vaza para cima, numa área que não rola
+        // (o painel de apontamento passou disso com as evidências do 8.1).
+        telaCheiaNoCelular ? 'items-stretch sm:items-start sm:px-4 sm:py-8' : 'items-start px-4 py-8'
+      }`}
       onClick={() => dismissible && onOpenChange(false)}
     >
       <div
-        className={`bg-white rounded-lg shadow-xl w-full ${SIZE_CLASS[size]}`}
+        className={`bg-white shadow-xl w-full ${SIZE_CLASS[size]} ${
+          telaCheiaNoCelular ? 'min-h-full sm:min-h-0 sm:h-auto sm:my-auto sm:rounded-lg' : 'my-auto rounded-lg'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-6 pt-6">
+        <div className={telaCheiaNoCelular ? 'px-4 sm:px-6 pt-5 sm:pt-6' : 'px-6 pt-6'}>
           <h2
             id="modal-title"
             className="text-lg font-semibold text-gray-900"
@@ -64,7 +77,7 @@ export default function Modal({
             {title}
           </h2>
         </div>
-        <div className="px-6 py-4">{children}</div>
+        <div className={telaCheiaNoCelular ? 'px-4 sm:px-6 py-4' : 'px-6 py-4'}>{children}</div>
         {footer && (
           <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3 rounded-b-lg">
             {footer}

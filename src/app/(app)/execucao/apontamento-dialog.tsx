@@ -26,15 +26,21 @@ import {
   type QtdsEtapas,
   type ResumoDoItem,
 } from '@/lib/execucao'
+import { evidenciasDaEtapa, lerEvidencias, type Evidencia } from '@/lib/evidencias'
 import type { ExecucaoListItem } from '@/lib/types'
 
 import { apontarExecucao, criarNovaExecucao, lerExecucao } from './actions'
+import EvidenciasEtapa from './evidencias-etapa'
+import { urlsDasEvidencias } from './evidencias-actions'
+
+export type QuemVe = { empresaId: string; perfil: string; userId: string }
 
 type ApontamentoDialogProps = {
   execucao: ExecucaoListItem | null
   /** Execuções e soma do item desta execução, na obra inteira (7.4). */
   resumo: ResumoDoItem | null
   podeApontar: boolean
+  quem: QuemVe
   onOpenChange: (open: boolean) => void
   /** A linha que voltou do banco, para a tabela trocar só ela. */
   onSalvo: (linha: ExecucaoListItem) => void
@@ -78,6 +84,7 @@ export default function ApontamentoDialog({
   execucao,
   resumo,
   podeApontar,
+  quem,
   onOpenChange,
   onSalvo,
 }: ApontamentoDialogProps) {
@@ -88,6 +95,9 @@ export default function ApontamentoDialog({
   // Congelado na abertura: o painel não muda de "atrasada" enquanto está aberto.
   const [hoje] = useState(hojeISO)
   const [nova, setNova] = useState<{ quantidade: string; localizacao: string } | null>(null)
+  // Evidências (8.1): gravam na hora, fora do "Salvar apontamento".
+  const [evidencias, setEvidencias] = useState<Evidencia[]>([])
+  const [urls, setUrls] = useState<Record<string, string>>({})
 
   // Reabrir parte sempre da linha que a tabela tem.
   useEffect(() => {
@@ -95,8 +105,23 @@ export default function ApontamentoDialog({
       setRascunho(rascunhoDe(execucao))
       setVisto(execucao.updated_at)
       setNova(null)
+      setEvidencias(lerEvidencias(execucao.evidencias))
     }
   }, [execucao])
+
+  // URLs assinadas das miniaturas: por execução, e de novo quando a lista muda.
+  const execucaoId = execucao?.id
+  const assinatura = evidencias.map((e) => e.path).join('|')
+  useEffect(() => {
+    if (!execucaoId || !assinatura) return setUrls({})
+    let vivo = true
+    urlsDasEvidencias(execucaoId).then((r) => {
+      if (vivo && r.ok) setUrls(r.urls)
+    })
+    return () => {
+      vivo = false
+    }
+  }, [execucaoId, assinatura])
 
   const total = rascunho ? numero(rascunho.quantidade) : (execucao?.quantidade_total ?? 0)
   // As OUTRAS execuções do item: a soma do item menos esta, como está no banco.
@@ -214,6 +239,7 @@ export default function ApontamentoDialog({
       title={titulo}
       size="lg"
       dismissible={!salvando}
+      telaCheiaNoCelular
     >
       <div className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-2 items-start">
@@ -231,7 +257,7 @@ export default function ApontamentoDialog({
               value={rascunho.quantidade}
               onChange={(e) => setRascunho((r) => (r ? { ...r, quantidade: e.target.value } : r))}
               aria-invalid={erroQuantidade !== null}
-              className={`w-full mt-1 px-2 py-1.5 border rounded-md text-sm tabular-nums ${
+              className={`w-full mt-1 px-3 py-2.5 sm:px-2 sm:py-1.5 border rounded-md text-base sm:text-sm tabular-nums ${
                 erroQuantidade ? 'border-red-400' : 'border-gray-300'
               } disabled:bg-gray-50`}
             />
@@ -247,7 +273,7 @@ export default function ApontamentoDialog({
               disabled={!podeApontar || salvando}
               value={rascunho.localizacao}
               onChange={(e) => setRascunho((r) => (r ? { ...r, localizacao: e.target.value } : r))}
-              className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded-md text-sm disabled:bg-gray-50"
+              className="w-full mt-1 px-3 py-2.5 sm:px-2 sm:py-1.5 border border-gray-300 rounded-md text-base sm:text-sm disabled:bg-gray-50"
             />
           </div>
         </div>
@@ -316,7 +342,7 @@ export default function ApontamentoDialog({
                         onChange={(e) => setCampo('qtd', etapa, e.target.value)}
                         aria-invalid={Boolean(erro)}
                         aria-describedby={erro ? `erro-${etapa}` : undefined}
-                        className={`w-full px-2 py-1.5 border rounded-md text-sm tabular-nums ${
+                        className={`w-full px-3 py-2.5 sm:px-2 sm:py-1.5 border rounded-md text-base sm:text-sm tabular-nums ${
                           erro ? 'border-red-400' : 'border-gray-300'
                         } disabled:bg-gray-50`}
                       />
@@ -325,7 +351,7 @@ export default function ApontamentoDialog({
                           type="button"
                           disabled={salvando || milesimosIguais(qtds[etapa], max)}
                           onClick={() => setCampo('qtd', etapa, String(max))}
-                          className="px-2 py-1.5 rounded-md border border-gray-300 text-xs font-medium text-gray-700 hover:bg-gray-50 whitespace-nowrap disabled:opacity-40"
+                          className="px-3 py-3 sm:px-2 sm:py-1.5 rounded-md border border-gray-300 text-sm sm:text-xs font-medium text-gray-700 hover:bg-gray-50 whitespace-nowrap disabled:opacity-40"
                           title={`Preenche com o máximo (${formatQtd(max)})`}
                         >
                           Concluir etapa
@@ -344,7 +370,7 @@ export default function ApontamentoDialog({
                       value={rascunho.previsao[etapa]}
                       onChange={(e) => setCampo('previsao', etapa, e.target.value)}
                       aria-invalid={erroPrevisao?.etapa === etapa}
-                      className={`w-full mt-1 px-2 py-1.5 border rounded-md text-sm ${
+                      className={`w-full mt-1 px-3 py-2.5 sm:px-2 sm:py-1.5 border rounded-md text-base sm:text-sm ${
                         erroPrevisao?.etapa === etapa ? 'border-red-400' : 'border-gray-300'
                       } disabled:bg-gray-50`}
                     />
@@ -360,7 +386,7 @@ export default function ApontamentoDialog({
                       disabled={!podeApontar || salvando}
                       value={rascunho.responsavel[etapa]}
                       onChange={(e) => setCampo('responsavel', etapa, e.target.value)}
-                      className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded-md text-sm disabled:bg-gray-50"
+                      className="w-full mt-1 px-3 py-2.5 sm:px-2 sm:py-1.5 border border-gray-300 rounded-md text-base sm:text-sm disabled:bg-gray-50"
                     />
                   </div>
                   <div>
@@ -374,7 +400,7 @@ export default function ApontamentoDialog({
                       disabled={!podeApontar || salvando}
                       value={rascunho.observacao[etapa]}
                       onChange={(e) => setCampo('observacao', etapa, e.target.value)}
-                      className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded-md text-sm disabled:bg-gray-50"
+                      className="w-full mt-1 px-3 py-2.5 sm:px-2 sm:py-1.5 border border-gray-300 rounded-md text-base sm:text-sm disabled:bg-gray-50"
                     />
                   </div>
                 </div>
@@ -394,6 +420,26 @@ export default function ApontamentoDialog({
                   Início {inicio ? formatDate(inicio) : '—'} · Última atualização{' '}
                   {atualizacao ? formatDate(atualizacao) : '—'} · Fim {fim ? formatDate(fim) : '—'}
                 </p>
+
+                <EvidenciasEtapa
+                  etapa={etapa}
+                  execucaoId={execucao.id}
+                  empresaId={quem.empresaId}
+                  obraId={execucao.item?.obra_id ?? ''}
+                  evidencias={evidenciasDaEtapa(evidencias, etapa)}
+                  urls={urls}
+                  podeAnexar={podeApontar}
+                  perfil={quem.perfil}
+                  userId={quem.userId}
+                  updatedAtVisto={visto}
+                  onMudou={(r) => {
+                    setEvidencias(r.evidencias)
+                    // Só a própria gravação: adota o updated_at novo. Se alguém
+                    // apontou no meio, mantém o antigo e o Salvar acusa o conflito.
+                    if (!r.outraMudanca) setVisto(r.updatedAt)
+                    router.refresh()
+                  }}
+                />
               </li>
             )
           })}
@@ -411,7 +457,7 @@ export default function ApontamentoDialog({
                 type="button"
                 disabled={salvando}
                 onClick={() => setNova({ quantidade: sobra > 0 ? String(sobra) : '', localizacao: '' })}
-                className="text-sm font-medium text-blue-700 hover:underline disabled:opacity-50"
+                className="py-2 sm:py-0 text-sm font-medium text-blue-700 hover:underline disabled:opacity-50"
               >
                 Nova execução deste item
               </button>
@@ -437,7 +483,7 @@ export default function ApontamentoDialog({
                       disabled={salvando}
                       value={nova.quantidade}
                       onChange={(e) => setNova((n) => (n ? { ...n, quantidade: e.target.value } : n))}
-                      className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded-md text-sm tabular-nums"
+                      className="w-full mt-1 px-3 py-2.5 sm:px-2 sm:py-1.5 border border-gray-300 rounded-md text-base sm:text-sm tabular-nums"
                     />
                   </div>
                   <div>
@@ -451,14 +497,14 @@ export default function ApontamentoDialog({
                       disabled={salvando}
                       value={nova.localizacao}
                       onChange={(e) => setNova((n) => (n ? { ...n, localizacao: e.target.value } : n))}
-                      className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded-md text-sm"
+                      className="w-full mt-1 px-3 py-2.5 sm:px-2 sm:py-1.5 border border-gray-300 rounded-md text-base sm:text-sm"
                     />
                   </div>
                   <button
                     type="button"
                     onClick={criarNova}
                     disabled={salvando || sobra <= 0}
-                    className="px-3 py-1.5 rounded-md bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 disabled:bg-gray-400"
+                    className="px-3 py-2.5 sm:py-1.5 rounded-md bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 disabled:bg-gray-400"
                   >
                     Criar execução
                   </button>
@@ -468,12 +514,12 @@ export default function ApontamentoDialog({
           </div>
         )}
 
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200 -mx-6 px-6 -mb-4 pb-4 bg-gray-50 rounded-b-lg">
+        <div className="sticky bottom-0 z-10 flex items-center justify-end gap-3 pt-4 border-t border-gray-200 -mx-4 px-4 sm:-mx-6 sm:px-6 -mb-4 pb-4 bg-gray-50 sm:rounded-b-lg">
           <button
             type="button"
             onClick={() => onOpenChange(false)}
             disabled={salvando}
-            className="px-4 py-2 rounded-md border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            className="flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-md border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             {podeApontar ? 'Cancelar' : 'Fechar'}
           </button>
@@ -482,7 +528,7 @@ export default function ApontamentoDialog({
               type="button"
               onClick={salvar}
               disabled={salvando || temErro}
-              className="px-4 py-2 rounded-md bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+              className="flex-1 sm:flex-none px-4 py-3 sm:py-2 rounded-md bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               {salvando ? 'Salvando...' : 'Salvar apontamento'}
             </button>

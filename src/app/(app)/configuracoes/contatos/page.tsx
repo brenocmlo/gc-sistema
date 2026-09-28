@@ -14,16 +14,10 @@ export default async function ContatosPage() {
   if (profile.perfil !== 'admin') redirect('/')
 
   const supabase = createClient()
-  const [{ data: contatos, error }, { data: obras }] = await Promise.all([
-    supabase
-      .from('contatos_whatsapp')
-      .select('id, nome, canal, telegram_chat_id, telefone, obra_id, created_at, obra:obras(codigo_obra, nome)')
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('obras')
-      .select('id, codigo_obra, nome')
-      .order('codigo_obra', { ascending: false }),
-  ])
+  const { data: contatos, error } = await supabase
+    .from('contatos_whatsapp')
+    .select('id, nome, canal, telegram_chat_id, telefone, obra_id, created_at, obra:obras(codigo_obra, nome)')
+    .order('created_at', { ascending: false })
 
   if (error) {
     return (
@@ -33,22 +27,17 @@ export default async function ContatosPage() {
     )
   }
 
-  const obraOptions = (obras ?? []).map((o) => ({
-    value: o.id,
-    label: [o.codigo_obra, o.nome].filter(Boolean).join(' — ') || o.id,
-  }))
-
   return (
     <div className="space-y-4">
       <div className="max-w-5xl mx-auto">
         <h1 className="text-xl font-semibold text-gray-900">Contatos do bot</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Quem pode mandar propostas pelo Telegram. Quando alguém não cadastrado escreve ao bot,
-          ele responde com um código; cadastre esse código aqui, com a obra, e a pessoa passa a
-          poder enviar.
+          Funcionários e administradores que podem mandar propostas e contratos pelo Telegram.
+          Quem não está cadastrado recebe do bot um código; cadastre esse código aqui. A obra de
+          cada documento o sistema identifica lendo o próprio PDF.
         </p>
       </div>
-      <ContatosPanel contatos={(contatos ?? []) as ContatoListItem[]} obraOptions={obraOptions} />
+      <ContatosPanel contatos={(contatos ?? []) as ContatoListItem[]} />
     </div>
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import DataTable from '@/components/DataTable'
+import { rotuloEtapa } from '@/lib/automacao'
 import { resumoDoDocumento, rotuloOrigem, rotuloTipo, type DocumentoListItem } from '@/lib/documentos'
 import { formatCurrency, formatDateTime } from '@/lib/format'
 
@@ -31,7 +32,17 @@ export default function DocumentosTable({ documentos }: { documentos: DocumentoL
           },
         },
         { key: 'origem', header: 'Origem', render: (d) => rotuloOrigem(d.canal) },
-        { key: 'status', header: 'Status', render: (d) => <StatusDocumento status={d.status} /> },
+        {
+          key: 'status',
+          header: 'Status',
+          render: (d) => (
+            <div className="space-y-0.5">
+              <StatusDocumento status={d.status} conferencia={d.conferencia} />
+              {/* Enquanto a automação trabalha, a etapa diz onde ela está. */}
+              {d.status === 'PENDENTE' && d.etapa && <span className="block text-xs text-gray-500">{rotuloEtapa(d.etapa)}</span>}
+            </div>
+          ),
+        },
       ]}
     />
   )

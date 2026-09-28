@@ -110,6 +110,64 @@ update execucao e
    and c.numero = 'SEED-CT-EXEC';
 
 -- ============================================================
+-- Bloco 8.5: obra com 45 itens, para o relatório de medição quebrar página
+-- ============================================================
+-- Contrato SEED-CT-EXEC-45 na SEGUNDA obra da empresa, para não mexer na obra
+-- do SEED-CT-EXEC, que o runtime e o navegador conferem item a item. 45 itens
+-- "Esquadria N", com os estágios pelo resto de N por 5:
+--   0 zerada · 1 fabricada · 2 fabricada e entregue · 3 instalada e metade
+--   medida · 4 concluída nas 4 etapas
+-- Mesma regra de idempotência de cima: só avança execução zerada.
+with
+empresa as (select id from empresas order by created_at limit 1),
+obra as (
+  select o.id, o.empresa_id from obras o
+   where o.empresa_id = (select id from empresa)
+   order by o.codigo_obra offset 1 limit 1
+)
+insert into contratos (empresa_id, obra_id, numero, descricao, data_assinatura,
+                       valor_total, desconto, status, observacao, historico)
+select obra.empresa_id, obra.id, 'SEED-CT-EXEC-45', 'Contrato com 45 itens (sprint 8, relatório de medição)',
+       current_date - 60, 0, 0, 'ativo', '[SEED-TESTE] execução com 45 itens (bloco 8.5)', '[]'::jsonb
+  from obra
+on conflict (empresa_id, numero) do nothing;
+
+with alvo as (
+  select c.id, c.empresa_id, c.obra_id from contratos c
+   where c.numero = 'SEED-CT-EXEC-45' and c.observacao like '[SEED-TESTE]%'
+)
+insert into itens (empresa_id, obra_id, contrato_id, numero, tipo, descricao,
+                   quantidade, unidade, valor_unit, observacao)
+select a.empresa_id, a.obra_id, a.id, n, 'Esquadria', 'Esquadria ' || n,
+       (n % 4) + 2, 'QTD', 150 + n * 10, '[SEED-TESTE]'
+  from alvo a
+ cross join generate_series(1, 45) as n
+ where not exists (
+   select 1 from itens i where i.contrato_id = a.id and i.numero = n
+ );
+
+insert into execucao (empresa_id, item_id, sequencial, quantidade_total)
+select i.empresa_id, i.id, 1, 0
+  from itens i
+  join contratos c on c.id = i.contrato_id
+ where c.numero = 'SEED-CT-EXEC-45'
+   and not exists (select 1 from execucao e where e.item_id = i.id);
+
+update execucao e
+   set fab_qtd  = case when i.numero % 5 >= 1 then e.quantidade_total else 0 end,
+       ent_qtd  = case when i.numero % 5 >= 2 then e.quantidade_total else 0 end,
+       inst_qtd = case when i.numero % 5 >= 3 then e.quantidade_total else 0 end,
+       med_qtd  = case when i.numero % 5 = 4 then e.quantidade_total
+                       when i.numero % 5 = 3 then floor(e.quantidade_total / 2)
+                       else 0 end
+  from itens i
+  join contratos c on c.id = i.contrato_id
+ where e.item_id = i.id
+   and c.numero = 'SEED-CT-EXEC-45'
+   and e.fab_qtd = 0
+   and i.numero % 5 <> 0;
+
+-- ============================================================
 -- Verificação — deve voltar 7 linhas (o Espelho sem execução, a Fachada com 2)
 -- ============================================================
 select i.numero, i.descricao, i.quantidade, e.sequencial, e.quantidade_total, e.localizacao, e.fab_qtd, e.ent_qtd, e.inst_qtd, e.med_qtd,
@@ -120,9 +178,20 @@ select i.numero, i.descricao, i.quantidade, e.sequencial, e.quantidade_total, e.
  where c.numero = 'SEED-CT-EXEC'
  order by i.numero, e.sequencial;
 
+-- E o contrato de 45 itens: 45 execuções, 9 zeradas, 9 concluídas, 9 com medição parcial.
+select count(*) as execucoes,
+       count(*) filter (where e.fab_qtd = 0) as zeradas,
+       count(*) filter (where e.med_status = 'concluido') as concluidas,
+       count(*) filter (where e.med_qtd > 0 and e.med_status <> 'concluido') as medicao_parcial
+  from execucao e
+  join itens i on i.id = e.item_id
+  join contratos c on c.id = i.contrato_id
+ where c.numero = 'SEED-CT-EXEC-45';
+
 -- ============================================================
 -- CLEANUP (colar no SQL Editor; não roda automaticamente)
 -- ============================================================
 -- delete from execucao where item_id in (select i.id from itens i join contratos c on c.id = i.contrato_id where c.numero = 'SEED-CT-EXEC');
 -- delete from itens where contrato_id in (select id from contratos where numero = 'SEED-CT-EXEC');
 -- delete from contratos where numero = 'SEED-CT-EXEC' and observacao like '[SEED-TESTE]%';
+-- (o mesmo para 'SEED-CT-EXEC-45'; execucao_medicoes sai em cascata com a execução)

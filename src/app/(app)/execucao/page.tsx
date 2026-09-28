@@ -2,6 +2,7 @@ import { Factory } from 'lucide-react'
 import { redirect } from 'next/navigation'
 
 import EmptyState from '@/components/EmptyState'
+import ExportButton from '@/components/ExportButton'
 import Pagination from '@/components/Pagination'
 import {
   etapasAtrasadas,
@@ -43,6 +44,8 @@ type SearchParams = {
   ordem?: string
   atrasados?: string
   page?: string
+  /** Link direto da aba Execução da obra (8.3): abre o painel desta execução. */
+  apontar?: string
 }
 
 export default async function ExecucaoPage({ searchParams }: { searchParams: SearchParams }) {
@@ -137,9 +140,14 @@ export default async function ExecucaoPage({ searchParams }: { searchParams: Sea
         <div className="flex-1 min-w-[280px]">
           <ExecucaoFilters obraOptions={obraOptions} responsaveis={responsaveisDe(todas)} />
         </div>
-        {podeApontar && faltantes.ids.length > 0 && (
-          <CriarFaltantes obraId={obraId} quantidade={faltantes.ids.length} />
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {todas.length > 0 && (
+            <ExportButton endpoint="/api/export/execucao" searchParams={extraParams} filename={`execucao-${hoje}`} />
+          )}
+          {podeApontar && faltantes.ids.length > 0 && (
+            <CriarFaltantes obraId={obraId} quantidade={faltantes.ids.length} />
+          )}
+        </div>
       </div>
 
       {todas.length >= LIMITE_POSTGREST && (
@@ -178,6 +186,8 @@ export default async function ExecucaoPage({ searchParams }: { searchParams: Sea
           <ExecucaoTable
             execucoes={visiveis}
             podeApontar={podeApontar}
+            abrirAoCarregar={searchParams.apontar ? (todas.find((e) => e.id === searchParams.apontar) ?? null) : null}
+            quem={{ empresaId: profile?.empresa_id ?? '', perfil: profile?.perfil ?? '', userId: profile?.id ?? '' }}
             resumos={Object.fromEntries(resumoPorItem(todas))}
             agrupar={ordem === 'numero'}
             hoje={hoje}

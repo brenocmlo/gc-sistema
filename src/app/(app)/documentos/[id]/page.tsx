@@ -2,20 +2,28 @@ import { ArrowLeft, ExternalLink, FileText } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
+import AndamentoAutomacao from '@/components/AndamentoAutomacao'
+import ConferenciaAutomacao from '@/components/ConferenciaAutomacao'
 import DetailField from '@/components/DetailField'
 import {
+  aguardaConferencia,
   caminhoDoArquivo,
   destinoDoDocumento,
   itensLidos,
+  podeRevisar,
   resumoDoDocumento,
   rotuloOrigem,
   rotuloTipo,
   type DocumentoListItem,
 } from '@/lib/documentos'
+import type { EventoAutomacao } from '@/lib/automacao'
 import { formatCurrency, formatDateTime } from '@/lib/format'
+import { getCurrentProfile } from '@/lib/supabase/profile'
 import { createClient } from '@/lib/supabase/server'
 
 import StatusDocumento from '../status-documento'
+
+import RevisaoPanel from './revisao-panel'
 
 // Detalhe de um documento recebido: o que a leitura achou, o PDF, e para onde
 // ele levou (proposta ou contrato). É aqui que a revisão humana começa.
@@ -24,7 +32,7 @@ export default async function DocumentoPage({ params }: { params: { id: string }
   const { data, error } = await supabase
     .from('documentos_processamento')
     .select(
-      'id, status, tipo_documento, canal, obra_id, created_at, motivo_revisao, proposta_criada_id, contrato_criado_id, dados_extraidos, arquivo_url, obra:obras(codigo_obra, nome)',
+      'id, status, tipo_documento, canal, obra_id, created_at, motivo_revisao, proposta_criada_id, contrato_criado_id, dados_extraidos, conferencia, arquivo_url, etapa, etapa_detalhe, etapa_em, obra:obras(codigo_obra, nome)',
     )
     .eq('id', params.id)
     .maybeSingle()
@@ -38,7 +46,21 @@ export default async function DocumentoPage({ params }: { params: { id: string }
   }
   if (!data) notFound()
 
-  const doc = data as DocumentoListItem & { arquivo_url: string }
+  const doc = data as DocumentoListItem & {
+    arquivo_url: string
+    etapa: string | null
+    etapa_detalhe: string | null
+    etapa_em: string | null
+  }
+
+  // Andamento: o trigger do banco grava um evento a cada mudança de etapa; o
+  // n8n grava os erros que não chegam a mudar o documento.
+  const { data: eventosData } = await supabase
+    .from('automacao_eventos')
+    .select('id, documento_id, etapa, nivel, mensagem, detalhe, origem, criado_em')
+    .eq('documento_id', doc.id)
+    .order('criado_em', { ascending: true })
+  const eventos = (eventosData ?? []) as EventoAutomacao[]
   const resumo = resumoDoDocumento(doc.dados_extraidos)
   const itens = itensLidos(doc.dados_extraidos)
   const destino = destinoDoDocumento(doc)
@@ -49,6 +71,29 @@ export default async function DocumentoPage({ params }: { params: { id: string }
   const { data: assinada } = caminho
     ? await supabase.storage.from('documentos-processamento').createSignedUrl(caminho, 60 * 10)
     : { data: null }
+
+  // Painel de revisão: só para quem pode escrever (admin e comercial) e só
+  // enquanto o documento pede ação.
+  const profile = await getCurrentProfile()
+  const podeEditar = profile?.perfil === 'admin' || profile?.perfil === 'comercial'
+  let revisao: { obras: { value: string; label: string }[]; propostas: { value: string; label: string }[]; contratos: { value: string; label: string }[] } | null = null
+  if (podeEditar && podeRevisar(doc.status)) {
+    const obraFiltro = doc.obra_id
+    const [{ data: obras }, { data: props }, { data: ctrs }] = await Promise.all([
+      supabase.from('obras').select('id, codigo_obra, nome').order('codigo_obra', { ascending: false }),
+      obraFiltro
+        ? supabase.from('propostas').select('id, numero').eq('obra_id', obraFiltro).order('numero')
+        : supabase.from('propostas').select('id, numero').order('numero'),
+      obraFiltro
+        ? supabase.from('contratos').select('id, numero').eq('obra_id', obraFiltro).order('numero')
+        : supabase.from('contratos').select('id, numero').order('numero'),
+    ])
+    revisao = {
+      obras: (obras ?? []).map((o) => ({ value: o.id, label: `${o.codigo_obra} — ${o.nome}` })),
+      propostas: (props ?? []).map((x) => ({ value: x.id, label: x.numero })),
+      contratos: (ctrs ?? []).map((x) => ({ value: x.id, label: x.numero })),
+    }
+  }
 
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
@@ -67,7 +112,7 @@ export default async function DocumentoPage({ params }: { params: { id: string }
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <StatusDocumento status={doc.status} />
+            <StatusDocumento status={doc.status} conferencia={doc.conferencia} />
             {destino && (
               <Link
                 href={destino.href}
@@ -110,6 +155,28 @@ export default async function DocumentoPage({ params }: { params: { id: string }
           )}
         </div>
       </div>
+
+      <AndamentoAutomacao etapa={doc.etapa} etapaDetalhe={doc.etapa_detalhe} etapaEm={doc.etapa_em} eventos={eventos} />
+
+      {aguardaConferencia(doc) && (
+        <ConferenciaAutomacao
+          documentoId={doc.id}
+          oQue={doc.contrato_criado_id ? 'contrato' : 'proposta'}
+          podeAceitar={podeEditar}
+          podeRecusar={profile?.perfil === 'admin'}
+          mostrarLinkDocumento={false}
+        />
+      )}
+
+      {revisao && (
+        <RevisaoPanel
+          documentoId={doc.id}
+          obraAtual={doc.obra_id}
+          obraOptions={revisao.obras}
+          propostaOptions={revisao.propostas}
+          contratoOptions={revisao.contratos}
+        />
+      )}
 
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
         <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">

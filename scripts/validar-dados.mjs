@@ -826,7 +826,7 @@ const CHECKS = [
       sb
         .from('documentos_processamento')
         .select(
-          'id, status, tipo_documento, canal, obra_id, created_at, motivo_revisao, proposta_criada_id, contrato_criado_id, dados_extraidos, obra:obras(codigo_obra, nome)',
+          'id, status, tipo_documento, canal, obra_id, created_at, motivo_revisao, proposta_criada_id, contrato_criado_id, dados_extraidos, conferencia, etapa, obra:obras(codigo_obra, nome)',
           { count: 'exact' },
         )
         .order('created_at', { ascending: false })
@@ -835,9 +835,88 @@ const CHECKS = [
     valida: (r) => {
       const linhas = r.data ?? []
       if (linhas.some((x) => Array.isArray(x.obra))) return 'obra veio como array, esperado objeto'
-      if (linhas.some((x) => !['PENDENTE', 'ERRO_VALIDACAO', 'REVISAO_HUMANA', 'APROVADO'].includes(x.status))) return 'status fora dos quatro do CHECK'
+      if (linhas.some((x) => !['PENDENTE', 'ERRO_VALIDACAO', 'REVISAO_HUMANA', 'APROVADO', 'DESCARTADO'].includes(x.status))) return 'status fora do CHECK'
       return null
     },
+  },
+  {
+    // Query de src/app/(app)/documentos/[id]/page.tsx (painel de revisão): as
+    // propostas e contratos da obra do documento, para o "Vincular". E a
+    // coluna nova revisado_por (migration 20260925100000) legível sob RLS.
+    nome: 'documentos_processamento: colunas de revisão e opções de vínculo da obra',
+    bloco: 'automação · Fase 7',
+    query: async (sb) => {
+      const doc = await sb.from('documentos_processamento').select('id, obra_id, status, revisado_por, revisado_em').not('obra_id', 'is', null).limit(1).maybeSingle()
+      if (doc.error || !doc.data) return doc.error ? doc : { data: [] }
+      const [p, c] = await Promise.all([
+        sb.from('propostas').select('id, numero').eq('obra_id', doc.data.obra_id).order('numero'),
+        sb.from('contratos').select('id, numero').eq('obra_id', doc.data.obra_id).order('numero'),
+      ])
+      if (p.error) return p
+      if (c.error) return c
+      return { data: [doc.data, ...(p.data ?? []), ...(c.data ?? [])] }
+    },
+    valida: (r) => (r.data?.[0] && !('revisado_por' in r.data[0]) ? 'coluna revisado_por ausente' : null),
+  },
+  {
+    // Query de src/app/(app)/documentos/[id]/page.tsx (andamento): a etapa do
+    // documento (migration 20260928110000) e os eventos dele, do mais antigo
+    // ao mais novo. Pega o documento mais recente que tenha etapa gravada.
+    nome: 'automacao_eventos: etapa do documento e andamento em ordem',
+    bloco: 'automação · log',
+    query: async (sb) => {
+      const doc = await sb
+        .from('documentos_processamento')
+        .select('id, etapa, etapa_detalhe, etapa_em')
+        .not('etapa', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (doc.error || !doc.data) return doc.error ? doc : { data: [] }
+      const ev = await sb
+        .from('automacao_eventos')
+        .select('id, documento_id, etapa, nivel, mensagem, detalhe, origem, criado_em')
+        .eq('documento_id', doc.data.id)
+        .order('criado_em', { ascending: true })
+      if (ev.error) return ev
+      return { data: ev.data ?? [] }
+    },
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.some((e) => !['info', 'aviso', 'erro'].includes(e.nivel))) return 'nível fora do CHECK'
+      for (let i = 1; i < linhas.length; i++) {
+        if (linhas[i].criado_em < linhas[i - 1].criado_em) return 'eventos fora de ordem'
+      }
+      return null
+    },
+  },
+  {
+    // Query de src/app/(app)/documentos/page.tsx e /documentos/log: os 50
+    // eventos mais recentes, de onde sai a faixa "automação parada".
+    nome: 'automacao_eventos: eventos recentes para a faixa de automação parada',
+    bloco: 'automação · log',
+    query: (sb) =>
+      sb
+        .from('automacao_eventos')
+        .select('id, documento_id, etapa, nivel, mensagem, detalhe, origem, criado_em')
+        .order('criado_em', { ascending: false })
+        .limit(50),
+    valida: (r) => ((r.data ?? []).some((e) => !['documento', 'n8n', 'sistema'].includes(e.origem)) ? 'origem fora do CHECK' : null),
+  },
+  {
+    // Query de src/app/(app)/documentos/log/page.tsx: paginada, filtrada por
+    // nível, com count.
+    nome: 'automacao_eventos: log paginado filtrado por erro',
+    bloco: 'automação · log',
+    query: (sb) =>
+      sb
+        .from('automacao_eventos')
+        .select('id, documento_id, etapa, nivel, mensagem, detalhe, origem, criado_em', { count: 'exact' })
+        .order('criado_em', { ascending: false })
+        .order('id', { ascending: false })
+        .eq('nivel', 'erro')
+        .range(0, 19),
+    valida: (r) => ((r.data ?? []).some((e) => e.nivel !== 'erro') ? 'filtro por nível devolveu outro nível' : null),
   },
 ]
 

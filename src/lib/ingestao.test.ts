@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   dimensaoEmMetros,
   montarIngestao,
+  montarIngestaoContrato,
   montarItemIngestao,
   numeroBR,
   tokenConfere,
@@ -220,4 +221,42 @@ test('tokenConfere: só o token exato passa', () => {
   assert.equal(tokenConfere('abc', 'abc123'), false)
   assert.equal(tokenConfere(null, 'abc123'), false)
   assert.equal(tokenConfere('abc123', undefined), false)
+})
+
+// ---- contrato pelo bot (decisão 23)
+
+test('contrato: nasce ativo, com autor, histórico de origem e rastro do documento', () => {
+  const r = montarIngestaoContrato({ ...base, numero: 'CT-2026-0042', dataAssinatura: '10/08/2026', propostaReferenciada: ' PROP-2026-0117 ', itens: [{ numero: '1', quantidade: 1, valor_unitario: 1000 }] }, 'autor-uuid', EM)
+  assert.equal(r.ok, true)
+  if (!r.ok) return
+  assert.equal(r.contrato.status, 'ativo')
+  assert.equal(r.contrato.created_by, 'autor-uuid')
+  assert.equal(r.contrato.data_assinatura, '2026-08-10')
+  assert.equal(r.contrato.proposta_origem_id, null)
+  assert.equal(r.propostaReferenciada, 'PROP-2026-0117')
+  assert.deepEqual(r.contrato.historico, [
+    { de: 'ativo', para: 'ativo', em: EM, por: 'autor-uuid', motivo_rejeicao: null, detalhe_rejeicao: null, motivo_rescisao: null, detalhe_rescisao: null },
+  ])
+  assert.match(r.contrato.observacao, /\[automação · TELEGRAM · documento doc-1\]/)
+  assert.equal(r.itens.length, 1)
+  assert.equal('proposta_id' in r.itens[0], false)
+})
+
+test('contrato: mesmas recusas da proposta (campos, pct, item sem conserto)', () => {
+  assert.equal(montarIngestaoContrato({ valorTotal: 1 }, 'a').ok, false)
+  assert.equal(montarIngestaoContrato({ ...base, pct: { sinal: 80, fd: 30 } }, 'a').ok, false)
+  const r = montarIngestaoContrato({ ...base, itens: [{ numero: '2', quantidade: 0 }] }, 'a')
+  assert.equal(r.ok, false)
+  if (!r.ok) assert.match(r.error, /item 2/)
+})
+
+test('contrato sem proposta citada: propostaReferenciada nula', () => {
+  const r = montarIngestaoContrato({ ...base }, 'a')
+  assert.ok(r.ok && r.propostaReferenciada === null)
+})
+
+test('contrato: aviso de soma divergente fala do contrato', () => {
+  const r = montarIngestaoContrato({ ...base, valorTotal: 1000, itens: [{ numero: '1', quantidade: 1, valor_unitario: 700 }] }, 'a')
+  assert.ok(r.ok)
+  if (r.ok) assert.match(r.avisos.join(' '), /o valor do contrato passa a ser a soma/)
 })

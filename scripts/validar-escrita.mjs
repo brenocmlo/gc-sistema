@@ -123,12 +123,23 @@ const NECESSARIAS = [
   'lerExecucao',
   // Várias execuções por item (7.4)
   'criarNovaExecucao',
+  // Evidências por etapa (8.1)
+  'registrarEvidencia',
+  'excluirEvidencia',
+  'urlsDasEvidencias',
   // Automação, Fase 7: contatos do bot em /configuracoes/contatos
   'createContato',
   'updateContato',
   'deleteContato',
   // Automação, Fase 7: envio de documento pela tela (/documentos)
   'registrarEnvioDocumento',
+  // Automação: revisão pela tela (/documentos/[id])
+  'reprocessarDocumento',
+  'vincularDocumento',
+  'descartarDocumento',
+  // Automação: conferência do que o bot criou (aceitar ou não)
+  'aceitarDocumento',
+  'recusarDocumento',
 ]
 
 const faltando = NECESSARIAS.filter((n) => !ACTIONS[n])
@@ -256,6 +267,14 @@ let propostaPerfisId = null
 /** Bloco 6.2: proposta aprovada de teste e os contratos gerados dela — apagados no finally. */
 let proposta62Id = null
 const contratos62 = []
+/** Automação: contratos e proposta da rota de contrato e documentos da revisão — apagados no finally. */
+const contratosIngestao = []
+let propostaCitadaId = null
+const documentosRevisao = []
+/** Duas obras próprias: a regra de um contrato por obra não deixa usar obra com contrato. */
+const obrasTesteIngestao = []
+/** A obra isolada dos blocos 7.2 a 8.5; sai no fim da limpeza. */
+let obraTesteExecucao = null
 /** Fase 7 da automação: PDF de teste no bucket e documento do envio pela tela — apagados no finally. */
 let envioTesteCaminho = null
 let envioTesteDocId = null
@@ -2028,11 +2047,19 @@ try {
   // criados aqui entram. Os contratos levam `-AVEXE` (saem com os avulsos) e
   // os itens entram em itensCriados; a execução sai junto com o item (FK
   // execucao_item_fk é on delete cascade).
+  //
+  // Até a sprint 7 a obra era "a primeira de gc-dev sem contrato". No
+  // fechamento da sprint 8 o seed de 45 itens ocupou a última livre, e o bloco
+  // inteiro (7.2 a 8.5) parou. Agora a obra é criada aqui e sai no fim da
+  // limpeza, depois dos contratos e dos itens.
   {
-    const { data: comContrato } = await supabase.from('contratos').select('obra_id')
-    const { data: obrasTodas } = await supabase.from('obras').select('id')
-    const obraLivre = (obrasTodas ?? []).find((o) => !(comContrato ?? []).some((c) => c.obra_id === o.id))
-    checar('7.2: gc-dev tem uma obra sem contrato para a ação em lote', Boolean(obraLivre))
+    const { data: perfilExe } = await supabase.from('profiles').select('empresa_id').eq('id', admin.userId).single()
+    const { data: clienteExe } = await supabase.from('clientes').select('id').eq('empresa_id', perfilExe.empresa_id).limit(1).single()
+    const { data: obraLivre, error: erroObraLivre } = await supabase.from('obras')
+      .insert({ empresa_id: perfilExe.empresa_id, cliente_id: clienteExe.id, codigo_obra: `VALIDA-EXE-${NUMERO}`, nome: `Obra de validação da execução ${NUMERO}` })
+      .select('id').single()
+    if (obraLivre) obraTesteExecucao = obraLivre.id
+    checar('7.2: obra de teste sem contrato criada para a ação em lote', Boolean(obraLivre), erroObraLivre?.message)
     if (obraLivre) {
       const ctExe = async (sufixo) => chamar('createContrato', [{
         numero: `${NUMERO}-AVEXE${sufixo}`, obra_id: obraLivre.id, descricao: 'execução 7.2', data_assinatura: null,
@@ -2398,8 +2425,411 @@ try {
         const doItem7 = await execDoItem(i7.item.id)
         checar('7.6: as 3 execuções da matriz (admin, produção, medição) nasceram com sequencial 2, 3 e 4',
           doItem7.map((e) => e.sequencial).join(',') === '1,2,3,4', JSON.stringify(doItem7.map((e) => [e.sequencial, e.localizacao])))
+
+        // ============================================================
+        // 8.1 — Evidências por etapa, sobre a execução e6 da obra isolada.
+        // ============================================================
+        // O navegador sobe direto para o bucket `evidencias` (aqui, o cliente
+        // da sessão do perfil, com a mesma policy) e a action só registra no
+        // jsonb. Os arquivos saem do bucket no finally.
+        const pastaE6 = (etapa) => `${e6.empresa_id}/${obraLivre.id}/execucao/${e6.id}/${etapa}/`
+        const sbDe = async (perfil) => {
+          const cli = createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+          const sess = await sessaoDePerfil(perfil)
+          await cli.auth.setSession(sess.session)
+          return { cli, cookie: cookieDeSessao(sess.session), userId: sess.user.id }
+        }
+        const png = new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')], { type: 'image/png' })
+        const heic = new Blob([new Uint8Array([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63])], { type: 'image/heic' })
+        const ROTA_EXE = { rota: '/execucao' }
+        try {
+          const prod = await sbDe('producao')
+          const med = await sbDe('medicao')
+          const vis = await sbDe('visualizador')
+          const com = await sbDe('comercial')
+          const lerEv = async () => (await supabase.from('execucao').select('evidencias, updated_at, fab_qtd').eq('id', e6.id).single()).data
+          const antes = await lerEv()
+
+          // Upload direto + registro, pela produção, na etapa de instalação.
+          const cam1 = `${pastaE6('inst')}${Date.now()}_foto_instalacao.png`
+          const { error: up1 } = await prod.cli.storage.from('evidencias').upload(cam1, png, { contentType: 'image/png' })
+          const r1 = await chamar('registrarEvidencia', [e6.id, 'inst', { caminho: cam1, nome: 'Foto instalação.png', tamanho: png.size }, antes.updated_at], { ...ROTA_EXE, cookie: prod.cookie })
+          const depois1 = await lerEv()
+          const ev1 = (depois1.evidencias ?? []).find((e) => e.path === cam1)
+          checar('8.1: produção sobe a foto direto no bucket e registrarEvidencia grava no jsonb com etapa, tipo, tamanho e autor',
+            !up1 && r1.ok === true && ev1?.etapa === 'inst' && ev1?.tipo === 'image/png' && ev1?.tamanho === png.size &&
+              ev1?.uploaded_by === prod.userId && ev1?.nome === 'Foto instalação.png',
+            `${up1?.message ?? ''} ${r1.error ?? ''} ${JSON.stringify(ev1 ?? null)}`)
+          checar('8.1: registrar com o updated_at visto não acusa outra mudança e devolve o updated_at novo; o apontamento fica intacto',
+            r1.ok === true && r1.outraMudanca === false && r1.updatedAt === depois1.updated_at && Number(depois1.fab_qtd) === Number(antes.fab_qtd),
+            JSON.stringify({ outra: r1.outraMudanca, up: r1.updatedAt, banco: depois1.updated_at }))
+          const ap = await chamar('apontarExecucao', [e6.id, { ...base6, fab_qtd: Number(antes.fab_qtd), ent_qtd: 0, inst_qtd: 0, med_qtd: 0 }, r1.updatedAt], { ...ROTA_EXE, cookie: prod.cookie })
+          checar('8.1: depois da evidência, apontar com o updated_at novo passa (a evidência não trava o apontamento)',
+            ap.ok === true && (ap.execucao?.evidencias ?? []).some((e) => e.path === cam1), ap.error)
+
+          // HEIC: o MIME sai da extensão.
+          const cam2 = `${pastaE6('fab')}${Date.now()}_img_0001.heic`
+          const { error: up2 } = await prod.cli.storage.from('evidencias').upload(cam2, heic, { contentType: 'image/heic' })
+          const r2 = await chamar('registrarEvidencia', [e6.id, 'fab', { caminho: cam2, nome: 'IMG_0001.HEIC', tamanho: heic.size }, antes.updated_at], { ...ROTA_EXE, cookie: prod.cookie })
+          checar('8.1: HEIC entra com tipo image/heic, na etapa de fabricação; com updated_at velho, outraMudanca vem true',
+            !up2 && r2.ok === true && r2.outraMudanca === true && r2.evidencias.some((e) => e.path === cam2 && e.tipo === 'image/heic' && e.etapa === 'fab'),
+            `${up2?.message ?? ''} ${r2.error ?? ''}`)
+
+          // Recusas da action, sem gravar.
+          const qtdAntes = (await lerEv()).evidencias.length
+          const recusas = [
+            ['arquivo de outra etapa', [e6.id, 'med', { caminho: cam1, nome: 'x.png', tamanho: 1 }, null], /fora da pasta/],
+            ['arquivo que não existe no bucket', [e6.id, 'inst', { caminho: `${pastaE6('inst')}999_nao_existe.png`, nome: 'x.png', tamanho: 1 }, null], /não encontrado/],
+            ['path com ..', [e6.id, 'inst', { caminho: `${pastaE6('inst')}../fab/x.png`, nome: 'x.png', tamanho: 1 }, null], /fora da pasta/],
+            ['etapa inválida', [e6.id, 'pintura', { caminho: cam1, nome: 'x.png', tamanho: 1 }, null], /Etapa inválida/],
+            ['o mesmo arquivo de novo', [e6.id, 'inst', { caminho: cam1, nome: 'x.png', tamanho: 1 }, null], /já está registrado/],
+          ]
+          const erradas = []
+          for (const [rotulo, args, msg] of recusas) {
+            const r = await chamar('registrarEvidencia', args, { ...ROTA_EXE, cookie: prod.cookie })
+            if (r.ok || !msg.test(r.error ?? '')) erradas.push(`${rotulo}: ${r.ok ? 'passou' : r.error}`)
+          }
+          checar('8.1: registrar recusa outra etapa, arquivo inexistente, "..", etapa inválida e registro repetido, sem gravar',
+            erradas.length === 0 && (await lerEv()).evidencias.length === qtdAntes, erradas.join(' | '))
+
+          // Perfis.
+          const camVis = `${pastaE6('inst')}${Date.now()}_do_visualizador.png`
+          const { error: upVis } = await vis.cli.storage.from('evidencias').upload(camVis, png, { contentType: 'image/png' })
+          const rVis = await chamar('registrarEvidencia', [e6.id, 'inst', { caminho: cam1, nome: 'x', tamanho: 1 }, null], { ...ROTA_EXE, cookie: vis.cookie })
+          const rCom = await chamar('registrarEvidencia', [e6.id, 'inst', { caminho: cam1, nome: 'x', tamanho: 1 }, null], { ...ROTA_EXE, cookie: com.cookie })
+          checar('8.1: visualizador não sobe no bucket (policy) nem registra; comercial não registra (a action repete a regra)',
+            Boolean(upVis) && !rVis.ok && /permissão/i.test(rVis.error ?? '') && !rCom.ok && /permissão/i.test(rCom.error ?? ''),
+            `upload vis: ${upVis?.message ?? 'PASSOU'} · ${rVis.error ?? 'PASSOU'} · ${rCom.error ?? 'PASSOU'}`)
+
+          const uVis = await chamar('urlsDasEvidencias', [e6.id], { ...ROTA_EXE, cookie: vis.cookie })
+          const baixa = uVis.ok && uVis.urls[cam1] ? await fetch(uVis.urls[cam1]) : null
+          const uCom = await chamar('urlsDasEvidencias', [e6.id], { ...ROTA_EXE, cookie: com.cookie })
+          checar('8.1: visualizador recebe as URLs assinadas e a da foto baixa (200); comercial é recusado',
+            uVis.ok === true && Object.keys(uVis.urls).length === 2 && baixa?.status === 200 && !uCom.ok,
+            `${uVis.error ?? Object.keys(uVis.urls ?? {}).length} · HTTP ${baixa?.status} · ${uCom.error ?? 'PASSOU'}`)
+
+          // Exclusão: medição não apaga a da produção; a produção apaga a sua; admin apaga qualquer uma.
+          const exMed = await chamar('excluirEvidencia', [e6.id, cam1, null], { ...ROTA_EXE, cookie: med.cookie })
+          const { data: aindaLa } = await supabase.storage.from('evidencias').list(pastaE6('inst'))
+          checar('8.1: medição não exclui a evidência que a produção subiu: fica no jsonb e no bucket',
+            !exMed.ok && /quem enviou/.test(exMed.error ?? '') && (aindaLa ?? []).some((o) => cam1.endsWith(o.name)) &&
+              (await lerEv()).evidencias.some((e) => e.path === cam1), exMed.error ?? 'PASSOU')
+          const exProd = await chamar('excluirEvidencia', [e6.id, cam1, null], { ...ROTA_EXE, cookie: prod.cookie })
+          const { data: sumiu } = await supabase.storage.from('evidencias').list(pastaE6('inst'))
+          checar('8.1: produção exclui a própria evidência: some do bucket e do jsonb',
+            exProd.ok === true && !(sumiu ?? []).some((o) => cam1.endsWith(o.name)) && !(await lerEv()).evidencias.some((e) => e.path === cam1),
+            exProd.error)
+          const exAdm = await chamar('excluirEvidencia', [e6.id, cam2, null], ROTA_EXE)
+          checar('8.1: admin exclui a evidência de outra pessoa', exAdm.ok === true && exAdm.evidencias.length === 0, exAdm.error)
+          const exFora = await chamar('excluirEvidencia', [e6.id, `${e6.empresa_id}/outra/coisa.png`, null], ROTA_EXE)
+          checar('8.1: excluir path que não é evidência da execução é recusado antes do Storage',
+            !exFora.ok && /não encontrado/.test(exFora.error ?? ''), exFora.error ?? 'PASSOU')
+        } finally {
+          for (const etapa of ['fab', 'ent', 'inst', 'med']) {
+            const { data: sobras } = await supabase.storage.from('evidencias').list(pastaE6(etapa))
+            if ((sobras ?? []).length > 0) await supabase.storage.from('evidencias').remove(sobras.map((o) => `${pastaE6(etapa)}${o.name}`))
+          }
+          await supabase.from('execucao').update({ evidencias: [] }).eq('id', e6.id)
+        }
+
+        // ============================================================
+        // 8.4 — Histórico da medição (migration 20260925120000) e o relatório
+        // de medição em PDF, sobre a execução e6 da obra isolada.
+        // ============================================================
+        {
+          const { montarRelatorioDeMedicao } = await import('../src/lib/medicao.ts')
+          const hoje = new Date().toISOString().slice(0, 10)
+          const hist = async () =>
+            (await supabase.from('execucao_medicoes').select('qtd_anterior, qtd_nova, data, criado_por').eq('execucao_id', e6.id).order('created_at')).data ?? []
+          const antesHist = (await hist()).length
+          const { data: { user: prodUser } } = await createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } }).auth.setSession((await sessaoDePerfil('producao')).session)
+          const m1 = await ap6(e6.id, [4, 4, 4, 2])
+          const m2 = await ap6(e6.id, [4, 4, 4, 3])
+          const m3 = await ap6(e6.id, [4, 4, 4, 3])
+          const novas = (await hist()).slice(antesHist)
+          checar('8.4: cada mudança de med_qtd grava uma linha no histórico (anterior, nova, hoje, quem apontou); apontar sem mudar a medição não grava',
+            m1.ok && m2.ok && m3.ok && novas.length === 2 &&
+              Number(novas[0].qtd_nova) === 2 && Number(novas[1].qtd_anterior) === 2 && Number(novas[1].qtd_nova) === 3 &&
+              novas.every((n) => n.data === hoje && n.criado_por === prodUser?.id),
+            `${m1.error ?? ''} ${m2.error ?? ''} ${JSON.stringify(novas)}`)
+
+          const sessCom8 = await sessaoDePerfil('comercial')
+          const sbCom8 = createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+          await sbCom8.auth.setSession(sessCom8.session)
+          const { error: insCom } = await sbCom8.from('execucao_medicoes').insert({ empresa_id: e6.empresa_id, execucao_id: e6.id, qtd_anterior: 0, qtd_nova: 99 })
+          const { data: leCom } = await sbCom8.from('execucao_medicoes').select('id').eq('execucao_id', e6.id)
+          checar('8.4: ninguém grava no histórico pela API (sem policy de insert); a leitura é da empresa',
+            Boolean(insCom) && (leCom ?? []).length === antesHist + 2, `${insCom?.message ?? 'INSERIU'} · ${(leCom ?? []).length} linhas lidas`)
+
+          // O cálculo do relatório com os dados do banco: e6 mediu 3 hoje.
+          const { data: execObra } = await supabase.from('execucao')
+            .select('id, item_id, med_qtd, valor_unit, item:itens!inner(numero, tipo, descricao, quantidade, unidade, obra_id)').eq('item.obra_id', obraLivre.id)
+          const { data: histObra } = await supabase.from('execucao_medicoes').select('execucao_id, data, qtd_anterior, qtd_nova').in('execucao_id', (execObra ?? []).map((e) => e.id))
+          const rel = montarRelatorioDeMedicao(execObra ?? [], histObra ?? [], { de: hoje, ate: hoje })
+          const linhaE6 = rel.linhas.find((l) => l.itemId === e6.item_id)
+          // e6 nasceu hoje (7.6): tudo o que ela mediu é de hoje, então o período de
+          // hoje tem o acumulado inteiro, e um período antigo não tem nada.
+          checar('8.4: com os dados do banco, o item de e6 tem 3 medidos hoje e 3 acumulados; num período antigo, zero',
+            Number(linhaE6?.medidoPeriodo) === 3 && Number(linhaE6?.acumulado) === 3 &&
+              montarRelatorioDeMedicao(execObra ?? [], histObra ?? [], { de: '2000-01-01', ate: '2000-01-02' }).linhas.every((l) => l.medidoPeriodo === 0 && l.acumulado === 0),
+            JSON.stringify(linhaE6 ?? null))
+
+          const pdfDe = async (cookie, qs = `de=${hoje}&ate=${hoje}`) => {
+            const res = await fetch(`${BASE}/api/relatorio/medicao/${obraLivre.id}?${qs}`, { headers: { cookie } })
+            const buf = Buffer.from(await res.arrayBuffer())
+            return { status: res.status, tipo: res.headers.get('content-type') ?? '', buf, paginas: (buf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length }
+          }
+          const pAdm = await pdfDe(admin.cookie)
+          checar('8.4: admin baixa o relatório de medição: 200, application/pdf, começa com %PDF, com pelo menos 1 página',
+            pAdm.status === 200 && pAdm.tipo.includes('application/pdf') && pAdm.buf.subarray(0, 4).toString() === '%PDF' && pAdm.paginas >= 1,
+            `HTTP ${pAdm.status} ${pAdm.tipo} ${pAdm.buf.subarray(0, 8).toString('latin1')} · ${pAdm.paginas} página(s)`)
+          const cookieFin = cookieDeSessao((await sessaoDePerfil('financeiro')).session)
+          const cookieMed = cookieDeSessao((await sessaoDePerfil('medicao')).session)
+          const [pFin, pMed, pProd, pCom] = await Promise.all([pdfDe(cookieFin), pdfDe(cookieMed), pdfDe(cookieProd), pdfDe(cookieDeSessao(sessCom8.session))])
+          checar('8.4: medição e financeiro emitem (200); produção e comercial são recusados (403)',
+            pFin.status === 200 && pMed.status === 200 && pProd.status === 403 && pCom.status === 403,
+            `financeiro ${pFin.status} · medição ${pMed.status} · produção ${pProd.status} · comercial ${pCom.status}`)
+          const [pInv, pSem] = await Promise.all([pdfDe(admin.cookie, `de=${hoje}&ate=2000-01-01`), pdfDe(admin.cookie, '')])
+          checar('8.4: período invertido e período ausente respondem 400 com a mensagem',
+            pInv.status === 400 && /depois da final/.test(pInv.buf.toString()) && pSem.status === 400 && /duas datas/.test(pSem.buf.toString()),
+            `${pInv.status} ${pInv.buf.toString().slice(0, 80)} · ${pSem.status} ${pSem.buf.toString().slice(0, 80)}`)
+        }
+
+        // ============================================================
+        // 8.5 — Export XLSX da /execucao com os filtros, por perfil, sobre a
+        // obra do SEED-CT-EXEC; e o relatório de medição da obra de 45 itens
+        // (SEED-CT-EXEC-45), que tem de quebrar página.
+        // ============================================================
+        {
+          const { default: ExcelJS } = await import('exceljs')
+          const { filtrarExecucoes, hojeISO } = await import('../src/lib/execucao.ts')
+          const { montarRelatorioDeMedicao } = await import('../src/lib/medicao.ts')
+          const { data: ctSeed } = await supabase.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+          const { data: ct45 } = await supabase.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC-45').maybeSingle()
+          checar('8.5: o seed tem o SEED-CT-EXEC e o SEED-CT-EXEC-45 (bash scripts/aplicar-seed.sh supabase/seed_execucao.sql)', Boolean(ctSeed && ct45))
+          if (ctSeed && ct45) {
+            const baixar = async (cookie, qs) => {
+              const res = await fetch(`${BASE}/api/export/execucao?${qs}`, { headers: { cookie } })
+              const buf = Buffer.from(await res.arrayBuffer())
+              if (res.status !== 200) return { status: res.status, texto: buf.toString().slice(0, 120) }
+              const wb = new ExcelJS.Workbook()
+              await wb.xlsx.load(buf)
+              const ws = wb.worksheets[0]
+              const celulas = []
+              ws.eachRow((row) => celulas.push(row.values.slice(1).map((v) => (v && typeof v === 'object' && 'richText' in v ? v.richText.map((t) => t.text).join('') : v))))
+              const total = Number(String(celulas.flat().find((v) => String(v ?? '').startsWith('Total de registros:')) ?? '').replace(/\D/g, ''))
+              const iCab = celulas.findIndex((r) => r[0] === 'Item' && r[2] === 'Descrição')
+              const linhas = iCab >= 0 ? celulas.slice(iCab + 1).filter((r) => r[2]) : []
+              return { status: 200, tipo: res.headers.get('content-type') ?? '', total, linhas, cabecalho: celulas[iCab] ?? [] }
+            }
+            const { data: execSeed } = await supabase.from('execucao')
+              .select('*, item:itens!inner(id, numero, tipo, descricao, quantidade, unidade, obra_id)').eq('item.obra_id', ctSeed.obra_id)
+            const hoje8 = hojeISO()
+            const esperado = (f) => filtrarExecucoes(execSeed ?? [], { etapa: '', status: '', responsavel: '', busca: '', atrasados: false, hoje: hoje8, ...f })
+
+            const tudo = await baixar(admin.cookie, `obra=${ctSeed.obra_id}`)
+            checar('8.5: o export da obra sem filtro traz todas as execuções dela, com as 4 etapas em colunas e o total no cabeçalho',
+              tudo.status === 200 && tudo.tipo.includes('spreadsheetml') && tudo.total === esperado({}).length && tudo.linhas.length === tudo.total &&
+                ['Fabricação — qtd.', 'Medição — status', 'Atrasada em'].every((h) => tudo.cabecalho.includes(h)),
+              `HTTP ${tudo.status} · total ${tudo.total} · linhas ${tudo.linhas?.length} · esperado ${esperado({}).length}`)
+
+            const atras = await baixar(admin.cookie, `obra=${ctSeed.obra_id}&atrasados=1&ordem=atraso`)
+            const iAtr = atras.cabecalho?.indexOf('Atrasada em') ?? -1
+            checar('8.5: com "só atrasados", o export traz as mesmas linhas da tela (o Guarda-corpo, atrasado na fabricação)',
+              atras.status === 200 && atras.total === esperado({ atrasados: true }).length && atras.total >= 1 &&
+                atras.linhas.some((r) => r[2] === 'Guarda-corpo' && String(r[iAtr]).includes('Fabricação')),
+              JSON.stringify({ total: atras.total, esperado: esperado({ atrasados: true }).length, linhas: atras.linhas?.map((r) => [r[2], r[iAtr]]) }))
+
+            const busca = await baixar(admin.cookie, `obra=${ctSeed.obra_id}&busca=porta&etapa=ent`)
+            checar('8.5: busca e etapa também filtram o export como na tela',
+              busca.status === 200 && busca.total === esperado({ busca: 'porta', etapa: 'ent' }).length && busca.linhas.every((r) => /porta/i.test(String(r[2]))),
+              JSON.stringify({ total: busca.total, esperado: esperado({ busca: 'porta', etapa: 'ent' }).length }))
+
+            const perfis = {}
+            for (const perfil of ['producao', 'medicao', 'visualizador', 'comercial', 'financeiro']) {
+              const r = await baixar(cookieDeSessao((await sessaoDePerfil(perfil)).session), `obra=${ctSeed.obra_id}`)
+              perfis[perfil] = r.status
+            }
+            const semObra = await baixar(admin.cookie, '')
+            checar('8.5: produção, medição e visualizador exportam (200); comercial e financeiro não (403); sem obra, 400',
+              perfis.producao === 200 && perfis.medicao === 200 && perfis.visualizador === 200 &&
+                perfis.comercial === 403 && perfis.financeiro === 403 && semObra.status === 400,
+              `${JSON.stringify(perfis)} · sem obra ${semObra.status}`)
+
+            // Relatório de medição com 45 itens.
+            const res45 = await fetch(`${BASE}/api/relatorio/medicao/${ct45.obra_id}?de=2000-01-01&ate=${hoje8}`, { headers: { cookie: admin.cookie } })
+            const pdf45 = Buffer.from(await res45.arrayBuffer())
+            const paginas45 = (pdf45.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length
+            checar('8.5: o relatório de medição da obra de 45 itens sai em PDF com mais de uma página (quebra com o cabeçalho repetido)',
+              res45.status === 200 && pdf45.subarray(0, 4).toString() === '%PDF' && paginas45 >= 2,
+              `HTTP ${res45.status} · ${paginas45} página(s)`)
+            const { data: exec45 } = await supabase.from('execucao')
+              .select('id, item_id, med_qtd, valor_unit, item:itens!inner(numero, tipo, descricao, quantidade, unidade, obra_id)').eq('item.obra_id', ct45.obra_id)
+            const { data: hist45 } = await supabase.from('execucao_medicoes').select('execucao_id, data, qtd_anterior, qtd_nova').in('execucao_id', (exec45 ?? []).map((e) => e.id))
+            const rel45 = montarRelatorioDeMedicao(exec45 ?? [], hist45 ?? [], { de: '2000-01-01', ate: hoje8 })
+            const somaBanco = (exec45 ?? []).reduce((acc, e) => acc + Number(e.med_qtd) * Number(e.valor_unit ?? 0), 0)
+            checar('8.5: nos dados do relatório de 45 itens, o acumulado bate com med_qtd × valor unitário do banco, e o período desde 2000 é o acumulado inteiro',
+              rel45.linhas.length >= 45 && Math.abs(rel45.totais.valorAcumulado - somaBanco) < 0.005 && Math.abs(rel45.totais.valorPeriodo - somaBanco) < 0.005,
+              JSON.stringify({ linhas: rel45.linhas.length, ...rel45.totais, somaBanco }))
+          }
+        }
       }
     }
+  }
+
+  // ============================================================
+  // Automação — rota de contrato e revisão pela tela (decisões 23 e 25)
+  // ============================================================
+  {
+    const TOKEN = process.env.INGESTAO_TOKEN
+    const AUTOR = process.env.INGESTAO_PROFILE_ID
+    const { data: { user: eu } } = await supabase.auth.getUser()
+    const { data: meuPerfil } = await supabase.from('profiles').select('empresa_id').eq('id', eu.id).single()
+    const EMP = meuPerfil.empresa_id
+    const RUN = Date.now()
+    // Duas obras de teste sem contrato: a rota recusa o 2º contrato vigente da
+    // mesma obra (regra do Breno, 25/09) e as obras do seed já têm contratos.
+    const { data: clienteT } = await supabase.from('clientes').select('id').eq('empresa_id', EMP).limit(1).single()
+    const novaObra = async (sufixo) => {
+      const { data, error } = await supabase.from('obras')
+        .insert({ empresa_id: EMP, cliente_id: clienteT.id, codigo_obra: `VALIDA-O${sufixo}-${RUN}`, nome: `Obra de validação ${sufixo} ${RUN}` })
+        .select('id, codigo_obra, nome').single()
+      if (error) throw new Error(`obra de teste: ${error.message}`)
+      obrasTesteIngestao.push(data.id)
+      return data
+    }
+    const obraCt = await novaObra('A')
+    const obraB = await novaObra('B')
+    const novoDoc = async (status = 'PENDENTE', extra = {}) => {
+      const { data, error } = await supabase
+        .from('documentos_processamento')
+        .insert({ empresa_id: EMP, tipo_documento: 'CONTRATO', arquivo_url: 'validacao://ingestao', status, canal: 'TELEGRAM', canal_chat_id: 'validacao', ...extra })
+        .select('id').single()
+      if (error) throw new Error(`documento de teste: ${error.message}`)
+      documentosRevisao.push(data.id)
+      return data.id
+    }
+    const rota = async (caminho, corpo, token = TOKEN) => {
+      const res = await fetch(BASE + caminho, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { 'x-ingestao-token': token } : {}) }, body: JSON.stringify(corpo), redirect: 'manual' })
+      let json = null
+      try { json = await res.json() } catch { json = null }
+      return { status: res.status, json }
+    }
+
+    // Proposta que o contrato vai citar, criada pela própria rota de proposta.
+    const NUM_PROP = `VALIDA-CITADA-${RUN}`
+    const docProp = await novoDoc()
+    const prop = await rota('/api/ingestao/proposta', { documentoId: docProp, empresaId: EMP, obraId: obraCt.id, numero: NUM_PROP, valorTotal: 1000, origem: { canal: 'TELEGRAM' } })
+    propostaCitadaId = prop.json?.propostaId ?? null
+    checar('proposta a ser citada criada pela rota de proposta', prop.status === 201 && Boolean(propostaCitadaId), JSON.stringify(prop))
+
+    const NUM_CT = `VALIDA-CT-${RUN}`
+    const docCt = await novoDoc()
+    const corpoCt = {
+      documentoId: docCt, empresaId: EMP, obraId: obraCt.id, numero: NUM_CT, valorTotal: 'R$ 1.200,00',
+      dataAssinatura: '10/08/2026', propostaReferenciada: NUM_PROP, origem: { canal: 'TELEGRAM' },
+      itens: [
+        { numero: '1', descricao: 'só com total', quantidade: '02', valor_total: 'R$ 1.000,00' },
+        { numero: '2', descricao: 'unidade UN', quantidade: 1, unidade: 'UN', valor_unitario: 200 },
+      ],
+    }
+    const ctSemToken = await rota('/api/ingestao/contrato', corpoCt, null)
+    checar('rota de contrato sem token → 401 (não redireciona pro /login)', ctSemToken.status === 401, `status ${ctSemToken.status}`)
+    const ct = await rota('/api/ingestao/contrato', corpoCt)
+    const ctId = ct.json?.contratoId ?? null
+    if (ctId) contratosIngestao.push(ctId)
+    checar('rota de contrato cria o contrato (201) com 2 itens, ligado à proposta citada', ct.status === 201 && ct.json?.itens === 2 && ct.json?.propostaOrigemId === propostaCitadaId, JSON.stringify(ct))
+    if (ctId) {
+      const { data: c } = await supabase.from('contratos').select('status, created_by, historico, proposta_origem_id, obra_id, data_assinatura, valor_total').eq('id', ctId).single()
+      const h0 = Array.isArray(c?.historico) ? c.historico[0] : null
+      checar('contrato do bot nasce ativo, autor = profile de serviço, histórico ativo → ativo', c?.status === 'ativo' && c?.created_by === AUTOR && h0?.de === 'ativo' && h0?.para === 'ativo' && h0?.por === AUTOR, JSON.stringify({ status: c?.status, h0 }))
+      checar('contrato na obra do documento, com data de assinatura em ISO', c?.obra_id === obraCt.id && c?.data_assinatura === '2026-08-10', JSON.stringify(c))
+      const { data: itc } = await supabase.from('itens').select('numero, valor_unit, unidade, observacao').eq('contrato_id', ctId).order('numero')
+      checar('itens do contrato: unitário inferido (500) e UN → QTD', itc?.length === 2 && Number(itc[0].valor_unit) === 500 && /inferido/.test(itc[0].observacao ?? '') && itc[1].unidade === 'QTD', JSON.stringify(itc))
+      checar('valor do contrato = soma dos itens (trigger da 5.6)', Number(c?.valor_total) === 1200, `valor_total ${c?.valor_total}`)
+      const { data: dct } = await supabase.from('documentos_processamento').select('status, tipo_documento, contrato_criado_id').eq('id', docCt).single()
+      checar('documento vinculado ao contrato: APROVADO, tipo CONTRATO', dct?.status === 'APROVADO' && dct?.tipo_documento === 'CONTRATO' && dct?.contrato_criado_id === ctId, JSON.stringify(dct))
+      const rep = await rota('/api/ingestao/contrato', corpoCt)
+      checar('segunda chamada com o mesmo documento → 200 e o mesmo contrato', rep.status === 200 && rep.json?.jaExistia === true && rep.json?.contratoId === ctId, JSON.stringify(rep))
+      const segundo = await rota('/api/ingestao/contrato', { ...corpoCt, documentoId: await novoDoc(), numero: `${NUM_CT}-2` })
+      checar('segundo contrato vigente na mesma obra → 409 (uma obra, um contrato)', segundo.status === 409 && /já tem um contrato vigente/.test(segundo.json?.error ?? ''), JSON.stringify(segundo))
+
+      // Conferência: o que o bot criou fica "a conferir" até alguém decidir.
+      const { data: dConf } = await supabase.from('documentos_processamento').select('conferencia').eq('id', docCt).single()
+      checar('documento do contrato criado pelo bot fica a conferir', dConf?.conferencia === 'pendente', JSON.stringify(dConf))
+      const aceita = await chamar('aceitarDocumento', [docProp], { rota: `/documentos/${docProp}` })
+      const { data: dAc } = await supabase.from('documentos_processamento').select('conferencia, revisado_por').eq('id', docProp).single()
+      checar('Aceitar: documento da proposta vira conferido (aceita), com quem conferiu', aceita.ok === true && dAc?.conferencia === 'aceita' && dAc?.revisado_por === eu.id, JSON.stringify({ aceita, dAc }))
+      const aceitaDeNovo = await chamar('aceitarDocumento', [docProp], { rota: `/documentos/${docProp}` })
+      checar('documento já conferido não aceita de novo', aceitaDeNovo.ok === false, JSON.stringify(aceitaDeNovo))
+      const sessaoComConf = await sessaoDePerfil('comercial')
+      const comRecusa = await chamar('recusarDocumento', [docCt, 'valor total errado'], { rota: `/documentos/${docCt}`, cookie: cookieDeSessao(sessaoComConf.session) })
+      checar('comercial não desfaz o que o bot criou (Não aceitar é só admin)', comRecusa.ok === false && /administrador/.test(comRecusa.error ?? ''), JSON.stringify(comRecusa))
+      const recusa = await chamar('recusarDocumento', [docCt, 'valor total errado na leitura'], { rota: `/documentos/${docCt}` })
+      const { data: ctDepois } = await supabase.from('contratos').select('id').eq('id', ctId).maybeSingle()
+      const { count: itensDepois } = await supabase.from('itens').select('id', { count: 'exact', head: true }).eq('contrato_id', ctId)
+      const { data: dRec } = await supabase.from('documentos_processamento').select('status, conferencia, contrato_criado_id, motivo_revisao').eq('id', docCt).single()
+      checar('Não aceitar: contrato e itens apagados, documento de volta à revisão com o motivo', recusa.ok === true && !ctDepois && itensDepois === 0 && dRec?.status === 'REVISAO_HUMANA' && dRec?.conferencia === 'recusada' && dRec?.contrato_criado_id === null && /Não aceito na conferência: valor total errado/.test(dRec?.motivo_revisao ?? ''), JSON.stringify({ recusa, ctDepois, itensDepois, dRec }))
+    }
+    const semProp = await rota('/api/ingestao/contrato', { ...corpoCt, documentoId: await novoDoc(), numero: `${NUM_CT}-B`, propostaReferenciada: 'NAO-EXISTE-999' })
+    if (semProp.json?.contratoId) contratosIngestao.push(semProp.json.contratoId)
+    checar('contrato que cita proposta inexistente entra sem vínculo, com aviso (obra livre depois do Não aceitar)', semProp.status === 201 && semProp.json?.propostaOrigemId === null && (semProp.json?.avisos ?? []).some((a) => /não existe nesta obra/.test(a)), JSON.stringify(semProp))
+
+    const dupNum = await rota('/api/ingestao/contrato', { ...corpoCt, documentoId: await novoDoc(), obraId: obraB.id, numero: `${NUM_CT}-B`, propostaReferenciada: null })
+    checar('número de contrato repetido na empresa → 409 legível', dupNum.status === 409 && /Já existe um contrato com esse número/.test(dupNum.json?.error ?? ''), JSON.stringify(dupNum))
+
+    // Decisão 27: sem obraId, a rota identifica a obra pelo que o PDF traz.
+    const pelaObraDoDoc = await rota('/api/ingestao/contrato', {
+      ...corpoCt, documentoId: await novoDoc(), numero: `${NUM_CT}-OBRA`, obraId: undefined, propostaReferenciada: null,
+      obra: { codigo: `Obra: ${obraB.codigo_obra} - ${obraB.nome}`, nome: null, cliente: null },
+    })
+    if (pelaObraDoDoc.json?.contratoId) contratosIngestao.push(pelaObraDoDoc.json.contratoId)
+    checar('sem obra informada, a rota acha a obra pelo código escrito no documento', pelaObraDoDoc.status === 201 && pelaObraDoDoc.json?.obraId === obraB.id && pelaObraDoDoc.json?.obraIdentificadaComo === 'codigo', JSON.stringify(pelaObraDoDoc))
+    const obraInexistente = await rota('/api/ingestao/contrato', {
+      ...corpoCt, documentoId: await novoDoc(), numero: `${NUM_CT}-SEM`, obraId: undefined,
+      obra: { codigo: 'XYZ-NAO-EXISTE-999', nome: 'Condomínio que não existe', cliente: null },
+    })
+    checar('obra do documento que não existe no sistema → 422 legível, nada gravado', obraInexistente.status === 422 && /Obra não identificada/.test(obraInexistente.json?.error ?? ''), JSON.stringify(obraInexistente))
+
+    // Revisão pela tela
+    const docRev = await novoDoc('REVISAO_HUMANA', { obra_id: obraCt.id, motivo_revisao: 'validação' })
+    const ROTA_REV = `/documentos/${docRev}`
+    const sessaoVisRev = await sessaoDePerfil('visualizador')
+    const visRev = await chamar('descartarDocumento', [docRev, 'motivo qualquer'], { rota: ROTA_REV, cookie: cookieDeSessao(sessaoVisRev.session) })
+    checar('visualizador não revisa documento', visRev.ok === false && /permissão/i.test(visRev.error ?? ''), JSON.stringify(visRev))
+    const curto = await chamar('descartarDocumento', [docRev, 'ok'], { rota: ROTA_REV })
+    checar('descartar sem motivo de verdade é recusado', curto.ok === false, JSON.stringify(curto))
+    const semObraRep = await chamar('reprocessarDocumento', [docRev, ''], { rota: ROTA_REV })
+    checar('reprocessar sem obra é recusado (antes de chamar o n8n)', semObraRep.ok === false && /obra/i.test(semObraRep.error ?? ''), JSON.stringify(semObraRep))
+    if (propostaCitadaId) {
+      const vin = await chamar('vincularDocumento', [docRev, { tipo: 'proposta', id: propostaCitadaId }], { rota: ROTA_REV })
+      const { data: dv } = await supabase.from('documentos_processamento').select('status, proposta_criada_id, revisado_por, revisado_em').eq('id', docRev).single()
+      checar('vincular: documento vira APROVADO apontando para a proposta, com quem revisou', vin.ok === true && dv?.status === 'APROVADO' && dv?.proposta_criada_id === propostaCitadaId && dv?.revisado_por === eu.id && Boolean(dv?.revisado_em), JSON.stringify({ vin, dv }))
+      const denovo = await chamar('descartarDocumento', [docRev, 'já estava resolvido'], { rota: ROTA_REV })
+      checar('documento já resolvido não aceita nova ação', denovo.ok === false && /já foi resolvido/.test(denovo.error ?? ''), JSON.stringify(denovo))
+    }
+    const docDesc = await novoDoc('ERRO_VALIDACAO')
+    const desc = await chamar('descartarDocumento', [docDesc, 'PDF duplicado da validação'], { rota: `/documentos/${docDesc}` })
+    const { data: dd } = await supabase.from('documentos_processamento').select('status, motivo_revisao').eq('id', docDesc).single()
+    checar('descartar: status DESCARTADO com o motivo', desc.ok === true && dd?.status === 'DESCARTADO' && dd?.motivo_revisao === 'Descartado: PDF duplicado da validação', JSON.stringify({ desc, dd }))
+    // Log da automação (migration 20260928110000): o trigger grava o
+    // recebimento e cada mudança de status; some junto com o documento (cascade).
+    const { data: evDesc, error: eEvDesc } = await supabase
+      .from('automacao_eventos')
+      .select('etapa, nivel, mensagem, criado_em')
+      .eq('documento_id', docDesc)
+      .order('criado_em', { ascending: true })
+    checar(
+      'log da automação: o trigger registra o recebimento e o descarte, em ordem',
+      !eEvDesc && evDesc?.[0]?.mensagem === 'documento recebido' && evDesc?.at(-1)?.mensagem === 'status: DESCARTADO',
+      JSON.stringify({ eEvDesc, evDesc }),
+    )
+    const { error: eInsEv } = await supabase
+      .from('automacao_eventos')
+      .insert({ documento_id: docDesc, etapa: 'ERRO', nivel: 'erro', mensagem: 'forjado', origem: 'sistema' })
+    checar('log da automação: usuário não grava evento direto (sem policy de insert)', !!eInsEv, 'o insert passou')
+    const alheio = await chamar('vincularDocumento', ['00000000-0000-4000-8000-000000000000', { tipo: 'proposta', id: 'x' }], { rota: ROTA_REV })
+    checar('ação sobre documento inexistente/de outra empresa é recusada', alheio.ok === false && /não encontrado/.test(alheio.error ?? ''), JSON.stringify(alheio))
   }
 
   // ============================================================
@@ -2428,8 +2858,8 @@ try {
     checar('arquivo fora da pasta da empresa é recusado', outraEmp.ok === false && /fora da pasta/.test(outraEmp.error ?? ''), JSON.stringify(outraEmp))
     const traversal = await chamar('registrarEnvioDocumento', [{ ...base, caminho: `${EMP}/sistema/../telegram/x.pdf` }], { rota: ROTA_DOC })
     checar('caminho com .. é recusado', traversal.ok === false, JSON.stringify(traversal))
-    const semObra = await chamar('registrarEnvioDocumento', [{ ...base, obraId: '' }], { rota: ROTA_DOC })
-    checar('envio sem obra é recusado', semObra.ok === false && /obra/i.test(semObra.error ?? ''), JSON.stringify(semObra))
+    // Obra em branco é válida desde a decisão 27 (a leitura identifica pelo PDF);
+    // não há passo "sem obra" aqui porque ele seguiria até chamar o n8n.
     const obraAlheia = await chamar('registrarEnvioDocumento', [{ ...base, obraId: '00000000-0000-4000-8000-000000000000' }], { rota: ROTA_DOC })
     checar('obra de outra empresa é recusada', obraAlheia.ok === false && /Obra inválida/.test(obraAlheia.error ?? ''), JSON.stringify(obraAlheia))
     const inexistente = await chamar('registrarEnvioDocumento', [{ ...base, caminho: `${EMP}/sistema/1_nao-existe.pdf` }], { rota: ROTA_DOC })
@@ -2457,31 +2887,30 @@ try {
     const ROTA_CT = '/configuracoes/contatos'
     // Código fictício e único por rodada: o índice de chat_id é global.
     const CODIGO = String(9_000_000_000 + (Date.now() % 1_000_000_000))
-    const { data: obraCt } = await supabase.from('obras').select('id').order('codigo_obra').limit(1).single()
 
-    const semObra = await chamar('createContato', [{ nome: 'Validação', telegram_chat_id: CODIGO, obra_id: '' }], { rota: ROTA_CT })
-    checar('createContato sem obra é recusado pelo schema', semObra.ok === false && /obra/i.test(semObra.error ?? ''), JSON.stringify(semObra))
-    const letra = await chamar('createContato', [{ telegram_chat_id: '12ab5678', obra_id: obraCt.id }], { rota: ROTA_CT })
+    const semCodigo = await chamar('createContato', [{ nome: 'Validação', telegram_chat_id: '' }], { rota: ROTA_CT })
+    checar('createContato sem código é recusado pelo schema', semCodigo.ok === false && /código/i.test(semCodigo.error ?? ''), JSON.stringify(semCodigo))
+    const letra = await chamar('createContato', [{ telegram_chat_id: '12ab5678' }], { rota: ROTA_CT })
     checar('createContato com código não numérico é recusado', letra.ok === false, JSON.stringify(letra))
 
-    const criado = await chamar('createContato', [{ nome: 'Validação da escrita', telegram_chat_id: ` ${CODIGO.slice(0, 3)} ${CODIGO.slice(3)} `, obra_id: obraCt.id }], { rota: ROTA_CT })
-    checar('createContato cria o contato Telegram (código colado com espaço)', criado.ok === true, criado.error)
+    const criado = await chamar('createContato', [{ nome: 'Validação da escrita', telegram_chat_id: ` ${CODIGO.slice(0, 3)} ${CODIGO.slice(3)} ` }], { rota: ROTA_CT })
+    checar('createContato cria o contato Telegram, sem obra (decisão 27), código colado com espaço', criado.ok === true, criado.error)
     contatoTesteId = criado.id ?? null
 
     if (contatoTesteId) {
       const { data: ct } = await supabase.from('contatos_whatsapp').select('canal, telegram_chat_id, telefone, obra_id, nome, created_by').eq('id', contatoTesteId).single()
-      checar('contato gravado: canal TELEGRAM, código sem espaço, telefone nulo, obra e nome', ct?.canal === 'TELEGRAM' && ct?.telegram_chat_id === CODIGO && ct?.telefone === null && ct?.obra_id === obraCt.id && ct?.nome === 'Validação da escrita', JSON.stringify(ct))
+      checar('contato gravado: canal TELEGRAM, código sem espaço, telefone nulo, sem obra, com nome', ct?.canal === 'TELEGRAM' && ct?.telegram_chat_id === CODIGO && ct?.telefone === null && ct?.obra_id === null && ct?.nome === 'Validação da escrita', JSON.stringify(ct))
 
-      const dup = await chamar('createContato', [{ telegram_chat_id: CODIGO, obra_id: obraCt.id }], { rota: ROTA_CT })
+      const dup = await chamar('createContato', [{ telegram_chat_id: CODIGO }], { rota: ROTA_CT })
       checar('código repetido é recusado com mensagem legível', dup.ok === false && dup.error === 'Esse código já está cadastrado', JSON.stringify(dup))
 
-      const editado = await chamar('updateContato', [contatoTesteId, { nome: '', telegram_chat_id: CODIGO, obra_id: obraCt.id }], { rota: ROTA_CT })
+      const editado = await chamar('updateContato', [contatoTesteId, { nome: '', telegram_chat_id: CODIGO }], { rota: ROTA_CT })
       const { data: ct2 } = await supabase.from('contatos_whatsapp').select('nome').eq('id', contatoTesteId).single()
       checar('updateContato edita; nome vazio vira nulo', editado.ok === true && ct2?.nome === null, JSON.stringify({ editado, nome: ct2?.nome }))
 
       const { data: whats } = await supabase.from('contatos_whatsapp').select('id').eq('canal', 'WHATSAPP').limit(1).maybeSingle()
       if (whats) {
-        const naoEdita = await chamar('updateContato', [whats.id, { telegram_chat_id: CODIGO + '9', obra_id: obraCt.id }], { rota: ROTA_CT })
+        const naoEdita = await chamar('updateContato', [whats.id, { telegram_chat_id: CODIGO + '9' }], { rota: ROTA_CT })
         checar('contato antigo de WhatsApp não é convertido pela edição', naoEdita.ok === false, JSON.stringify(naoEdita))
       }
 
@@ -2717,6 +3146,39 @@ try {
   })
   checar('auditoria: anon não chama registrar_evento', Boolean(anon.error), 'anon conseguiu registrar')
 } finally {
+  // Rota de contrato e revisão. Documentos primeiro: documentos_processamento
+  // aponta para o contrato criado (contrato_criado_id), e a FK recusa apagar o
+  // contrato antes. Depois itens antes do pai (a FK de itens é set null).
+  if (documentosRevisao.length) {
+    const { error: edr } = await supabase.from('documentos_processamento').delete().in('id', documentosRevisao)
+    checar(`limpeza dos ${documentosRevisao.length} documentos de teste da rota de contrato e da revisão`, !edr, edr?.message)
+  }
+  // Rede de segurança: documento que ainda aponte para contrato de teste
+  // (contrato_criado_id não tem ON DELETE) impediria apagar o contrato.
+  if (contratosIngestao.length) {
+    await supabase.from('documentos_processamento').update({ contrato_criado_id: null }).in('contrato_criado_id', contratosIngestao)
+  }
+  for (const id of contratosIngestao) {
+    await supabase.from('itens').delete().eq('contrato_id', id)
+    const { error: ec } = await supabase.from('contratos').delete().eq('id', id)
+    checar('contrato de teste da rota apagado com os itens', !ec, ec?.message)
+  }
+  if (propostaCitadaId) {
+    await supabase.from('itens').delete().eq('proposta_id', propostaCitadaId)
+    const { error: ep } = await supabase.from('propostas').delete().eq('id', propostaCitadaId)
+    checar('proposta citada de teste apagada', !ep, ep?.message)
+  }
+  if (obrasTesteIngestao.length) {
+    // Contratos criados nessas obras que escaparam da lista acima (contratos_obra_fk).
+    const { data: restosCt } = await supabase.from('contratos').select('id').in('obra_id', obrasTesteIngestao)
+    for (const { id } of restosCt ?? []) {
+      await supabase.from('documentos_processamento').update({ contrato_criado_id: null }).eq('contrato_criado_id', id)
+      await supabase.from('itens').delete().eq('contrato_id', id)
+      await supabase.from('contratos').delete().eq('id', id)
+    }
+    const { error: eob } = await supabase.from('obras').delete().in('id', obrasTesteIngestao)
+    checar(`obras de teste da rota de contrato apagadas (${obrasTesteIngestao.length})`, !eob, eob?.message)
+  }
   if (envioTesteDocId) {
     const { error: ed } = await supabase.from('documentos_processamento').delete().eq('id', envioTesteDocId)
     checar('documento do envio pela tela apagado na limpeza', !ed, ed?.message)
@@ -2768,6 +3230,12 @@ try {
       const { error: eav } = await supabase.from('contratos').delete().in('id', avulsos.map((c) => c.id))
       checar(`6.3: os ${avulsos.length} contratos avulsos apagados`, !eav, eav?.message)
     }
+  }
+  // A obra isolada dos blocos 7.2 a 8.5, depois dos itens e dos contratos
+  // -AVEXE dela (a execução e o histórico da medição saem em cascata).
+  if (obraTesteExecucao) {
+    const { error: eoe } = await supabase.from('obras').delete().eq('id', obraTesteExecucao)
+    checar('obra de teste da execução apagada', !eoe, eoe?.message)
   }
   // 6.2: itens dos contratos primeiro (FK set null deixaria órfãos), depois os
   // contratos, depois a proposta com os itens dela.

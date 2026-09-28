@@ -1290,7 +1290,8 @@
     "esperaHtml": [
       "Documentos",
       "Enviar documento",
-      "Todos os status"
+      "Todos os status",
+      "Log da automação"
     ],
     "nota": "Fase 7 da automação: caixa de entrada do bot (admin)"
   },
@@ -1323,5 +1324,91 @@
     "path": "/documentos",
     "perfil": "producao",
     "esperaStatus": 307
+  },
+  {
+    "path": "/obras/{obraExecucao}?aba=execucao",
+    "esperaHtml": [
+      "Execução",
+      "Progresso geral",
+      "Itens mais atrasados",
+      "Guarda-corpo",
+      "de atraso",
+      "Ver todos na execução",
+      "ordem=atraso&amp;apontar=",
+      "aria-label=\"Apontar ",
+      "Relatório de medição (PDF)"
+    ],
+    "nota": "bloco 8.3: aba Execução da obra com o progresso geral, as 4 etapas, o Guarda-corpo do seed entre os mais atrasados e o link direto para o apontamento; 8.4: o botão do relatório de medição com o período"
+  },
+  {
+    "path": "/obras/{obraExecucao}?aba=execucao",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Progresso geral",
+      "Guarda-corpo",
+      "Ver etapas"
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Apontar ",
+      "Relatório de medição (PDF)"
+    ],
+    "nota": "8.3: visualizador vê a aba e o link, que abre o painel só para ver; 8.4: sem o botão do relatório de medição"
+  },
+  {
+    "path": "/obras/{obraExecucao}?aba=execucao",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "Progresso geral",
+      "Guarda-corpo"
+    ],
+    "naoEsperaHtml": [
+      "apontar=",
+      "Ver todos na execução",
+      "Relatório de medição (PDF)"
+    ],
+    "nota": "8.3: comercial vê o progresso na obra, mas sem link para /execucao (o layout de lá o manda embora); 8.4: sem o botão do relatório de medição"
+  },
+  {
+    "path": "/obras/{obraExecucao}?aba=execucao",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "Progresso geral",
+      "Relatório de medição (PDF)"
+    ],
+    "naoEsperaHtml": [
+      "apontar="
+    ],
+    "nota": "8.4: financeiro emite o relatório de medição, sem link para /execucao (o layout de lá não o aceita)"
+  },
+  {
+    "path": "/documentos/log",
+    "esperaHtml": [
+      "Log da automação",
+      "Erros",
+      "Avisos",
+      "Andamento"
+    ],
+    "nota": "log da automação (decisão 30): eventos das etapas e erros do n8n traduzidos; o filtro por nível mora na URL"
+  },
+  {
+    "path": "/documentos/log?nivel=erro",
+    "esperaHtml": [
+      "Log da automação"
+    ],
+    "nota": "filtro por nível não quebra a página, com ou sem eventos"
+  },
+  {
+    "path": "/documentos/log",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Log da automação"
+    ],
+    "nota": "o log herda o layout de /documentos: visualizador lê"
+  },
+  {
+    "path": "/documentos/log",
+    "perfil": "financeiro",
+    "esperaStatus": 307,
+    "nota": "o layout de /documentos não libera financeiro, nem para o log"
   }
 ]

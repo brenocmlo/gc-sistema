@@ -7,7 +7,12 @@ import { useEffect, useState } from 'react'
 import { STATUS_DOCUMENTO_OPTIONS } from '@/lib/documentos'
 import { PERIODO_OPTIONS } from '@/lib/listagem'
 
-const STATUS_OPTIONS = [{ value: '', label: 'Todos os status' }, ...STATUS_DOCUMENTO_OPTIONS]
+const STATUS_OPTIONS = [
+  { value: '', label: 'Todos os status' },
+  // Registrado pelo bot e ainda não conferido (aceitar ou não).
+  { value: 'A_CONFERIR', label: 'A conferir' },
+  ...STATUS_DOCUMENTO_OPTIONS,
+]
 const TIPO_OPTIONS = [
   { value: '', label: 'Todos os tipos' },
   { value: 'PROPOSTA', label: 'Proposta' },

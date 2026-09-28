@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronDown, LogOut } from 'lucide-react'
+import { ChevronDown, LogOut, Menu } from 'lucide-react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 
@@ -15,9 +15,11 @@ type HeaderProps = {
     email: string
     perfil: Perfil
   }
+  /** Botão do menu, só abaixo de `md` (8.2). */
+  onAbrirMenu?: () => void
 }
 
-export default function Header({ title, user }: HeaderProps) {
+export default function Header({ title, user, onAbrirMenu }: HeaderProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -46,17 +48,29 @@ export default function Header({ title, user }: HeaderProps) {
   }
 
   return (
-    <header className="bg-white shadow-sm border-b border-gray-200 px-8 py-4 flex items-center justify-between">
-      <h1 className="text-xl font-semibold text-gray-900">{displayTitle}</h1>
+    <header className="bg-white shadow-sm border-b border-gray-200 px-4 md:px-8 py-3 md:py-4 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2 min-w-0">
+        {onAbrirMenu && (
+          <button
+            type="button"
+            onClick={onAbrirMenu}
+            aria-label="Abrir menu"
+            className="md:hidden -ml-2 p-3 rounded-md text-gray-700 hover:bg-gray-100"
+          >
+            <Menu size={22} />
+          </button>
+        )}
+        <h1 className="text-lg md:text-xl font-semibold text-gray-900 truncate">{displayTitle}</h1>
+      </div>
 
       <div className="relative" ref={dropdownRef}>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-gray-100 transition-colors"
+          className="flex items-center gap-2 px-2 md:px-3 py-2 rounded-md hover:bg-gray-100 transition-colors shrink-0"
         >
           <div className="text-right leading-tight">
-            <p className="text-sm font-medium text-gray-900">{user.nome}</p>
+            <p className="text-sm font-medium text-gray-900 truncate max-w-[120px] md:max-w-none">{user.nome}</p>
             <p className="text-xs text-gray-500">{PERFIL_LABELS[user.perfil]}</p>
           </div>
           <ChevronDown size={16} className="text-gray-500" />

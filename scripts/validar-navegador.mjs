@@ -646,8 +646,10 @@ try {
   )
   await b.screenshot(`${SHOTS}/13-itens-390px.png`, { largura: 390, altura: 844 })
 
-  // MEDIÇÃO DO SHELL: mesma largura, numa tela SEM tabela de itens. Se estoura
-  // aqui, estoura em todo lugar, e a causa não é o 5.2.
+  // SHELL EM 390px (8.2): a Sidebar virou gaveta abaixo de `md`. Até o 8.2
+  // isto era uma guarda de não-regressão de 560px (552px medidos em
+  // 2026-09-21, com a Sidebar fixa comendo 240px); agora é asserção: a página
+  // não rola de lado, e o menu abre pelo botão do header.
   await b.ir(`${BASE}/propostas`)
   await b.esperar('document.querySelector("table tbody tr")', {
     rotulo: 'listagem em 390px',
@@ -655,33 +657,31 @@ try {
   const shell = await b.avaliar(`(() => ({
     paginaScroll: document.documentElement.scrollWidth,
     janela: window.innerWidth,
-    sidebar: (() => { const n = document.querySelector('aside, nav'); return n ? Math.round(n.getBoundingClientRect().width) : 0 })(),
+    sidebarVisivel: Array.from(document.querySelectorAll('aside')).some((a) => a.getBoundingClientRect().width > 0),
+    botaoMenu: (() => { const r = document.querySelector('button[aria-label="Abrir menu"]')?.getBoundingClientRect(); return r ? Math.round(Math.min(r.width, r.height)) : 0 })(),
   }))()`)
-
-  // Guarda de não-regressão, não asserção de correção: 552px foi o medido em
-  // 2026-09-21 com a Sidebar fixa. Se alguém piorar, esta camada acusa; quando
-  // o 8.2 consertar, o número cai e o limite deve cair junto.
-  const SHELL_OVERFLOW_CONHECIDO = 560
   checar(
-    `shell em 390px não piora além do conhecido (${SHELL_OVERFLOW_CONHECIDO}px)`,
-    shell.paginaScroll <= SHELL_OVERFLOW_CONHECIDO,
-    `PRÉ-EXISTENTE (bloco 8.2), medido: ${JSON.stringify(shell)}`,
-  )
-  console.log(
-    `  nota  shell em 390px: ${shell.paginaScroll}px de scroll para ${shell.janela}px` +
-      ` de janela, sidebar ${shell.sidebar}px — pendência do bloco 8.2`,
+    'shell em 390px: sem rolagem lateral, sem a sidebar fixa, com o botão de menu de pelo menos 44px',
+    shell.paginaScroll <= shell.janela && !shell.sidebarVisivel && shell.botaoMenu >= 44,
+    `medido: ${JSON.stringify(shell)}`,
   )
   await b.screenshot(`${SHOTS}/14-shell-390px.png`, { largura: 390, altura: 844 })
 
-  // Pendência do 6.1: /contratos nunca tinha sido medido em 390px. A mesma
-  // guarda do shell: a listagem de contratos não pode estourar mais do que a
-  // de propostas estoura hoje.
-  await b.ir(`${BASE}/contratos`)
+  await b.clicar('button[aria-label="Abrir menu"]')
+  await b.esperar('document.querySelector(\'[role=dialog][aria-label="Menu"] a[href="/contratos"]\')', { rotulo: 'gaveta do menu' })
+  await b.screenshot(`${SHOTS}/14c-menu-390px.png`, { largura: 390, altura: 844 })
+  await b.clicar('[role=dialog][aria-label="Menu"] a[href="/contratos"]')
+  await b.esperar('location.pathname === "/contratos" && !document.querySelector(\'[role=dialog][aria-label="Menu"]\')', {
+    rotulo: 'navegar pela gaveta', ms: 25000,
+  })
+  checar('em 390px, a gaveta do menu abre pelo header, navega e fecha sozinha', (await b.url()).startsWith('/contratos'))
+
+  // Pendência do 6.1: /contratos em 390px, com a mesma asserção.
   await b.esperar('document.querySelector("table tbody tr")', { rotulo: '/contratos em 390px', ms: 25000 })
   const shellCt = await b.avaliar('({ paginaScroll: document.documentElement.scrollWidth, janela: window.innerWidth })')
   checar(
-    `/contratos em 390px não estoura além do shell conhecido (${SHELL_OVERFLOW_CONHECIDO}px)`,
-    shellCt.paginaScroll <= SHELL_OVERFLOW_CONHECIDO,
+    '/contratos em 390px não rola de lado',
+    shellCt.paginaScroll <= shellCt.janela,
     `medido: ${JSON.stringify(shellCt)}`,
   )
   await b.screenshot(`${SHOTS}/14b-contratos-390px.png`, { largura: 390, altura: 844 })
@@ -1212,16 +1212,11 @@ try {
     await b.esperar('document.querySelector("#telegram_chat_id")', { rotulo: 'modal do contato' })
     await b.clicar('[role="dialog"] button', { texto: 'Salvar' })
     await b.esperar('document.body.innerText.includes("Informe o código que o bot enviou")', { rotulo: 'erro do zod', ms: 5000 })
-    checar('zod do cliente barra o contato sem código e sem obra',
-      (await b.texto()).includes('Escolha a obra'))
+    checar('zod do cliente barra o contato sem código; o formulário não tem obra (decisão 27)',
+      !(await b.avaliar('Boolean(document.querySelector("#obra_id"))')))
     await b.screenshot(`${SHOTS}/25-contato-invalido.png`)
 
-    const obraCt = await b.avaliar(`(() => {
-      const o = [...document.querySelectorAll('#obra_id option')].find((x) => x.value)
-      return o ? o.value : ''
-    })()`)
     await b.preencher('#telegram_chat_id', CODIGO_NAV)
-    await b.preencher('#obra_id', obraCt)
     await b.preencher('#nome', `${NUMERO} contato`)
     await b.clicar('[role="dialog"] button', { texto: 'Salvar' })
     await b.esperar('document.body.innerText.includes("Contato cadastrado")', { rotulo: 'toast de contato cadastrado' })
@@ -1295,31 +1290,53 @@ try {
           selo.includes('Guarda-corpo') && !selo.includes('Janela de correr'), JSON.stringify(selo))
         await b.screenshot(`${SHOTS}/31-vencimentos.png`)
 
-        // Pendência de 7.2, 7.3 e 7.5: /execucao nunca tinha sido medida em
-        // 390px. A mesma guarda do shell de /contratos, a tabela de seis colunas
-        // rolando no próprio container e o painel de apontamento cabendo na
-        // janela. Medição, não conferência estética.
+        // 390px da /execucao (7.2, 7.3 e 7.5, e o uso em campo do 8.2): sem
+        // rolagem lateral, cartões no lugar da tabela, o painel em tela cheia
+        // com alvos de toque de pelo menos 44px, o rodapé de salvar visível e o
+        // botão "Tirar foto" com a câmera traseira. Medição, não conferência
+        // estética; o aparelho real continua manual.
         await b.viewport(390, 844)
         await b.ir(`${BASE}/execucao?obra=${ctExe.obra_id}`)
-        await b.esperar('document.querySelector("[aria-label=\\"Próximos vencimentos\\"]") && document.querySelector("table tbody tr")', { rotulo: '/execucao em 390px', ms: 25000 })
+        await b.esperar('document.querySelector("[aria-label=\\"Próximos vencimentos\\"]") && document.querySelector("[data-cartoes] li")', { rotulo: '/execucao em 390px', ms: 25000 })
         const exe390 = await b.avaliar(`(() => {
-          const caixa = document.querySelector('table').closest('.overflow-x-auto');
+          const cartoes = Array.from(document.querySelectorAll('[data-cartoes] button'));
           return {
             paginaScroll: document.documentElement.scrollWidth, janela: window.innerWidth,
-            tabelaRolaDentro: Boolean(caixa) && caixa.scrollWidth > caixa.clientWidth,
+            tabelaVisivel: (document.querySelector('table')?.getBoundingClientRect().width ?? 0) > 0,
+            cartoes: cartoes.length,
+            menorCartao: Math.round(Math.min(...cartoes.map((c) => c.getBoundingClientRect().height))),
           };
         })()`)
-        checar(`/execucao em 390px não estoura além do shell conhecido (${SHELL_OVERFLOW_CONHECIDO}px), e a tabela rola no próprio container`,
-          exe390.paginaScroll <= SHELL_OVERFLOW_CONHECIDO && exe390.tabelaRolaDentro, `medido: ${JSON.stringify(exe390)}`)
+        checar('/execucao em 390px: sem rolagem lateral, cartões no lugar da tabela, cada cartão um alvo de toque',
+          exe390.paginaScroll <= exe390.janela && !exe390.tabelaVisivel && exe390.cartoes > 0 && exe390.menorCartao >= 44,
+          `medido: ${JSON.stringify(exe390)}`)
         await b.screenshot(`${SHOTS}/31b-execucao-390px.png`, { largura: 390, altura: 844 })
-        await b.clicar('button[aria-label="Apontar Porta pivotante"]')
+        await b.clicar('[data-cartoes] button[aria-label="Apontar Porta pivotante"]')
         await b.esperar('document.querySelector("#qtd-fab")', { rotulo: 'painel em 390px' })
         const painel390 = await b.avaliar(`(() => {
-          const r = document.querySelector('[role=dialog]').getBoundingClientRect();
-          return { esquerda: Math.round(r.left), direita: Math.round(r.right), janela: window.innerWidth };
+          const card = document.querySelector('[role=dialog] > div').getBoundingClientRect();
+          const alvos = ['#qtd-fab', '#prev-fab', '#resp-fab', '#obs-fab'].map((q) => document.querySelector(q))
+            .concat(Array.from(document.querySelectorAll('[data-etapa="fab"] button')).filter((x) => x.innerText.includes('Concluir etapa')))
+            .concat(Array.from(document.querySelectorAll('button')).filter((x) => /Salvar apontamento|Cancelar/.test(x.innerText)));
+          const salvar = Array.from(document.querySelectorAll('button')).find((x) => x.innerText.includes('Salvar apontamento')).getBoundingClientRect();
+          const camera = document.querySelector('[data-evidencias="fab"] input[capture]');
+          const botaoFoto = Array.from(document.querySelectorAll('[data-evidencias="fab"] button')).find((x) => x.innerText.includes('Tirar foto'));
+          return {
+            esquerda: Math.round(card.left), direita: Math.round(card.right), largura: Math.round(card.width), janela: window.innerWidth,
+            menorAlvo: Math.round(Math.min(...alvos.map((a) => Math.min(a.getBoundingClientRect().height, a.getBoundingClientRect().width)))),
+            fonteInput: parseFloat(getComputedStyle(document.querySelector('#qtd-fab')).fontSize),
+            salvarNaTela: salvar.bottom <= window.innerHeight && salvar.top >= 0,
+            capture: camera?.getAttribute('capture') ?? null, accept: camera?.accept ?? null,
+            botaoFoto: botaoFoto ? Math.round(botaoFoto.getBoundingClientRect().height) : 0,
+          };
         })()`)
-        checar('em 390px o painel de apontamento cabe na janela, sem cortar nas laterais',
-          painel390.esquerda >= 0 && painel390.direita <= painel390.janela, `medido: ${JSON.stringify(painel390)}`)
+        checar('em 390px o painel ocupa a tela inteira, os campos e botões têm pelo menos 44px, e a fonte dos campos é 16px (sem zoom no iOS)',
+          painel390.esquerda === 0 && painel390.largura === painel390.janela && painel390.menorAlvo >= 44 && painel390.fonteInput >= 16,
+          `medido: ${JSON.stringify(painel390)}`)
+        checar('em 390px, "Salvar apontamento" fica visível sem rolar (rodapé fixo)', painel390.salvarNaTela, `medido: ${JSON.stringify(painel390)}`)
+        checar('em 390px cada etapa tem "Tirar foto", que abre a câmera traseira (capture=environment, image/*)',
+          painel390.capture === 'environment' && painel390.accept === 'image/*' && painel390.botaoFoto >= 44,
+          `medido: ${JSON.stringify(painel390)}`)
         await b.screenshot(`${SHOTS}/31c-apontamento-390px.png`, { largura: 390, altura: 844 })
         await b.viewport(1440, 900)
         await b.ir(`${BASE}/execucao?obra=${ctExe.obra_id}`)
@@ -1348,6 +1365,117 @@ try {
       } finally {
         await sb.from('execucao').update({ ent_previsao_fim: null }).eq('id', porta.id)
       }
+    }
+  }
+
+  // 29. Evidências por etapa (8.1), no "Box de vidro" do seed, como admin: a
+  //     galeria nas 4 etapas, upload pelo seletor de verdade (direto para o
+  //     bucket), miniatura por URL assinada, recusa de tipo no cliente, o
+  //     "Salvar apontamento" sem conflito depois da evidência, e exclusão pelo
+  //     diálogo. O finally tira do bucket e do jsonb o que sobrar.
+  {
+    const sb = await clienteSupabase()
+    const { data: ctExe } = await sb.from('contratos').select('id, obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    const { data: box } = ctExe
+      ? await sb.from('execucao').select('id, empresa_id, item:itens!inner(descricao, contrato_id)').eq('item.contrato_id', ctExe.id).eq('item.descricao', 'Box de vidro').maybeSingle()
+      : { data: null }
+    if (box) {
+      const pastaBox = `${box.empresa_id}/${ctExe.obra_id}/execucao/${box.id}/`
+      try {
+        const foto = `${SHOTS}/evidencia-do-run.png`
+        writeFileSync(foto, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'))
+        const txt = `${SHOTS}/nao-e-evidencia.txt`
+        writeFileSync(txt, 'texto')
+
+        await b.ir(`${BASE}/execucao?obra=${ctExe.obra_id}`)
+        await b.esperar('document.querySelector(\'button[aria-label="Apontar Box de vidro"]\')', { rotulo: 'botão Apontar do Box', ms: 25000 })
+        await b.clicar('button[aria-label="Apontar Box de vidro"]')
+        await b.esperar('document.querySelectorAll("[data-evidencias]").length === 4', { rotulo: 'galerias de evidência' })
+        const galerias = await b.avaliar(`Array.from(document.querySelectorAll('[data-evidencias]')).map((g) => ({
+          etapa: g.dataset.evidencias, vazia: g.innerText.includes('Nenhuma evidência'),
+          accept: g.querySelector('input[type=file]')?.accept ?? null,
+        }))`)
+        checar('o painel tem a galeria de evidências nas 4 etapas, vazia, com upload que aceita PDF e as imagens (HEIC incluso)',
+          JSON.stringify(galerias.map((g) => g.etapa)) === JSON.stringify(['fab', 'ent', 'inst', 'med']) &&
+            galerias.every((g) => g.vazia && ['.pdf', '.jpg', '.png', '.webp', '.heic'].every((x) => (g.accept ?? '').includes(x))),
+          JSON.stringify(galerias))
+
+        await b.anexarArquivo('[data-evidencias="inst"] input[type="file"]', txt)
+        await b.esperar('document.querySelector(\'[data-evidencias="inst"]\').innerText.includes("Envie PDF ou imagem")', { rotulo: 'recusa de tipo no cliente' })
+        checar('arquivo de texto é recusado no cliente, com a mensagem, sem subir',
+          ((await sb.storage.from('evidencias').list(`${pastaBox}inst`)).data ?? []).length === 0)
+
+        await b.anexarArquivo('[data-evidencias="inst"] input[type="file"]', foto)
+        await b.esperar('(() => { const i = document.querySelector(\'[data-evidencias="inst"] img\'); return Boolean(i && i.complete && i.naturalWidth > 0) })()', {
+          rotulo: 'miniatura da evidência', ms: 30000,
+        })
+        const { data: gravada } = await sb.from('execucao').select('evidencias').eq('id', box.id).single()
+        checar('a foto sobe pelo seletor, entra no jsonb na etapa de instalação e aparece como miniatura carregada',
+          (gravada?.evidencias ?? []).length === 1 && gravada.evidencias[0].etapa === 'inst' && gravada.evidencias[0].nome === 'evidencia-do-run.png',
+          JSON.stringify(gravada?.evidencias ?? null))
+        await b.screenshot(`${SHOTS}/32-evidencias.png`)
+
+        await b.clicar('button', { texto: 'Salvar apontamento' })
+        await b.esperar('document.body.innerText.includes("Apontamento salvo") || document.body.innerText.includes("Não foi possível salvar")', { rotulo: 'resultado do salvar', ms: 20000 })
+        checar('depois de anexar, "Salvar apontamento" grava sem acusar conflito (o painel adotou o updated_at da evidência)',
+          (await b.texto()).includes('Apontamento salvo'))
+
+        await b.esperar('!document.querySelector("#qtd-fab")', { rotulo: 'painel fechado' })
+        await b.clicar('button[aria-label="Apontar Box de vidro"]')
+        await b.esperar('document.querySelector(\'[data-evidencias="inst"] button[aria-label="Excluir evidencia-do-run.png"]\')', { rotulo: 'botão de excluir evidência', ms: 20000 })
+        await b.clicar('[data-evidencias="inst"] button[aria-label="Excluir evidencia-do-run.png"]')
+        await b.esperar('Array.from(document.querySelectorAll("button")).some((x) => x.innerText.trim() === "Excluir")', { rotulo: 'diálogo de exclusão' })
+        await b.clicar('button', { texto: 'Excluir' })
+        await b.esperar('document.querySelector(\'[data-evidencias="inst"]\').innerText.includes("Nenhuma evidência")', { rotulo: 'galeria vazia de novo', ms: 20000 })
+        const { data: depoisExcluir } = await sb.from('execucao').select('evidencias').eq('id', box.id).single()
+        checar('excluir pelo diálogo tira do jsonb e do bucket',
+          (depoisExcluir?.evidencias ?? []).length === 0 && ((await sb.storage.from('evidencias').list(`${pastaBox}inst`)).data ?? []).length === 0)
+        await b.clicar('button', { texto: 'Cancelar' })
+      } finally {
+        for (const etapa of ['fab', 'ent', 'inst', 'med']) {
+          const { data: sobras } = await sb.storage.from('evidencias').list(`${pastaBox}${etapa}`)
+          if ((sobras ?? []).length > 0) await sb.storage.from('evidencias').remove(sobras.map((o) => `${pastaBox}${etapa}/${o.name}`))
+        }
+        await sb.from('execucao').update({ evidencias: [] }).eq('id', box.id)
+      }
+    } else {
+      checar('seed: execução "Box de vidro" do SEED-CT-EXEC existe (passo 29)', false)
+    }
+  }
+
+  // 33. Aba Execução da obra (8.3), como admin: a aba pela tela, o progresso
+  //     geral, os mais atrasados e o link direto que abre o painel na
+  //     /execucao; fechar o painel tira o `apontar` da URL.
+  {
+    const sb = await clienteSupabase()
+    const { data: ctExe } = await sb.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    if (ctExe) {
+      await b.ir(`${BASE}/obras/${ctExe.obra_id}`)
+      await b.esperar('Array.from(document.querySelectorAll("[role=tab]")).some((t) => t.innerText.trim() === "Execução")', { rotulo: 'aba Execução da obra', ms: 25000 })
+      await b.clicar('[role=tab]', { texto: 'Execução' })
+      await b.esperar('Array.from(document.querySelectorAll("[role=tabpanel]")).some((p) => !p.hidden && p.innerText.includes("Itens mais atrasados"))', { rotulo: 'conteúdo da aba Execução' })
+      const aba = await b.avaliar(`(() => {
+        const painel = Array.from(document.querySelectorAll('[role=tabpanel]')).find((p) => !p.hidden);
+        const geral = painel.querySelector('[aria-label="Progresso geral da obra"]')?.innerText ?? '';
+        const etapas = Array.from(painel.querySelectorAll('[aria-label="Progresso da obra"] > div')).map((d) => d.innerText.replace(/\\s+/g, ' ').trim());
+        const atrasados = Array.from(painel.querySelectorAll('[data-atrasada]')).map((li) => li.innerText.replace(/\\s+/g, ' ').trim());
+        return { geral, etapas, atrasados };
+      })()`)
+      checar('a aba Execução da obra mostra o progresso geral em %, as 4 etapas e o Guarda-corpo entre os mais atrasados',
+        /\d+(,\d+)?%/.test(aba.geral) && aba.etapas.length === 4 && aba.atrasados.some((t) => t.includes('Guarda-corpo') && /dias? de atraso/.test(t)),
+        JSON.stringify(aba))
+      await b.screenshot(`${SHOTS}/33-obra-aba-execucao.png`)
+
+      await b.clicar('[data-atrasada] a', { texto: 'Apontar' })
+      await b.esperar('location.pathname === "/execucao" && document.querySelector("#qtd-fab")', { rotulo: 'painel aberto pelo link', ms: 25000 })
+      const titulo = await b.avaliar('document.querySelector("#modal-title").innerText')
+      checar('o link "Apontar" da aba abre a /execucao da obra com o painel da execução atrasada',
+        (await b.url()).includes('apontar=') && titulo.includes('Guarda-corpo'), `${await b.url()} · ${titulo}`)
+      await b.clicar('button', { texto: 'Cancelar' })
+      await b.esperar('!document.querySelector("#qtd-fab") && !location.search.includes("apontar=")', { rotulo: 'apontar sai da URL', ms: 15000 })
+      checar('fechar o painel tira o apontar da URL e mantém a obra', (await b.url()).includes(`obra=${ctExe.obra_id}`))
+    } else {
+      checar('seed: SEED-CT-EXEC existe (passo 33)', false)
     }
   }
 
@@ -1383,9 +1511,116 @@ try {
     await b.clicar('button', { texto: 'Enviar documento' })
     await b.esperar('document.querySelector("#envio_arquivo")', { rotulo: 'modal de envio' })
     await b.clicar('[role="dialog"] button', { texto: 'Enviar' })
-    await b.esperar('document.body.innerText.includes("Escolha a obra")', { rotulo: 'validação do envio', ms: 5000 })
-    checar('envio sem obra é barrado na tela, antes de subir qualquer arquivo', true)
+    await b.esperar('document.body.innerText.includes("Escolha o PDF")', { rotulo: 'validação do envio', ms: 5000 })
+    checar('envio sem PDF é barrado na tela, antes de subir qualquer coisa; a obra é opcional', (await b.texto()).includes('Identificar pelo documento'))
     await b.clicar('[role="dialog"] button', { texto: 'Cancelar' })
+  }
+
+  // 30. Revisão pela tela (automação, decisão 25), como admin e antes do 22.
+  //     Um documento de teste em revisão: o painel Resolver aparece e o zod do
+  //     descarte barra motivo curto. Não confirma nenhuma ação — as actions são
+  //     cobertas pela camada escrita.
+  {
+    const sb = await clienteSupabase()
+    const { data: { user } } = await sb.auth.getUser()
+    const { data: pf } = await sb.from('profiles').select('empresa_id').eq('id', user.id).single()
+    const { data: docNav, error: eDoc } = await sb
+      .from('documentos_processamento')
+      .insert({ empresa_id: pf.empresa_id, tipo_documento: 'PROPOSTA', arquivo_url: 'validacao://navegador', status: 'REVISAO_HUMANA', motivo_revisao: `${NUMERO} revisão` })
+      .select('id').single()
+    if (eDoc) throw new Error(`documento de teste do passo 30: ${eDoc.message}`)
+    try {
+      await b.ir(`${BASE}/documentos/${docNav.id}`)
+      await b.esperar('document.body.innerText.includes("Resolver")', { rotulo: 'painel Resolver' })
+      const textoRev = await b.texto()
+      checar('documento em revisão mostra o painel Resolver com as três ações',
+        ['Reprocessar', 'Vincular', 'Descartar'].every((x) => textoRev.includes(x)), textoRev.slice(0, 200))
+      await b.clicar('button', { texto: 'Descartar' })
+      await b.esperar('document.querySelector("#rev_motivo")', { rotulo: 'modal de descarte' })
+      await b.preencher('#rev_motivo', 'ok')
+      await b.clicar('[role="dialog"] button', { texto: 'Descartar' })
+      await b.esperar('document.body.innerText.includes("Diga por que o documento está sendo descartado")', { rotulo: 'validação do motivo', ms: 5000 })
+      checar('descarte com motivo curto é barrado na tela', true)
+      await b.screenshot(`${SHOTS}/30-revisao-descartar.png`)
+      await b.clicar('[role="dialog"] button', { texto: 'Cancelar' })
+    } finally {
+      await sb.from('documentos_processamento').delete().eq('id', docNav.id)
+    }
+  }
+
+  // 31. Conferência do que o bot criou ("aceitar ou não"), como admin e antes
+  //     do 22. Uma proposta rascunho e um documento "a conferir" de teste: a
+  //     faixa aparece no detalhe da proposta com Aceitar e Não aceitar, e o
+  //     motivo curto do Não aceitar é barrado. Não confirma: a camada escrita
+  //     cobre as duas actions.
+  {
+    const sb = await clienteSupabase()
+    const { data: { user } } = await sb.auth.getUser()
+    const { data: pf } = await sb.from('profiles').select('empresa_id').eq('id', user.id).single()
+    const { data: obraC } = await sb.from('obras').select('id').eq('empresa_id', pf.empresa_id).order('codigo_obra').limit(1).single()
+    const { data: propC, error: eP } = await sb.from('propostas')
+      .insert({ empresa_id: pf.empresa_id, obra_id: obraC.id, numero: `${NUMERO}-CONF`, status: 'rascunho', valor_total: 100 })
+      .select('id').single()
+    if (eP) throw new Error(`proposta de teste do passo 31: ${eP.message}`)
+    const { data: docC, error: eD } = await sb.from('documentos_processamento')
+      .insert({ empresa_id: pf.empresa_id, obra_id: obraC.id, tipo_documento: 'PROPOSTA', arquivo_url: 'validacao://navegador', status: 'APROVADO', conferencia: 'pendente', proposta_criada_id: propC.id })
+      .select('id').single()
+    try {
+      if (eD) throw new Error(`documento de teste do passo 31: ${eD.message}`)
+      await b.ir(`${BASE}/propostas/${propC.id}`)
+      await b.esperar('document.body.innerText.includes("pela automação")', { rotulo: 'faixa de conferência' })
+      const textoConf = await b.texto()
+      checar('proposta criada pelo bot mostra a faixa "confira" com Aceitar e Não aceitar',
+        textoConf.includes('Proposta criada pela automação') && textoConf.includes('Aceitar') && textoConf.includes('Não aceitar'), textoConf.slice(0, 200))
+      await b.clicar('button', { texto: 'Não aceitar' })
+      await b.esperar('document.querySelector("#conf_motivo")', { rotulo: 'modal Não aceitar' })
+      await b.preencher('#conf_motivo', 'x')
+      await b.clicar('[role="dialog"] button', { texto: 'Não aceitar' })
+      await b.esperar('document.body.innerText.includes("Diga o que estava errado")', { rotulo: 'validação do motivo', ms: 5000 })
+      checar('Não aceitar com motivo curto é barrado na tela', true)
+      await b.screenshot(`${SHOTS}/31-conferencia.png`)
+      await b.clicar('[role="dialog"] button', { texto: 'Cancelar' })
+    } finally {
+      if (docC) await sb.from('documentos_processamento').delete().eq('id', docC.id)
+      await sb.from('propostas').delete().eq('id', propC.id)
+    }
+  }
+
+  // 34. Log da automação (decisão 30), como admin e antes do 22. Um documento
+  //     de teste parado pelo limite do n8n: o detalhe mostra a etapa e o erro
+  //     traduzido, /documentos mostra a faixa de automação parada e o log lista
+  //     o evento. Apagar o documento leva os eventos junto (cascade), e a faixa
+  //     some.
+  {
+    const sb = await clienteSupabase()
+    const { data: { user } } = await sb.auth.getUser()
+    const { data: pf } = await sb.from('profiles').select('empresa_id').eq('id', user.id).single()
+    const { data: docLog, error: eLog } = await sb
+      .from('documentos_processamento')
+      .insert({
+        empresa_id: pf.empresa_id, tipo_documento: 'PROPOSTA', arquivo_url: 'validacao://navegador', status: 'ERRO_VALIDACAO',
+        motivo_revisao: `${NUMERO} log`, etapa: 'ERRO', etapa_detalhe: 'Execution limit reached. Consider upgrading your plan',
+      })
+      .select('id').single()
+    if (eLog) throw new Error(`documento de teste do passo 34: ${eLog.message}`)
+    try {
+      await b.ir(`${BASE}/documentos/${docLog.id}`)
+      await b.esperar('document.body.innerText.includes("Andamento da automação")', { rotulo: 'painel de andamento' })
+      const textoLog = await b.texto()
+      checar('detalhe do documento mostra a etapa atual e o erro do n8n traduzido',
+        ['Etapa atual', 'Parou com erro', 'Limite de execuções do n8n atingido', 'O que fazer'].every((x) => textoLog.includes(x)), textoLog.slice(0, 300))
+      await b.screenshot(`${SHOTS}/34-andamento-automacao.png`)
+      await b.ir(`${BASE}/documentos`)
+      await b.esperar('document.body.innerText.includes("Log da automação")', { rotulo: 'link do log' })
+      checar('/documentos mostra a faixa de automação parada', (await b.texto()).includes('A automação está parada'))
+      await b.ir(`${BASE}/documentos/log?nivel=erro`)
+      await b.esperar('document.body.innerText.includes("Log da automação")', { rotulo: 'log da automação' })
+      const textoLista = await b.texto()
+      checar('log filtrado por erro lista o evento com a explicação', textoLista.includes('Limite de execuções do n8n atingido') && textoLista.includes('abrir o documento'), textoLista.slice(0, 300))
+      await b.screenshot(`${SHOTS}/34-log-automacao.png`)
+    } finally {
+      await sb.from('documentos_processamento').delete().eq('id', docLog.id)
+    }
   }
 
   // 22. Pendência de anexos: o ícone de excluir só aparece no anexo que a
@@ -1430,6 +1665,49 @@ try {
       await b.screenshot(`${SHOTS}/26-anexos-como-comercial.png`)
 
       await sb.storage.from('anexos').remove([pAdmin, pCom])
+    }
+  }
+
+  // 29b. Evidências como visualizador (8.1): vê a galeria com a miniatura,
+  //      sem o upload e sem o excluir. Depois do 26, que já trocou a sessão.
+  {
+    const sb = await clienteSupabase()
+    const { data: ctExe } = await sb.from('contratos').select('id, obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    const { data: box } = ctExe
+      ? await sb.from('execucao').select('id, empresa_id, item:itens!inner(descricao, contrato_id)').eq('item.contrato_id', ctExe.id).eq('item.descricao', 'Box de vidro').maybeSingle()
+      : { data: null }
+    if (box) {
+      const caminho = `${box.empresa_id}/${ctExe.obra_id}/execucao/${box.id}/fab/1_do-admin.png`
+      try {
+        const png = new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')], { type: 'image/png' })
+        const { data: { user: adminUser } } = await sb.auth.getUser()
+        const up = await sb.storage.from('evidencias').upload(caminho, png, { contentType: 'image/png', upsert: true })
+        await sb.from('execucao').update({
+          evidencias: [{ nome: 'do-admin.png', path: caminho, tipo: 'image/png', tamanho: png.size, uploaded_at: new Date().toISOString(), uploaded_by: adminUser.id, etapa: 'fab' }],
+        }).eq('id', box.id)
+        checar('evidência do admin montada para o visualizador', !up.error, up.error?.message)
+
+        const vis = await sessaoDePerfil('visualizador')
+        const ref = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname.split('.')[0]
+        await b.limparSessao()
+        await b.definirCookie(`sb-${ref}-auth-token`, `base64-${Buffer.from(JSON.stringify(vis.session)).toString('base64url')}`, BASE)
+        await b.ir(`${BASE}/execucao?obra=${ctExe.obra_id}`)
+        await b.esperar('document.querySelector(\'button[aria-label="Ver etapas de Box de vidro"]\')', { rotulo: 'botão Ver etapas', ms: 25000 })
+        await b.clicar('button[aria-label="Ver etapas de Box de vidro"]')
+        await b.esperar('(() => { const i = document.querySelector(\'[data-evidencias="fab"] img\'); return Boolean(i && i.complete && i.naturalWidth > 0) })()', {
+          rotulo: 'miniatura como visualizador', ms: 30000,
+        })
+        const tela = await b.avaliar(`({
+          upload: document.querySelectorAll('[data-evidencias] input[type=file]').length,
+          excluir: document.querySelectorAll('[data-evidencias] button[aria-label^="Excluir"]').length,
+        })`)
+        checar('como visualizador, a galeria mostra a miniatura, sem upload e sem excluir em nenhuma etapa',
+          tela.upload === 0 && tela.excluir === 0, JSON.stringify(tela))
+        await b.screenshot(`${SHOTS}/32b-evidencias-visualizador.png`)
+      } finally {
+        await sb.storage.from('evidencias').remove([caminho])
+        await sb.from('execucao').update({ evidencias: [] }).eq('id', box.id)
+      }
     }
   }
 

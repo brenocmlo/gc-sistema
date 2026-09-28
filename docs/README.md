@@ -69,16 +69,29 @@ Aberta em 2026-09-23. Blocos fechados um de cada vez.
 
 ## Sprint 7 — Execução: estrutura e apontamento · `sprint-7/`
 
-Aberta em 2026-09-23. Validação no fechamento da sprint, rodada pelo Breno.
+Aberta em 2026-09-23, **fechada em 2026-09-24** com as sete camadas do plano passando.
 
 | Bloco | Documento |
 |---|---|
-| 7.1 Execução: types, helpers e regras de cascata | `7.1-status-entrega.md` — implementado, validação pendente |
-| 7.2 Execução: listagem por obra | `7.2-status-entrega.md` — implementado, validação pendente |
-| 7.3 Execução: painel de apontamento | `7.3-status-entrega.md` — implementado, validação pendente |
-| 7.4 Execução: múltiplas execuções por item | `7.4-status-entrega.md` — implementado, validação pendente; migration aplicada em gc-dev |
-| 7.5 Execução: previsões, responsáveis e alertas de atraso | `7.5-status-entrega.md` — implementado, validação pendente |
-| 7.6 Execução: testes de cascata (fechamento) | `7.6-status-entrega.md` — implementado; rodada de fechamento a cargo do Breno |
+| 7.1 Execução: types, helpers e regras de cascata | `7.1-status-entrega.md` — validado |
+| 7.2 Execução: listagem por obra | `7.2-status-entrega.md` — validado |
+| 7.3 Execução: painel de apontamento | `7.3-status-entrega.md` — validado |
+| 7.4 Execução: múltiplas execuções por item | `7.4-status-entrega.md` — validado; migration aplicada em gc-dev |
+| 7.5 Execução: previsões, responsáveis e alertas de atraso | `7.5-status-entrega.md` — validado |
+| 7.6 Execução: testes de cascata (fechamento) | `7.6-status-entrega.md` — rodada de fechamento, 2 migrations do fechamento |
+
+## Sprint 8 — Execução: evidências e visão consolidada · `sprint-8/`
+
+Aberta em 2026-09-25, **fechada em 2026-09-28** com as sete camadas do plano passando. O teste
+no celular fica a cargo do Breno.
+
+| Bloco | Documento |
+|---|---|
+| 8.1 Execução: upload de evidências por etapa | `8.1-status-entrega.md` — validado |
+| 8.2 Execução: uso em campo (mobile) | `8.2-status-entrega.md` — validado; aparelho real a cargo do Breno |
+| 8.3 Obra: aba de execução consolidada | `8.3-status-entrega.md` — validado |
+| 8.4 Relatório PDF de medição por obra | `8.4-status-entrega.md` — validado; migration aplicada em gc-dev |
+| 8.5 Execução: export XLSX e testes (fechamento) | `8.5-status-entrega.md` — rodada de fechamento; migration do deadlock |
 
 ## Sprint 13 — Administração, qualidade e segurança · `sprint-13/`
 
@@ -105,7 +118,7 @@ Trilha separada, com **numeração própria de 1 a 8** na lista do ClickUp — n
 
 | Documento | O que é |
 |---|---|
-| `migracao-telegram-integracao-automacao.md` | O plano da rodada: migrar de Z-API para Telegram e fazer a proposta entrar sozinha no sistema. 21 decisões fechadas, 8 fases |
+| `migracao-telegram-integracao-automacao.md` | O plano da rodada: migrar de Z-API para Telegram e fazer a proposta entrar sozinha no sistema. 29 decisões fechadas, 8 fases |
 | `fase-1-contatos-canal-status-entrega.md` | Entrega da Fase 1 (migration de identidade de canal) |
 | `fase-0-runbook.md` | Fase 0 dividida: Parte A (Telegram, manual) e Parte B (n8n) |
 | `fase-0-parte-a-telegram-passo-a-passo.md` | Os nove passos da Parte A: criar os dois bots, o grupo de admin e pegar os `chat_id` |
@@ -115,6 +128,7 @@ Trilha separada, com **numeração própria de 1 a 8** na lista do ClickUp — n
 | `fase-5-extracao-itens-status-entrega.md` | Fase 5: extração dos itens, Gemini real 4/4; reserva pela Groq (decisão 20) com trava para texto embaralhado |
 | `fase-6-rota-ingestao-status-entrega.md` | Fase 6: rota `/api/ingestao/proposta` pronta; até ela ser alcançável, o n8n grava proposta e itens com a mesma regra (decisão 21) |
 | `fase-7-painel-status-entrega.md` | Fase 7: `/configuracoes/contatos` e `/documentos` (lista, detalhe, envio pela tela) implementadas, validação pendente |
+| `contratos-revisao-e-rotas-status-entrega.md` | Contratos pelo bot, revisão pela tela, n8n pelas rotas e obra lida do PDF (decisão 27) |
 
 ## Técnicos · `tecnicos/`
 

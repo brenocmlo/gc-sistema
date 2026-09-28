@@ -1,8 +1,11 @@
 import { Inbox } from 'lucide-react'
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
+import AutomacaoParada from '@/components/AutomacaoParada'
 import EmptyState from '@/components/EmptyState'
 import Pagination from '@/components/Pagination'
+import type { EventoAutomacao } from '@/lib/automacao'
 import { isDocumentoStatus, type DocumentoListItem } from '@/lib/documentos'
 import { computePeriodoCutoff, isRangeForaDoAlcance, sanitizeBusca, urlSemPagina } from '@/lib/listagem'
 import { getCurrentProfile } from '@/lib/supabase/profile'
@@ -42,10 +45,18 @@ export default async function DocumentosPage({ searchParams }: { searchParams: S
     .order('codigo_obra', { ascending: false })
   const obraOptions = (obras ?? []).map((o) => ({ value: o.id, label: `${o.codigo_obra} — ${o.nome}` }))
 
+  // A automação inteira parou? (limite do n8n, token...) — olha os eventos
+  // mais recentes, de todos os documentos.
+  const { data: eventosRecentes } = await supabase
+    .from('automacao_eventos')
+    .select('id, documento_id, etapa, nivel, mensagem, detalhe, origem, criado_em')
+    .order('criado_em', { ascending: false })
+    .limit(50)
+
   let query = supabase
     .from('documentos_processamento')
     .select(
-      'id, status, tipo_documento, canal, obra_id, created_at, motivo_revisao, proposta_criada_id, contrato_criado_id, dados_extraidos, obra:obras(codigo_obra, nome)',
+      'id, status, tipo_documento, canal, obra_id, created_at, motivo_revisao, proposta_criada_id, contrato_criado_id, dados_extraidos, conferencia, etapa, obra:obras(codigo_obra, nome)',
       { count: 'exact' },
     )
     .order('created_at', { ascending: false })
@@ -54,7 +65,8 @@ export default async function DocumentosPage({ searchParams }: { searchParams: S
   // Número e valor moram dentro do dados_extraidos (JSON) com três formatos
   // diferentes ao longo do tempo; a busca fica no motivo, que é texto.
   if (busca) query = query.ilike('motivo_revisao', `%${busca}%`)
-  if (statusFilter && isDocumentoStatus(statusFilter)) query = query.eq('status', statusFilter)
+  if (statusFilter === 'A_CONFERIR') query = query.eq('status', 'APROVADO').eq('conferencia', 'pendente')
+  else if (statusFilter && isDocumentoStatus(statusFilter)) query = query.eq('status', statusFilter)
   if (tipoFilter === 'PROPOSTA' || tipoFilter === 'CONTRATO') query = query.eq('tipo_documento', tipoFilter)
   if (obraFilter) query = query.eq('obra_id', obraFilter)
   const cutoff = computePeriodoCutoff(periodoFilter)
@@ -82,10 +94,15 @@ export default async function DocumentosPage({ searchParams }: { searchParams: S
 
   return (
     <div className="space-y-4">
+      <AutomacaoParada eventos={(eventosRecentes ?? []) as EventoAutomacao[]} />
+
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex-1 min-w-[280px]">
           <DocumentosFilters obraOptions={obraOptions} />
         </div>
+        <Link href="/documentos/log" className="self-center text-sm text-gray-600 underline underline-offset-2 hover:text-gray-900">
+          Log da automação
+        </Link>
         {podeEnviar && profile && <EnviarDocumento empresaId={profile.empresa_id} obraOptions={obraOptions} />}
       </div>
 

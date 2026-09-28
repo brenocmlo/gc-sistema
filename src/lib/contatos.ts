@@ -1,4 +1,9 @@
 // Contatos autorizados a mandar documentos pelo bot (Fase 7 da automação).
+//
+// Decisão 27 (Breno, 25/09): o contato é só QUEM PODE ENVIAR — um funcionário
+// ou administrador da empresa. A obra de cada documento sai do próprio PDF
+// (src/lib/obra-do-documento.ts), não do cadastro. A coluna obra_id continua
+// na tabela (nullable, histórica) mas não é mais preenchida.
 // Helpers puros — sem 'use client' e sem React — pra servirem a página, as
 // Server Actions e o formulário, e serem testáveis por node --test.
 //
@@ -36,9 +41,6 @@ export const contatoSchema = z.object({
     .refine((v) => v === '' || CHAT_ID_REGEX.test(v), {
       message: 'O código tem só números (ex.: 884349214)',
     }),
-  // Sem obra, todo documento do contato vai para revisão humana ("não
-  // conseguimos confirmar a que obra"). Obrigatório pra isso não virar rotina.
-  obra_id: z.string().trim().min(1, 'Escolha a obra'),
 })
 
 export type ContatoFormValues = z.input<typeof contatoSchema>
@@ -47,7 +49,6 @@ export type ContatoPayload = {
   canal: 'TELEGRAM'
   telegram_chat_id: string
   telefone: null
-  obra_id: string
   nome: string | null
 }
 
@@ -57,13 +58,12 @@ export function formValuesToPayload(values: ContatoFormValues): ContatoPayload {
     canal: 'TELEGRAM',
     telegram_chat_id: normalizarChatId(values.telegram_chat_id),
     telefone: null,
-    obra_id: (values.obra_id ?? '').trim(),
     nome: nome === '' ? null : nome,
   }
 }
 
 export function emptyContatoFormValues(): ContatoFormValues {
-  return { nome: '', telegram_chat_id: '', obra_id: '' }
+  return { nome: '', telegram_chat_id: '' }
 }
 
 /** Linha da listagem, com a obra resolvida pelo join. */
@@ -82,7 +82,6 @@ export function contatoToFormValues(c: ContatoListItem): ContatoFormValues {
   return {
     nome: c.nome ?? '',
     telegram_chat_id: c.telegram_chat_id ?? '',
-    obra_id: c.obra_id ?? '',
   }
 }
 

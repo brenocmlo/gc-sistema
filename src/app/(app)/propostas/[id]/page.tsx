@@ -28,6 +28,7 @@ import AnexosTab from '@/components/AnexosTab'
 import { deleteAnexo, getAnexoUrl, uploadAnexo } from './actions'
 import DetailHeader from './detail-header'
 import ItensTab from '@/components/itens/itens-tab'
+import ConferenciaAutomacao from '@/components/ConferenciaAutomacao'
 
 type PageProps = {
   params: { id: string }
@@ -106,8 +107,26 @@ export default async function PropostaDetalhePage({ params }: PageProps) {
 
   const autores = new Map((perfis ?? []).map((p) => [p.id, p.nome]))
 
+  // Automação: proposta criada pelo bot e ainda não conferida (aceitar ou não).
+  const { data: docConferir } = await supabase
+    .from('documentos_processamento')
+    .select('id')
+    .eq('proposta_criada_id', proposta.id)
+    .eq('status', 'APROVADO')
+    .eq('conferencia', 'pendente')
+    .limit(1)
+    .maybeSingle()
+
   return (
     <div className="space-y-6">
+      {docConferir && (
+        <ConferenciaAutomacao
+          documentoId={docConferir.id}
+          oQue="proposta"
+          podeAceitar={profile.perfil === 'admin' || profile.perfil === 'comercial'}
+          podeRecusar={profile.perfil === 'admin'}
+        />
+      )}
       <DetailHeader
         id={proposta.id}
         numero={proposta.numero}

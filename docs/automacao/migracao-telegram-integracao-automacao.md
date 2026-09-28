@@ -576,6 +576,56 @@ lista de 7 workflows. Onde uma fase abaixo contradisser uma delas, vale a decis�
     `anexos` com autor = profile de serviço. Falha no anexo não desfaz a proposta; o aviso ao
     grupo diz que o PDF não foi anexado.
 
+25. **`DESCARTADO` entra no CHECK de `documentos_processamento`.** A decisão 6 dizia para só
+    acrescentar valor se provasse que precisa; em 25/09 precisou: a revisão pela tela ganhou
+    três saídas (reprocessar, vincular, descartar), e descartar sem apagar mantém o rastro do
+    que chegou. Migration `20260925100000_documentos_revisao.sql`, com `revisado_por` e
+    `revisado_em`.
+26. **O n8n grava pelas rotas do gc-sistema (substitui a 21).** Com o endereço público
+    `gc-sistema-nine.vercel.app` apontando para o gc-dev, o `Processar Documento` chama
+    `POST /api/ingestao/proposta` e `POST /api/ingestao/contrato` (Credential
+    `5Kf5wOUxCNenfQkd`, header `x-ingestao-token`). A regra empacotada dentro do n8n e o
+    `scripts/empacotar-ingestao-n8n.mjs` saíram. Volta a valer a decisão 1 na forma, não só na
+    regra.
+
+27. **A obra sai do documento, não do contato (revisa as decisões 7 e 16).** Decidido pelo
+    Breno em 25/09: *"a melhor opção é o bot ler o PDF e fazer a análise, após isso direcionar
+    para o campo correto; o cadastro de um contato é apenas de um funcionário ou admin que terá
+    permissão para enviar os documentos"*. O contato continua dando a **empresa** e autorizando
+    o envio; a **obra** vem do PDF — código, nome ou cliente escritos nele —, casada com as obras
+    da empresa por `identificarObra` (`src/lib/obra-do-documento.ts`), dentro das rotas de
+    ingestão. Só aceita resultado único: nada bateu, ou bateu mais de uma, vira revisão, nunca
+    chute. Obra escolhida na tela (envio ou reprocesso) manda sobre o documento. O formulário de
+    contato perdeu o campo obra; a coluna `contatos_whatsapp.obra_id` fica, sem uso.
+
+28. **Uma obra tem várias propostas e UM contrato vigente** (Breno, 25/09). A rota de contrato
+    do bot recusa (409) o segundo contrato vigente da mesma obra — rescindido não conta — e o
+    documento vai para revisão ("pode ser aditivo ou reenvio"). **Só no bot, por enquanto:** o
+    banco não impede (gc-dev tem 7 contratos vigentes numa obra, de teste) e a criação pela tela
+    não mudou — pendente de confirmação do Breno.
+29. **Conferência do que o bot criou: Aceitar ou Não aceitar** (Breno, 25/09, "leitura A").
+    O que a automação grava fica "a conferir" (`documentos_processamento.conferencia`,
+    migration `20260925130000`). Aceitar (admin e comercial) mantém; Não aceitar (só admin, é
+    quem pode excluir) apaga a proposta ou contrato, com itens e o PDF anexado, e devolve o
+    documento à revisão com o motivo. Aparece em `/documentos`, no detalhe da proposta e no do
+    contrato. O resultado comercial ("leitura B": aprovada/rejeitada) continua no diálogo de
+    status da proposta, que já existia.
+30. **A automação diz em que etapa está e explica o erro em frase de gente** (Breno, 28/09:
+    *"preciso que o log de erros na automação seja descritivo, por exemplo: aconteceu um erro
+    de excesso de execução no n8n, seja mostrado no sistema, e preciso saber em que etapa da
+    automação estamos"*). O documento ganhou `etapa`, `etapa_detalhe` e `etapa_em` (migrations
+    `20260928110000_automacao_eventos` e `20260928120000_automacao_eventos_ordem`). As etapas
+    são: na fila → lendo o PDF (Gemini) → lendo pela reserva (Groq) → registrando no sistema →
+    concluído, aguardando revisão ou parou com erro. A tabela `automacao_eventos` guarda o
+    andamento. O **trigger do banco** grava um evento a cada mudança de etapa, status ou
+    conferência, então quem grava (n8n, rota, tela) não precisa lembrar. O workflow
+    `Notificar` grava, com `origem = 'n8n'`, os erros que nem chegam ao documento. A leitura
+    é por RLS e ninguém insere evento pela API. `descreverErro` (`src/lib/automacao.ts`)
+    traduz o texto cru em título, explicação e o que fazer: limite de execuções do n8n, cota
+    do Gemini, token, obra não identificada, contrato repetido e outros. Aparece no detalhe
+    do documento, numa faixa vermelha em `/documentos` quando um erro que para tudo não teve
+    sucesso depois (`situacaoDaAutomacao`) e em `/documentos/log`.
+
 ---
 
 ## 5. Plano por fases

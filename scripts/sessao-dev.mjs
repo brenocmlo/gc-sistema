@@ -36,12 +36,21 @@ export async function sessaoDePerfil(perfil) {
   // perfil dezenas de vezes, e cada pedido é um verifyOtp; no fechamento da
   // sprint 7 isso estourou o rate limit do Auth no meio da rodada. A sessão
   // vale 1 h e nenhum script faz signOut, então reaproveitar é seguro.
-  if (!SESSOES.has(perfil)) {
-    const pedido = gerarSessao(perfil)
-    SESSOES.set(perfil, pedido)
-    pedido.catch(() => SESSOES.delete(perfil))
+  //
+  // Só reaproveita enquanto falta mais de 5 min para expirar: no fechamento da
+  // sprint 8 uma rodada ficou parada por horas (Mac dormindo), as sessões do
+  // cache venceram no meio da escrita e cada action passou a devolver a
+  // página de login.
+  const guardada = SESSOES.get(perfil)
+  if (guardada) {
+    const s = await guardada.catch(() => null)
+    if (s && (s.session?.expires_at ?? 0) * 1000 - Date.now() > 5 * 60_000) return s
+    SESSOES.delete(perfil)
   }
-  return SESSOES.get(perfil)
+  const pedido = gerarSessao(perfil)
+  SESSOES.set(perfil, pedido)
+  pedido.catch(() => SESSOES.delete(perfil))
+  return pedido
 }
 
 const SESSOES = new Map()

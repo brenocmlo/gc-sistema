@@ -12,8 +12,8 @@ import {
   STATUS_DOCUMENTO_OPTIONS,
 } from './documentos.ts'
 
-test('status: os quatro do CHECK, com rótulo', () => {
-  assert.deepEqual(STATUS_DOCUMENTO_OPTIONS.map((o) => o.value), ['PENDENTE', 'ERRO_VALIDACAO', 'REVISAO_HUMANA', 'APROVADO'])
+test('status: os cinco do CHECK, com rótulo', () => {
+  assert.deepEqual(STATUS_DOCUMENTO_OPTIONS.map((o) => o.value), ['PENDENTE', 'ERRO_VALIDACAO', 'REVISAO_HUMANA', 'APROVADO', 'DESCARTADO'])
   assert.equal(isDocumentoStatus('APROVADO'), true)
   assert.equal(isDocumentoStatus('PROPOSTA_REGISTRADA'), false)
 })
@@ -87,4 +87,45 @@ test('caminhoEhDaEmpresa barra outra empresa, outra pasta e ..', () => {
   assert.equal(caminhoEhDaEmpresa('emp-2/sistema/1_a.pdf', 'emp-1'), false)
   assert.equal(caminhoEhDaEmpresa('emp-1/telegram/1_a.pdf', 'emp-1'), false)
   assert.equal(caminhoEhDaEmpresa('emp-1/sistema/../emp-2/a.pdf', 'emp-1'), false)
+})
+
+import { isDestinoVinculo, podeRevisar, validarMotivoDescarte } from './documentos.ts'
+
+test('podeRevisar: revisão, falta de dados e processando; não registrado nem descartado', () => {
+  assert.deepEqual(['PENDENTE', 'ERRO_VALIDACAO', 'REVISAO_HUMANA', 'APROVADO', 'DESCARTADO'].map(podeRevisar), [true, true, true, false, false])
+})
+
+test('validarMotivoDescarte exige motivo de verdade', () => {
+  assert.deepEqual(validarMotivoDescarte('  PDF duplicado  '), { ok: true, motivo: 'PDF duplicado' })
+  assert.equal(validarMotivoDescarte('ok').ok, false)
+  assert.equal(validarMotivoDescarte(null).ok, false)
+  assert.equal(validarMotivoDescarte('x'.repeat(501)).ok, false)
+})
+
+test('isDestinoVinculo: proposta ou contrato com id', () => {
+  assert.equal(isDestinoVinculo({ tipo: 'proposta', id: 'p1' }), true)
+  assert.equal(isDestinoVinculo({ tipo: 'contrato', id: 'c1' }), true)
+  assert.equal(isDestinoVinculo({ tipo: 'obra', id: 'o1' }), false)
+  assert.equal(isDestinoVinculo({ tipo: 'proposta', id: '' }), false)
+  assert.equal(isDestinoVinculo(null), false)
+})
+
+import { aguardaConferencia, rotuloStatusDocumento, validarMotivoRecusa } from './documentos.ts'
+
+test('aguardaConferencia: só o registrado pelo bot ainda não conferido', () => {
+  assert.equal(aguardaConferencia({ status: 'APROVADO', conferencia: 'pendente' }), true)
+  assert.equal(aguardaConferencia({ status: 'APROVADO', conferencia: 'aceita' }), false)
+  assert.equal(aguardaConferencia({ status: 'APROVADO', conferencia: null }), false)
+  assert.equal(aguardaConferencia({ status: 'REVISAO_HUMANA', conferencia: 'pendente' }), false)
+})
+
+test('rotuloStatusDocumento: "A conferir" antes de "Registrado"', () => {
+  assert.equal(rotuloStatusDocumento({ status: 'APROVADO', conferencia: 'pendente' }), 'A conferir')
+  assert.equal(rotuloStatusDocumento({ status: 'APROVADO', conferencia: 'aceita' }), 'Registrado')
+  assert.equal(rotuloStatusDocumento({ status: 'REVISAO_HUMANA' }), 'Precisa de revisão')
+})
+
+test('validarMotivoRecusa exige dizer o que estava errado', () => {
+  assert.deepEqual(validarMotivoRecusa(' valor errado '), { ok: true, motivo: 'valor errado' })
+  assert.equal(validarMotivoRecusa('x').ok, false)
 })

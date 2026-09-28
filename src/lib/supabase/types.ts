@@ -297,6 +297,63 @@ export type Database = {
           },
         ]
       }
+      automacao_eventos: {
+        Row: {
+          criado_em: string
+          criado_por: string | null
+          detalhe: string | null
+          documento_id: string | null
+          empresa_id: string | null
+          etapa: string
+          execucao_id: string | null
+          id: string
+          mensagem: string
+          nivel: string
+          origem: string
+        }
+        Insert: {
+          criado_em?: string
+          criado_por?: string | null
+          detalhe?: string | null
+          documento_id?: string | null
+          empresa_id?: string | null
+          etapa: string
+          execucao_id?: string | null
+          id?: string
+          mensagem: string
+          nivel: string
+          origem?: string
+        }
+        Update: {
+          criado_em?: string
+          criado_por?: string | null
+          detalhe?: string | null
+          documento_id?: string | null
+          empresa_id?: string | null
+          etapa?: string
+          execucao_id?: string | null
+          id?: string
+          mensagem?: string
+          nivel?: string
+          origem?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "automacao_eventos_documento_id_fkey"
+            columns: ["documento_id"]
+            isOneToOne: false
+            referencedRelation: "documentos_processamento"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "automacao_eventos_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clientes: {
         Row: {
           cep: string | null
@@ -594,16 +651,22 @@ export type Database = {
           arquivo_url: string
           canal: string | null
           canal_chat_id: string | null
+          conferencia: string | null
           contrato_criado_id: string | null
           created_at: string | null
           created_by: string | null
           dados_extraidos: Json | null
           empresa_id: string
+          etapa: string | null
+          etapa_detalhe: string | null
+          etapa_em: string | null
           id: string
           motivo_revisao: string | null
           numero_contrato: string | null
           obra_id: string | null
           proposta_criada_id: string | null
+          revisado_em: string | null
+          revisado_por: string | null
           status: string
           tipo_documento: string
           updated_at: string | null
@@ -612,16 +675,22 @@ export type Database = {
           arquivo_url: string
           canal?: string | null
           canal_chat_id?: string | null
+          conferencia?: string | null
           contrato_criado_id?: string | null
           created_at?: string | null
           created_by?: string | null
           dados_extraidos?: Json | null
           empresa_id: string
+          etapa?: string | null
+          etapa_detalhe?: string | null
+          etapa_em?: string | null
           id?: string
           motivo_revisao?: string | null
           numero_contrato?: string | null
           obra_id?: string | null
           proposta_criada_id?: string | null
+          revisado_em?: string | null
+          revisado_por?: string | null
           status?: string
           tipo_documento: string
           updated_at?: string | null
@@ -630,16 +699,22 @@ export type Database = {
           arquivo_url?: string
           canal?: string | null
           canal_chat_id?: string | null
+          conferencia?: string | null
           contrato_criado_id?: string | null
           created_at?: string | null
           created_by?: string | null
           dados_extraidos?: Json | null
           empresa_id?: string
+          etapa?: string | null
+          etapa_detalhe?: string | null
+          etapa_em?: string | null
           id?: string
           motivo_revisao?: string | null
           numero_contrato?: string | null
           obra_id?: string | null
           proposta_criada_id?: string | null
+          revisado_em?: string | null
+          revisado_por?: string | null
           status?: string
           tipo_documento?: string
           updated_at?: string | null
@@ -714,6 +789,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "propostas_financeiro"
             referencedColumns: ["id", "empresa_id"]
+          },
+          {
+            foreignKeyName: "documentos_processamento_revisado_por_fkey"
+            columns: ["revisado_por"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -928,6 +1010,54 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "itens_com_status"
             referencedColumns: ["id", "empresa_id"]
+          },
+        ]
+      }
+      execucao_medicoes: {
+        Row: {
+          created_at: string
+          criado_por: string | null
+          data: string
+          empresa_id: string
+          execucao_id: string
+          id: string
+          qtd_anterior: number
+          qtd_nova: number
+        }
+        Insert: {
+          created_at?: string
+          criado_por?: string | null
+          data?: string
+          empresa_id: string
+          execucao_id: string
+          id?: string
+          qtd_anterior: number
+          qtd_nova: number
+        }
+        Update: {
+          created_at?: string
+          criado_por?: string | null
+          data?: string
+          empresa_id?: string
+          execucao_id?: string
+          id?: string
+          qtd_anterior?: number
+          qtd_nova?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "execucao_medicoes_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "execucao_medicoes_execucao_id_fkey"
+            columns: ["execucao_id"]
+            isOneToOne: false
+            referencedRelation: "execucao"
+            referencedColumns: ["id"]
           },
         ]
       }

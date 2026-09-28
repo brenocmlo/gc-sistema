@@ -13,6 +13,7 @@ import { createClient } from '@supabase/supabase-js'
 
 import { montarIngestao, tokenConfere, type PayloadIngestao } from '@/lib/ingestao'
 import { mensagemDeErroProposta } from '@/lib/propostas'
+import { identificarObra } from '@/lib/obra-do-documento'
 import type { Database } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
@@ -40,12 +41,34 @@ export async function POST(req: Request) {
     return resposta(422, { ok: false, error: 'Corpo da requisição não é JSON' })
   }
 
+  const supabase = createClient<Database>(url, serviceRole, { auth: { persistSession: false } })
+
+  // Decisão 27: sem obraId (o normal pelo bot), a obra sai do documento.
+  let obraIdentificadaComo: string | null = null
+  if (!payload.obraId) {
+    const empresaIdPayload = typeof payload.empresaId === 'string' ? payload.empresaId : ''
+    const { data: obrasEmpresa, error: erroObras } = await supabase
+      .from('obras')
+      .select('id, codigo_obra, nome, cliente:clientes(nome)')
+      .eq('empresa_id', empresaIdPayload)
+    if (erroObras) return resposta(500, { ok: false, error: erroObras.message })
+    const candidatas = (obrasEmpresa ?? []).map((o) => ({
+      id: o.id,
+      codigo_obra: o.codigo_obra,
+      nome: o.nome,
+      cliente_nome: (o.cliente as { nome: string | null } | null)?.nome ?? null,
+    }))
+    const achada = identificarObra(candidatas, payload.obra ?? {})
+    if (!achada.ok) return resposta(422, { ok: false, error: `Obra não identificada: ${achada.motivo}`, candidatas: achada.candidatas })
+    payload.obraId = achada.obraId
+    obraIdentificadaComo = achada.como
+  }
+
   const montado = montarIngestao(payload, autor)
   if (!montado.ok) return resposta(422, { ok: false, error: montado.error })
   const { proposta, itens, avisos } = montado
   const documentoId = String(payload.documentoId)
 
-  const supabase = createClient<Database>(url, serviceRole, { auth: { persistSession: false } })
 
   // O documento tem de existir e ser da empresa; se já gerou proposta, a
   // chamada é repetição (o n8n reexecuta) e devolve o mesmo id.
@@ -98,7 +121,7 @@ export async function POST(req: Request) {
 
   const { error: erroVinculo } = await supabase
     .from('documentos_processamento')
-    .update({ status: 'APROVADO', tipo_documento: 'PROPOSTA', obra_id: proposta.obra_id, proposta_criada_id: criada.id })
+    .update({ status: 'APROVADO', tipo_documento: 'PROPOSTA', obra_id: proposta.obra_id, proposta_criada_id: criada.id, conferencia: 'pendente' })
     .eq('id', documentoId)
   if (erroVinculo) {
     // A proposta está gravada e inteira; só o vínculo com o documento falhou.
@@ -106,5 +129,5 @@ export async function POST(req: Request) {
     avisos.push(`proposta criada, mas o documento não foi vinculado: ${erroVinculo.message}`)
   }
 
-  return resposta(201, { ok: true, propostaId: criada.id, itens: itens.length, avisos })
+  return resposta(201, { ok: true, propostaId: criada.id, itens: itens.length, obraId: proposta.obra_id, obraIdentificadaComo, avisos })
 }

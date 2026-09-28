@@ -17,48 +17,45 @@ test('normalizarChatId tira espaço', () => {
   assert.equal(normalizarChatId(null), '')
 })
 
-test('schema aceita código numérico e obra', () => {
-  const r = contatoSchema.safeParse({ nome: 'Lúcio', telegram_chat_id: '884349214', obra_id: 'obra-1' })
+test('schema aceita código numérico, sem obra (decisão 27)', () => {
+  const r = contatoSchema.safeParse({ nome: 'Lúcio', telegram_chat_id: '884349214' })
   assert.equal(r.success, true)
   if (r.success) assert.equal(r.data.telegram_chat_id, '884349214')
 })
 
 test('schema aceita código colado com espaço', () => {
-  const r = contatoSchema.safeParse({ telegram_chat_id: '884 349 214', obra_id: 'obra-1' })
+  const r = contatoSchema.safeParse({ telegram_chat_id: '884 349 214' })
   assert.ok(r.success && r.data.telegram_chat_id === '884349214')
 })
 
 test('schema recusa código vazio, com letra ou curto demais', () => {
   for (const v of ['', 'abc123', '12a45678', '1234']) {
-    const r = contatoSchema.safeParse({ telegram_chat_id: v, obra_id: 'obra-1' })
+    const r = contatoSchema.safeParse({ telegram_chat_id: v })
     assert.equal(r.success, false, `deveria recusar ${JSON.stringify(v)}`)
   }
 })
 
-test('schema exige obra', () => {
-  const r = contatoSchema.safeParse({ telegram_chat_id: '884349214', obra_id: '' })
-  assert.equal(r.success, false)
-  if (!r.success) assert.match(r.error.issues.map((i) => i.message).join(' '), /Escolha a obra/)
+test('payload não leva obra: o contato só autoriza o envio (decisão 27)', () => {
+  assert.equal('obra_id' in formValuesToPayload({ telegram_chat_id: '884349214' }), false)
 })
 
 test('schema aceita chat_id de grupo (negativo)', () => {
-  assert.equal(contatoSchema.safeParse({ telegram_chat_id: '-5521155438', obra_id: 'o' }).success, true)
+  assert.equal(contatoSchema.safeParse({ telegram_chat_id: '-5521155438' }).success, true)
 })
 
 test('formValuesToPayload: sempre Telegram, nome vazio vira null, telefone null', () => {
-  assert.deepEqual(formValuesToPayload({ nome: '  ', telegram_chat_id: ' 884349214', obra_id: 'o' }), {
+  assert.deepEqual(formValuesToPayload({ nome: '  ', telegram_chat_id: ' 884349214' }), {
     canal: 'TELEGRAM',
     telegram_chat_id: '884349214',
     telefone: null,
-    obra_id: 'o',
     nome: null,
   })
 })
 
 test('ida e volta do formulário', () => {
   const item = { id: '1', nome: 'Lúcio', canal: 'TELEGRAM', telegram_chat_id: '884349214', telefone: null, obra_id: 'o', created_at: null, obra: null }
-  assert.deepEqual(contatoToFormValues(item), { nome: 'Lúcio', telegram_chat_id: '884349214', obra_id: 'o' })
-  assert.deepEqual(emptyContatoFormValues(), { nome: '', telegram_chat_id: '', obra_id: '' })
+  assert.deepEqual(contatoToFormValues(item), { nome: 'Lúcio', telegram_chat_id: '884349214' })
+  assert.deepEqual(emptyContatoFormValues(), { nome: '', telegram_chat_id: '' })
 })
 
 test('identificador: código no Telegram, telefone no WhatsApp', () => {

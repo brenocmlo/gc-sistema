@@ -1,12 +1,15 @@
 /
 /_not-found
 /api/export/contratos
+/api/export/execucao
 /api/export/fd
 /api/export/obras
 /api/export/orcamentos
 /api/export/propostas
+/api/ingestao/contrato
 /api/ingestao/proposta
 /api/relatorio/fd-conciliacao/[obraId]
+/api/relatorio/medicao/[obraId]
 /api/template/itens
 /clientes
 /clientes/[id]/editar
@@ -19,6 +22,7 @@
 /contratos/novo
 /documentos
 /documentos/[id]
+/documentos/log
 /execucao
 /fd
 /fd/[id]

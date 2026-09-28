@@ -1,6 +1,6 @@
 'use client'
 
-import { CheckCircle2, Loader2, Upload, X, XCircle } from 'lucide-react'
+import { Camera, CheckCircle2, Loader2, Upload, X, XCircle } from 'lucide-react'
 import { useRef, useState, type ChangeEvent, type DragEvent } from 'react'
 
 import {
@@ -20,6 +20,18 @@ type FileUploadProps = {
   disabled?: boolean
   /** Sobrescreve o atributo `accept`. Default: extensões permitidas em lib/files. */
   accept?: string
+  /**
+   * Validação no cliente antes do upload; devolve a mensagem ou null. Default:
+   * a dos anexos (lib/files). Bucket e path ficam no `uploadFn` de quem chama.
+   */
+  validar?: (file: File) => string | null
+  /** Texto de tipos e tamanho sob a área de soltar. */
+  dica?: string
+  /**
+   * Mostra, abaixo de `md`, o botão "Tirar foto", que abre a câmera traseira
+   * do celular (`capture="environment"`). A foto entra na mesma fila (8.2).
+   */
+  captura?: boolean
 }
 
 type QueueItem = {
@@ -27,6 +39,11 @@ type QueueItem = {
   file: File
   status: 'pending' | 'uploading' | 'done' | 'error'
   error?: string
+}
+
+function validarAnexo(file: File): string | null {
+  const err = validateFile(file)
+  return err ? fileErrorMessage(err) : null
 }
 
 function nextId() {
@@ -43,8 +60,12 @@ export default function FileUpload({
   onUploaded,
   disabled = false,
   accept = FILE_ACCEPT_ATTR,
+  validar = validarAnexo,
+  dica = 'PDF, Word, Excel, JPG, PNG, WebP · até 10 MB por arquivo',
+  captura = false,
 }: FileUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const cameraRef = useRef<HTMLInputElement>(null)
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [isDragging, setIsDragging] = useState(false)
 
@@ -57,12 +78,12 @@ export default function FileUpload({
 
     // Adiciona tudo à fila com status inicial
     const initial: QueueItem[] = files.map((file) => {
-      const err = validateFile(file)
+      const err = validar(file)
       return {
         id: nextId(),
         file,
         status: err ? 'error' : 'pending',
-        error: err ? fileErrorMessage(err) : undefined,
+        error: err ?? undefined,
       }
     })
 
@@ -143,6 +164,29 @@ export default function FileUpload({
         onChange={onInputChange}
         className="hidden"
       />
+      {captura && (
+        <>
+          <input
+            ref={cameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            disabled={disabled}
+            onChange={onInputChange}
+            aria-label="Foto da câmera"
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => !disabled && cameraRef.current?.click()}
+            disabled={disabled}
+            className="md:hidden w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-md bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 disabled:bg-gray-400"
+          >
+            <Camera size={18} />
+            Tirar foto
+          </button>
+        </>
+      )}
 
       <div
         role="button"
@@ -171,9 +215,7 @@ export default function FileUpload({
           <span className="font-medium">Clique pra escolher</span> ou arraste
           arquivos aqui
         </p>
-        <p className="text-xs text-gray-500 mt-1">
-          PDF, Word, Excel, JPG, PNG, WebP · até 10 MB por arquivo
-        </p>
+        <p className="text-xs text-gray-500 mt-1">{dica}</p>
       </div>
 
       {queue.length > 0 && (

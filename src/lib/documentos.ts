@@ -3,7 +3,7 @@
 // Helpers puros — sem 'use client' e sem React — pra servirem página, actions
 // e componentes, e serem testáveis por node --test.
 
-export const DOCUMENTO_STATUS = ['PENDENTE', 'ERRO_VALIDACAO', 'REVISAO_HUMANA', 'APROVADO'] as const
+export const DOCUMENTO_STATUS = ['PENDENTE', 'ERRO_VALIDACAO', 'REVISAO_HUMANA', 'APROVADO', 'DESCARTADO'] as const
 export type DocumentoStatus = (typeof DOCUMENTO_STATUS)[number]
 
 export const DOCUMENTO_STATUS_LABELS: Record<DocumentoStatus, string> = {
@@ -11,6 +11,7 @@ export const DOCUMENTO_STATUS_LABELS: Record<DocumentoStatus, string> = {
   ERRO_VALIDACAO: 'Faltam dados',
   REVISAO_HUMANA: 'Precisa de revisão',
   APROVADO: 'Registrado',
+  DESCARTADO: 'Descartado',
 }
 
 /** Classes do selo, no mesmo estilo do StatusBadge compartilhado. */
@@ -19,6 +20,7 @@ export const DOCUMENTO_STATUS_CLASSES: Record<DocumentoStatus, string> = {
   ERRO_VALIDACAO: 'bg-yellow-100 text-yellow-700 border-yellow-200',
   REVISAO_HUMANA: 'bg-orange-100 text-orange-700 border-orange-200',
   APROVADO: 'bg-green-100 text-green-700 border-green-200',
+  DESCARTADO: 'bg-slate-200 text-slate-600 border-slate-300',
 }
 
 export const STATUS_DOCUMENTO_OPTIONS: readonly { value: DocumentoStatus; label: string }[] =
@@ -56,6 +58,8 @@ export type DocumentoListItem = {
   proposta_criada_id: string | null
   contrato_criado_id: string | null
   dados_extraidos: unknown
+  conferencia?: string | null
+  etapa?: string | null
   obra: { codigo_obra: string | null; nome: string | null } | null
 }
 
@@ -191,4 +195,63 @@ export function caminhoDeEnvio(empresaId: string, nomeArquivo: string, agora: nu
 /** A action só aceita registrar arquivo que está na pasta de envio da própria empresa. */
 export function caminhoEhDaEmpresa(caminho: string, empresaId: string): boolean {
   return caminho.startsWith(`${empresaId}/sistema/`) && !caminho.includes('..')
+}
+
+// ============================================================
+// Revisão pela tela (reprocessar, vincular, descartar)
+// ============================================================
+
+/**
+ * Documento que ainda pede ação humana. APROVADO já levou a algum lugar e
+ * DESCARTADO foi encerrado de propósito; PENDENTE entra porque pode ter
+ * travado (n8n fora do ar, limite de execuções) e precisar de reprocesso.
+ */
+export function podeRevisar(status: string): boolean {
+  return status === 'REVISAO_HUMANA' || status === 'ERRO_VALIDACAO' || status === 'PENDENTE'
+}
+
+export const MOTIVO_DESCARTE_MIN = 5
+
+export function validarMotivoDescarte(motivo: unknown): { ok: true; motivo: string } | { ok: false; error: string } {
+  const m = typeof motivo === 'string' ? motivo.trim() : ''
+  if (m.length < MOTIVO_DESCARTE_MIN) return { ok: false, error: 'Diga por que o documento está sendo descartado' }
+  if (m.length > 500) return { ok: false, error: 'Máximo 500 caracteres' }
+  return { ok: true, motivo: m }
+}
+
+export type DestinoVinculo = { tipo: 'proposta' | 'contrato'; id: string }
+
+export function isDestinoVinculo(v: unknown): v is DestinoVinculo {
+  if (!v || typeof v !== 'object') return false
+  const d = v as Record<string, unknown>
+  return (d.tipo === 'proposta' || d.tipo === 'contrato') && typeof d.id === 'string' && d.id.trim() !== ''
+}
+
+// ============================================================
+// Conferência do que o bot criou (Breno, 25/09 — "aceitar ou não")
+// ============================================================
+
+export type Conferencia = 'pendente' | 'aceita' | 'recusada'
+
+/** O bot criou e ninguém conferiu ainda. */
+export function aguardaConferencia(d: { status: string; conferencia?: string | null }): boolean {
+  return d.status === 'APROVADO' && d.conferencia === 'pendente'
+}
+
+/**
+ * Rótulo da listagem: "A conferir" no lugar de "Registrado" enquanto ninguém
+ * conferiu — é o que a equipe precisa ver primeiro.
+ */
+export function rotuloStatusDocumento(d: { status: string; conferencia?: string | null }): string {
+  if (aguardaConferencia(d)) return 'A conferir'
+  return isDocumentoStatus(d.status) ? DOCUMENTO_STATUS_LABELS[d.status] : d.status
+}
+
+export const MOTIVO_RECUSA_MIN = 5
+
+export function validarMotivoRecusa(motivo: unknown): { ok: true; motivo: string } | { ok: false; error: string } {
+  const m = typeof motivo === 'string' ? motivo.trim() : ''
+  if (m.length < MOTIVO_RECUSA_MIN) return { ok: false, error: 'Diga o que estava errado na leitura' }
+  if (m.length > 500) return { ok: false, error: 'Máximo 500 caracteres' }
+  return { ok: true, motivo: m }
 }

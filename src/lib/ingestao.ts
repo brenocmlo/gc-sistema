@@ -9,6 +9,7 @@
 //   11 unidade mapeada para QTD/M2, original em observacao
 //   12 autor é o profile de serviço, uuid em created_by e em historico.por
 //   16 a proposta se liga à obra; a rota confere obra × empresa
+//   23 contrato pelo bot: mesma regra de itens, contrato nasce ativo
 import {
   acrescentarObservacao,
   limparColunasGeradas,
@@ -23,6 +24,7 @@ import {
   validarDesconto,
   validarSomaPct,
 } from './propostas.ts'
+import { novaEntradaHistoricoContrato } from './contratos.ts'
 
 /** Item como a Fase 5 extrai: literal do documento, nada normalizado. */
 export type ItemExtraido = {
@@ -63,6 +65,12 @@ export type PayloadIngestao = {
   } | null
   itens?: unknown
   origem?: { canal?: unknown; chatId?: unknown } | null
+  /**
+   * Decisão 27: o que a leitura achou sobre a obra. Usado pela rota quando
+   * `obraId` não vem (o normal pelo bot); `obraId` só vem quando alguém
+   * escolheu a obra na tela (envio ou reprocesso).
+   */
+  obra?: { codigo?: unknown; nome?: unknown; cliente?: unknown } | null
 }
 
 /** Linha de `itens` pronta pro insert, faltando só `proposta_id`. */
@@ -223,24 +231,23 @@ function dataISO(v: unknown): string | null {
   return br ? `${br[3]}-${br[2]}-${br[1]}` : null
 }
 
-/**
- * Valida o payload inteiro e monta proposta + itens. Tudo ou nada: um item sem
- * conserto recusa a ingestão inteira (422), pra não existir proposta meio
- * gravada. `avisos` não recusam — vão no aviso ao grupo de admin.
- */
-export function montarIngestao(
-  payload: PayloadIngestao,
-  criadoPor: string,
-  agora: string = new Date().toISOString(),
-):
-  | {
-      ok: true
-      proposta: LinhaPropostaIngestao
-      itens: LinhaItemIngestao[]
-      avisos: string[]
-      somaItens: number
-    }
-  | { ok: false; error: string } {
+/** Cabeçalho validado, comum a proposta e contrato. */
+type CabecalhoValido = {
+  documentoId: string
+  empresaId: string
+  obraId: string
+  numero: string
+  valorTotal: number
+  desconto: number
+  pct: {
+    pct_sinal: number | null
+    pct_fd: number | null
+    pct_entrega_material: number | null
+    pct_medicao_instalacao: number | null
+  }
+}
+
+function validarCabecalho(payload: PayloadIngestao): { ok: true; cab: CabecalhoValido } | { ok: false; error: string } {
   const documentoId = texto(payload.documentoId)
   const empresaId = texto(payload.empresaId)
   const obraId = texto(payload.obraId)
@@ -269,8 +276,19 @@ export function montarIngestao(
   const vPct = validarSomaPct(pct)
   if (!vPct.ok) return { ok: false, error: vPct.error }
 
-  const brutos = Array.isArray(payload.itens) ? (payload.itens as ItemExtraido[]) : []
-  const ctx = { empresaId: empresaId!, obraId: obraId!, criadoPor }
+  return { ok: true, cab: { documentoId: documentoId!, empresaId: empresaId!, obraId: obraId!, numero: numero!, valorTotal, desconto, pct } }
+}
+
+/**
+ * Itens do documento → linhas de `itens`, tudo ou nada: um item sem conserto
+ * recusa a ingestão inteira, pra não existir documento meio gravado.
+ */
+function montarItens(
+  brutosDesconhecidos: unknown,
+  ctx: { empresaId: string; obraId: string; criadoPor: string },
+  valorTotal: number,
+): { ok: true; itens: LinhaItemIngestao[]; avisos: string[]; somaItens: number } | { ok: false; error: string } {
+  const brutos = Array.isArray(brutosDesconhecidos) ? (brutosDesconhecidos as ItemExtraido[]) : []
   const itens: LinhaItemIngestao[] = []
   const recusas: string[] = []
   let inferidos = 0
@@ -284,8 +302,8 @@ export function montarIngestao(
   }
   if (recusas.length) return { ok: false, error: `Itens sem conserto: ${recusas.join('; ')}` }
 
-  // unique (proposta_id, numero): número repetido no documento vira null no
-  // segundo em diante, com o original em observacao (vários nulos convivem).
+  // unique (pai, numero): número repetido no documento vira null no segundo em
+  // diante, com o original em observacao (vários nulos convivem).
   const vistos = new Set<number>()
   for (const it of itens) {
     if (it.numero === null) continue
@@ -298,25 +316,52 @@ export function montarIngestao(
   const avisos: string[] = []
   if (inferidos) avisos.push(`${inferidos} ${inferidos === 1 ? 'item teve' : 'itens tiveram'} o valor unitário calculado a partir do total`)
   const somaItens = Math.round(itens.reduce((acc, it) => acc + it.valor_unit * it.quantidade, 0) * 100) / 100
-  // Com itens, o trigger da 5.6 faz propostas.valor_total = soma dos itens.
+  // Com itens, o trigger da 5.6 faz o valor_total do pai = soma dos itens.
   if (itens.length && valorTotal > 0 && Math.abs(somaItens - valorTotal) > 0.01 * valorTotal) {
-    avisos.push(`a soma dos itens (${somaItens.toFixed(2)}) difere do total do documento (${valorTotal.toFixed(2)}); o valor da proposta passa a ser a soma`)
+    avisos.push(`a soma dos itens (${somaItens.toFixed(2)}) difere do total do documento (${valorTotal.toFixed(2)}); o valor passa a ser a soma`)
   }
+  return { ok: true, itens, avisos, somaItens }
+}
+
+/**
+ * Valida o payload inteiro e monta proposta + itens. Tudo ou nada: um item sem
+ * conserto recusa a ingestão inteira (422), pra não existir proposta meio
+ * gravada. `avisos` não recusam — vão no aviso ao grupo de admin.
+ */
+export function montarIngestao(
+  payload: PayloadIngestao,
+  criadoPor: string,
+  agora: string = new Date().toISOString(),
+):
+  | {
+      ok: true
+      proposta: LinhaPropostaIngestao
+      itens: LinhaItemIngestao[]
+      avisos: string[]
+      somaItens: number
+    }
+  | { ok: false; error: string } {
+  const v = validarCabecalho(payload)
+  if (!v.ok) return v
+  const { cab } = v
+  const m = montarItens(payload.itens, { empresaId: cab.empresaId, obraId: cab.obraId, criadoPor }, cab.valorTotal)
+  if (!m.ok) return m
+  const avisos = m.avisos.map((a) => a.replace('o valor passa a ser a soma', 'o valor da proposta passa a ser a soma'))
 
   const canal = texto(payload.origem?.canal) ?? 'automação'
-  const rastro = `[automação · ${canal} · documento ${documentoId}]`
+  const rastro = `[automação · ${canal} · documento ${cab.documentoId}]`
   const proposta: LinhaPropostaIngestao = {
-    empresa_id: empresaId!,
-    obra_id: obraId!,
-    numero: numero!,
+    empresa_id: cab.empresaId,
+    obra_id: cab.obraId,
+    numero: cab.numero,
     descricao: texto(payload.descricao) ?? `Proposta recebida pela automação (${canal})`,
     data_emissao: dataISO(payload.dataEmissao),
     data_validade: dataISO(payload.dataValidade),
-    valor_total: valorTotal,
-    desconto,
+    valor_total: cab.valorTotal,
+    desconto: cab.desconto,
     condicoes_pagamento: texto(payload.condicoesPagamento),
     observacao: acrescentarObservacao(texto(payload.observacao), rastro),
-    ...pct,
+    ...cab.pct,
     // Nasce rascunho, como pela tela: chegar pelo Telegram não é aprovar.
     status: 'rascunho',
     created_by: criadoPor,
@@ -324,7 +369,85 @@ export function montarIngestao(
     // a origem (de = para = rascunho), com o uuid do autor (decisão 12).
     historico: [novaEntradaHistoricoProposta({ de: 'rascunho', para: 'rascunho', por: criadoPor, em: agora })],
   }
-  return { ok: true, proposta, itens, avisos, somaItens }
+  return { ok: true, proposta, itens: m.itens, avisos, somaItens: m.somaItens }
+}
+
+// ============================================================
+// Contrato pelo bot (decisão 23)
+// ============================================================
+
+export type PayloadIngestaoContrato = PayloadIngestao & {
+  dataAssinatura?: unknown
+  /** Número da proposta citada no contrato; a rota procura na mesma obra. */
+  propostaReferenciada?: unknown
+}
+
+export type LinhaContratoIngestao = {
+  empresa_id: string
+  obra_id: string
+  numero: string
+  descricao: string
+  data_assinatura: string | null
+  valor_total: number
+  desconto: number
+  condicoes_pagamento: string | null
+  observacao: string
+  pct_sinal: number | null
+  pct_fd: number | null
+  pct_entrega_material: number | null
+  pct_medicao_instalacao: number | null
+  status: 'ativo'
+  proposta_origem_id: null
+  created_by: string
+  historico: ReturnType<typeof novaEntradaHistoricoContrato>[]
+}
+
+/**
+ * Monta contrato + itens. O vínculo com a proposta citada fica para a rota,
+ * que consulta o banco (decisão 16: o contrato se liga à obra; a proposta é
+ * opcional e só é ligada se existir na mesma obra).
+ */
+export function montarIngestaoContrato(
+  payload: PayloadIngestaoContrato,
+  criadoPor: string,
+  agora: string = new Date().toISOString(),
+):
+  | {
+      ok: true
+      contrato: LinhaContratoIngestao
+      itens: LinhaItemIngestao[]
+      avisos: string[]
+      somaItens: number
+      propostaReferenciada: string | null
+    }
+  | { ok: false; error: string } {
+  const v = validarCabecalho(payload)
+  if (!v.ok) return v
+  const { cab } = v
+  const m = montarItens(payload.itens, { empresaId: cab.empresaId, obraId: cab.obraId, criadoPor }, cab.valorTotal)
+  if (!m.ok) return m
+  const avisos = m.avisos.map((a) => a.replace('o valor passa a ser a soma', 'o valor do contrato passa a ser a soma'))
+
+  const canal = texto(payload.origem?.canal) ?? 'automação'
+  const rastro = `[automação · ${canal} · documento ${cab.documentoId}]`
+  const contrato: LinhaContratoIngestao = {
+    empresa_id: cab.empresaId,
+    obra_id: cab.obraId,
+    numero: cab.numero,
+    descricao: texto(payload.descricao) ?? `Contrato recebido pela automação (${canal})`,
+    data_assinatura: dataISO(payload.dataAssinatura),
+    valor_total: cab.valorTotal,
+    desconto: cab.desconto,
+    condicoes_pagamento: texto(payload.condicoesPagamento),
+    observacao: acrescentarObservacao(texto(payload.observacao), rastro),
+    ...cab.pct,
+    // Todo contrato nasce ativo, como o avulso (6.3); status muda pelo diálogo.
+    status: 'ativo',
+    proposta_origem_id: null,
+    created_by: criadoPor,
+    historico: [novaEntradaHistoricoContrato({ de: 'ativo', para: 'ativo', por: criadoPor, em: agora })],
+  }
+  return { ok: true, contrato, itens: m.itens, avisos, somaItens: m.somaItens, propostaReferenciada: texto(payload.propostaReferenciada) }
 }
 
 /** Comparação em tempo constante, pra o tempo de resposta não vazar o token. */

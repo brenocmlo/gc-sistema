@@ -657,3 +657,50 @@ export function validarPrevisoes(
   }
   return { ok: true }
 }
+
+// ============================================================
+// Aba Execução da obra (bloco 8.3)
+// ============================================================
+
+/**
+ * Progresso geral da obra: a média das quatro etapas agregadas
+ * (`progressoAgregado`), com o mesmo peso por etapa de `progressoGeral`. Só a
+ * medição completa de tudo leva a 100%.
+ */
+export function progressoGeralDaObra(pct: QtdsEtapas): number {
+  const soma = ETAPAS.reduce((acc, e) => acc + pct[e], 0)
+  return Math.round((soma / ETAPAS.length) * 100) / 100
+}
+
+export type Atraso<T> = { execucao: T; etapa: Etapa; previsao: string; diasDeAtraso: number }
+
+/**
+ * As execuções mais atrasadas da obra: uma entrada por execução, pela etapa
+ * com a previsão vencida mais antiga, da mais atrasada para a menos. Vencer
+ * hoje ainda não é atraso (`etapaAtrasada`).
+ */
+export function maisAtrasadas<T extends ComPrevisoes>(
+  linhas: readonly T[],
+  hoje: string,
+  limite = 5,
+): Atraso<T>[] {
+  const out: Atraso<T>[] = []
+  for (const e of linhas) {
+    const etapas = etapasAtrasadas(e, hoje)
+    if (etapas.length === 0) continue
+    // A mais antiga; no empate de data, a etapa que vem antes na cascata.
+    const etapa = etapas.reduce((a, b) =>
+      (previsaoDaEtapa(e, b) as string) < (previsaoDaEtapa(e, a) as string) ? b : a,
+    )
+    const previsao = previsaoDaEtapa(e, etapa) as string
+    out.push({ execucao: e, etapa, previsao, diasDeAtraso: diasEntre(previsao, hoje) })
+  }
+  return out
+    .sort((a, b) => b.diasDeAtraso - a.diasDeAtraso || ETAPAS.indexOf(a.etapa) - ETAPAS.indexOf(b.etapa))
+    .slice(0, limite)
+}
+
+/** Link direto para o apontamento de uma execução: `/execucao` abre o painel dela. */
+export function linkDoApontamento(obraId: string, execucaoId: string): string {
+  return `/execucao?obra=${encodeURIComponent(obraId)}&ordem=atraso&apontar=${encodeURIComponent(execucaoId)}`
+}
