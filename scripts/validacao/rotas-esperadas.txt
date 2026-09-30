@@ -3,6 +3,7 @@
 /api/export/contratos
 /api/export/execucao
 /api/export/fd
+/api/export/notas-fiscais
 /api/export/obras
 /api/export/orcamentos
 /api/export/propostas
@@ -29,6 +30,10 @@
 /fd/[id]/editar
 /fd/novo
 /financeiro
+/financeiro/notas-fiscais
+/financeiro/notas-fiscais/[id]
+/financeiro/notas-fiscais/[id]/editar
+/financeiro/notas-fiscais/novo
 /login
 /logs
 /obras

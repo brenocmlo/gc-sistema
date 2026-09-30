@@ -15,25 +15,72 @@ set -uo pipefail
 
 cd "$(dirname "$0")/../.."
 
+# Pasta de build própria da validação (next.config.mjs lê a variável). Na
+# `.next`, o next build daqui corrompia o `next dev` aberto: páginas sem CSS e
+# código velho. Os scripts .mjs recebem a mesma variável.
+export NEXT_DIST_DIR="${NEXT_DIST_DIR:-.next-validacao}"
+
+# IPv4 primeiro, para os scripts e para o next start/dev (que herdam). A rede
+# daqui é IPv6 com NAT64, o Supabase resolve para 64:ff9b::…, e nesse caminho
+# a conexão caía no meio da camada escrita com `fetch failed` (fechamento da
+# sprint 9, duas rodadas perdidas). Com IPv4 primeiro, passou.
+export NODE_OPTIONS="--dns-result-order=ipv4first${NODE_OPTIONS:+ $NODE_OPTIONS}"
+
 # Regra do projeto: nada roda contra gc-prod (ver CLAUDE.md). As camadas
 # runtime e dados conectam no banco, então a trava vem antes de qualquer uma.
 GC_DEV_REF="gzbmhgnpoehormnidmgg"
 
 PORTA="${VALIDACAO_PORTA:-3111}"
-PORTA_CDP="${VALIDACAO_PORTA_CDP:-9222}"
+# 9333, não 9222: a 9222 é a de depuração padrão e costuma estar com o Chrome
+# de quem desenvolve; aí o Chrome da validação só abria em [::1] e o script
+# lia o /json/version do Chrome errado.
+PORTA_CDP="${VALIDACAO_PORTA_CDP:-9333}"
 BASE_URL="http://127.0.0.1:$PORTA"
 BUILD_LOG="$(mktemp)"
 ROTAS_BASELINE="scripts/validacao/rotas-esperadas.txt"
 SERVER_PID=""
 CHROME_PID=""
+RECEPTOR_PID=""
+# Portas em que ESTA execução subiu servidor. Só essas são derrubadas: uma
+# porta que já estava ocupada é de outra pessoa (ou de outra rodada).
+PORTAS_NOSSAS=()
+
+# npm/npx não repassam SIGTERM ao servidor que criam: matar o listener da
+# porta é o que de fato a libera. Espera ela soltar, para a camada seguinte
+# não pegar EADDRINUSE e falar com o servidor da anterior.
+derrubar_servidor() {
+  local porta="$1" i
+  [[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null || true
+  SERVER_PID=""
+  for i in $(seq 1 20); do
+    lsof -ti:"$porta" -sTCP:LISTEN 2>/dev/null | xargs -r kill 2>/dev/null || true
+    lsof -ti:"$porta" -sTCP:LISTEN >/dev/null 2>&1 || return 0
+    sleep 0.5
+  done
+  echo "  a porta $porta não liberou depois de 10s."
+  return 1
+}
+
+# Porta ocupada antes de subir o servidor quer dizer que o fetch vai falar com
+# outro processo — em 2026-09-29 a escrita testou o servidor que sobrou do
+# runtime, e poderia ter sido um `next start` velho, com código antigo.
+exigir_porta_livre() {
+  local porta="$1" pid
+  pid="$(lsof -ti:"$porta" -sTCP:LISTEN 2>/dev/null | head -1)"
+  [[ -z "$pid" ]] && return 0
+  echo "  a porta $porta já está ocupada: $(ps -o pid=,command= -p "$pid" | cut -c1-100)"
+  echo "  Encerre o processo ou use outra porta (VALIDACAO_PORTA / VALIDACAO_PORTA_CDP)."
+  return 1
+}
 
 limpar() {
   [[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null || true
   [[ -n "$CHROME_PID" ]] && kill "$CHROME_PID" 2>/dev/null || true
-  # npm/npx não repassam SIGTERM ao servidor que criam: matar o listener da
-  # porta é o que de fato a libera pra próxima execução.
-  lsof -ti:"$PORTA" -sTCP:LISTEN 2>/dev/null | xargs -r kill 2>/dev/null || true
-  lsof -ti:$((PORTA + 1)) -sTCP:LISTEN 2>/dev/null | xargs -r kill 2>/dev/null || true
+  [[ -n "$RECEPTOR_PID" ]] && kill "$RECEPTOR_PID" 2>/dev/null || true
+  local porta
+  for porta in "${PORTAS_NOSSAS[@]+"${PORTAS_NOSSAS[@]}"}"; do
+    lsof -ti:"$porta" -sTCP:LISTEN 2>/dev/null | xargs -r kill 2>/dev/null || true
+  done
   rm -f "$BUILD_LOG"
 }
 trap limpar EXIT
@@ -154,21 +201,25 @@ camada_runtime() {
     falhou runtime "0s, banco errado"; return 1
   fi
 
-  if [[ ! -d .next ]]; then
-    echo "  .next não existe — rode a camada build antes."
+  if [[ ! -d "$NEXT_DIST_DIR" ]]; then
+    echo "  $NEXT_DIST_DIR não existe — rode a camada build antes."
     falhou runtime "0s, sem build"; return 1
   fi
 
-  # `next dev` sobrescreve o .next de produção, e aí o `next start` sobe mas
+  # `next dev` sobrescreve o $NEXT_DIST_DIR de produção, e aí o `next start` sobe mas
   # devolve 500 em toda rota. Detectar aqui evita caçar o erro no lugar errado.
-  if [[ -d .next/static/development ]]; then
-    echo "  .next é de um 'next dev' — rode a camada build antes:"
+  if [[ -d "$NEXT_DIST_DIR/static/development" ]]; then
+    echo "  $NEXT_DIST_DIR é de um 'next dev' — rode a camada build antes:"
     echo "    bash scripts/validacao/validar.sh build runtime"
-    echo "  (a camada 'navegador' roda next dev e deixa o .next assim; rodando"
+    echo "  (a camada 'navegador' roda next dev e deixa o $NEXT_DIST_DIR assim; rodando"
     echo "   o plano inteiro isso não acontece, porque build vem antes.)"
     falhou runtime "0s, build de dev"; return 1
   fi
 
+  if ! exigir_porta_livre "$PORTA"; then
+    falhou runtime "0s, porta ocupada"; return 1
+  fi
+  PORTAS_NOSSAS+=("$PORTA")
   npx next start -p "$PORTA" > /tmp/validar-next.log 2>&1 &
   SERVER_PID=$!
 
@@ -188,12 +239,15 @@ camada_runtime() {
 
   if [[ "$codigo" != "200" ]]; then
     echo "  /login devolveu $codigo — o servidor subiu, mas a aplicação não."
-    echo "  Costuma ser .next desatualizado: rode a camada build."
+    echo "  Costuma ser $NEXT_DIST_DIR desatualizado: rode a camada build."
     tail -20 /tmp/validar-next.log
     falhou runtime "$((SECONDS - t0))s, /login devolveu $codigo"; return 1
   fi
 
-  if BASE_URL="$BASE_URL" node --env-file=.env.local scripts/validacao/validar-runtime.mjs; then
+  local r=0
+  BASE_URL="$BASE_URL" node --env-file=.env.local scripts/validacao/validar-runtime.mjs || r=$?
+  derrubar_servidor "$PORTA"
+  if [[ $r -eq 0 ]]; then
     ok runtime "$((SECONDS - t0))s"
   else
     falhou runtime "$((SECONDS - t0))s"; return 1
@@ -222,12 +276,40 @@ camada_escrita() {
     falhou escrita "0s, banco errado"; return 1
   fi
 
-  if [[ ! -d .next ]] || [[ -d .next/static/development ]]; then
-    echo "  precisa do build de produção (o mapa de actions vem do .next)."
+  if [[ ! -d "$NEXT_DIST_DIR" ]] || [[ -d "$NEXT_DIST_DIR/static/development" ]]; then
+    echo "  precisa do build de produção (o mapa de actions vem do $NEXT_DIST_DIR)."
     falhou escrita "0s, sem build"; return 1
   fi
 
-  npx next start -p "$PORTA" > /tmp/validar-next-escrita.log 2>&1 &
+  if ! exigir_porta_livre "$PORTA"; then
+    falhou escrita "0s, porta ocupada"; return 1
+  fi
+
+  # O envio de documento pela tela chama o webhook do n8n. Sem
+  # VALIDACAO_ENVIO_REAL=1, o webhook é um receptor local (receptor-n8n.mjs):
+  # o next start recebe a URL e um token de teste pelo ambiente (que vence o
+  # .env.local), e o roteiro confere o que chegou lá.
+  local env_n8n=()
+  if [[ "${VALIDACAO_ENVIO_REAL:-}" != "1" ]]; then
+    local porta_n8n=$((PORTA + 2))
+    if ! exigir_porta_livre "$porta_n8n"; then
+      falhou escrita "0s, porta do receptor ocupada"; return 1
+    fi
+    node scripts/validacao/receptor-n8n.mjs "$porta_n8n" &
+    RECEPTOR_PID=$!
+    # Sem o disown, o kill no fim da camada sai no log como "Terminated".
+    disown "$RECEPTOR_PID" 2>/dev/null || true
+    local token_n8n="validacao-$RANDOM$RANDOM"
+    env_n8n=(
+      N8N_DOCUMENTO_WEBHOOK_URL="http://127.0.0.1:$porta_n8n/webhook/processar-documento"
+      N8N_DOCUMENTO_TOKEN="$token_n8n"
+      VALIDACAO_RECEPTOR_N8N="http://127.0.0.1:$porta_n8n"
+      VALIDACAO_N8N_TOKEN="$token_n8n"
+    )
+  fi
+
+  PORTAS_NOSSAS+=("$PORTA")
+  env "${env_n8n[@]+"${env_n8n[@]}"}" npx next start -p "$PORTA" > /tmp/validar-next-escrita.log 2>&1 &
   SERVER_PID=$!
 
   local i codigo=000
@@ -243,7 +325,13 @@ camada_escrita() {
     falhou escrita "$((SECONDS - t0))s, /login devolveu $codigo"; return 1
   fi
 
-  if BASE_URL="$BASE_URL" node --env-file=.env.local scripts/validacao/validar-escrita.mjs; then
+  local r=0
+  env "${env_n8n[@]+"${env_n8n[@]}"}" BASE_URL="$BASE_URL" \
+    node --env-file=.env.local scripts/validacao/validar-escrita.mjs || r=$?
+  derrubar_servidor "$PORTA"
+  [[ -n "$RECEPTOR_PID" ]] && kill "$RECEPTOR_PID" 2>/dev/null || true
+  RECEPTOR_PID=""
+  if [[ $r -eq 0 ]]; then
     ok escrita "$((SECONDS - t0))s"
   else
     falhou escrita "$((SECONDS - t0))s"; return 1
@@ -267,6 +355,10 @@ camada_navegador() {
   # `next dev` de propósito: a camada exercita o cliente, e o dev server dá erro
   # legível. Porta própria pra não colidir com a camada runtime.
   local porta_dev=$((PORTA + 1))
+  if ! exigir_porta_livre "$porta_dev" || ! exigir_porta_livre "$PORTA_CDP"; then
+    falhou navegador "0s, porta ocupada"; return 1
+  fi
+  PORTAS_NOSSAS+=("$porta_dev")
   npx next dev -p "$porta_dev" > /tmp/validar-next-dev.log 2>&1 &
   SERVER_PID=$!
 
@@ -320,6 +412,18 @@ done
 [[ $ACEITAR_ROTAS -eq 1 ]] && rm -f "$ROTAS_BASELINE"
 
 FALHOU=""
+
+# Sobra de rodada interrompida esconde dado de que outra camada depende e a
+# faz falhar com mensagem enganosa. Confere uma vez, antes da primeira camada
+# que usa o banco.
+if [[ " ${PEDIDAS[*]} " =~ \ (runtime|dados|escrita|navegador)\  ]]; then
+  titulo "0/7 sobras — registros VALIDA-* e RUN-* de rodadas anteriores"
+  if ! exigir_gc_dev || ! node --env-file=.env.local scripts/validacao/verificar-sobras.mjs; then
+    falhou sobras "gc-dev com sobras"
+    FALHOU="sobras"
+  fi
+fi
+
 for camada in "${TODAS[@]}"; do
   # Mantém sempre a ordem barato → caro, independente da ordem dos argumentos.
   [[ " ${PEDIDAS[*]} " == *" $camada "* ]] || continue

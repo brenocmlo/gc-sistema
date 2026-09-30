@@ -1410,5 +1410,350 @@
     "perfil": "financeiro",
     "esperaStatus": 307,
     "nota": "o layout de /documentos não libera financeiro, nem para o log"
+  },
+  {
+    "path": "/financeiro",
+    "esperaStatus": 307,
+    "nota": "9.1: /financeiro leva para /financeiro/notas-fiscais"
+  },
+  {
+    "path": "/financeiro/notas-fiscais",
+    "esperaHtml": [
+      "Número/Série",
+      "Recebido",
+      "SEED-NF-001 / 1",
+      "SEED-NF-004",
+      "SEED-NF-005 / 1",
+      "R$ 2.000,00",
+      "Todos os tipos",
+      "Faturamento direto",
+      "Buscar por número, chave da NF-e ou obra",
+      "Nova nota fiscal"
+    ],
+    "nota": "bloco 9.1: as 8 colunas, número com série (e sem série na 004), o recebido de 2.000 da NF paga e os filtros; as situações são provadas pelas rotas filtradas, porque os rótulos também estão no select"
+  },
+  {
+    "path": "/financeiro/notas-fiscais",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "SEED-NF-003 / 1",
+      "Nova nota fiscal"
+    ],
+    "nota": "9.1: financeiro vê a listagem"
+  },
+  {
+    "path": "/financeiro/notas-fiscais",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "SEED-NF-003 / 1"
+    ],
+    "nota": "9.1: visualizador lê; 9.2: sem o botão de criar",
+    "naoEsperaHtml": [
+      "Nova nota fiscal"
+    ]
+  },
+  {
+    "path": "/financeiro/notas-fiscais",
+    "perfil": "comercial",
+    "esperaStatus": 307,
+    "nota": "9.1: guard do layout (admin, financeiro, visualizador)"
+  },
+  {
+    "path": "/financeiro/notas-fiscais",
+    "perfil": "producao",
+    "esperaStatus": 307,
+    "nota": "9.1: produção também fica fora"
+  },
+  {
+    "path": "/financeiro/notas-fiscais?status=vencida",
+    "esperaHtml": [
+      "SEED-NF-002 / 1"
+    ],
+    "naoEsperaHtml": [
+      "SEED-NF-001 / 1",
+      "SEED-NF-004"
+    ],
+    "nota": "9.1: \"vencida\" é runtime, filtrada no banco com a mesma regra"
+  },
+  {
+    "path": "/financeiro/notas-fiscais?status=emitida",
+    "esperaHtml": [
+      "SEED-NF-001 / 1",
+      "SEED-NF-006 / 2"
+    ],
+    "naoEsperaHtml": [
+      "SEED-NF-002 / 1"
+    ],
+    "nota": "9.1: emitida sem as vencidas"
+  },
+  {
+    "path": "/financeiro/notas-fiscais?busca=35260912345678",
+    "esperaHtml": [
+      "SEED-NF-006 / 2"
+    ],
+    "naoEsperaHtml": [
+      "SEED-NF-001 / 1"
+    ],
+    "nota": "9.1: busca pela chave da NF-e"
+  },
+  {
+    "path": "/financeiro/notas-fiscais?tipo=medicao",
+    "esperaHtml": [
+      "SEED-NF-003 / 1"
+    ],
+    "naoEsperaHtml": [
+      "SEED-NF-004"
+    ],
+    "nota": "9.1: filtro de tipo"
+  },
+  {
+    "path": "/financeiro/notas-fiscais?page=99",
+    "esperaStatus": 307,
+    "nota": "9.1: página além do fim volta para a primeira"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/novo",
+    "esperaHtml": [
+      "Nova nota fiscal",
+      "Chave da NF-e",
+      "Sem vínculo",
+      "Contrato",
+      "Proposta",
+      "Entrega de material",
+      "Valor total (R$)",
+      "Criar nota fiscal"
+    ],
+    "nota": "bloco 9.2: o form com identificação, o radio de vínculo, os 6 tipos e as datas"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/novo",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "Criar nota fiscal"
+    ],
+    "nota": "9.2: financeiro cria"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/novo",
+    "perfil": "visualizador",
+    "esperaStatus": 307,
+    "nota": "9.2: visualizador lê a listagem, mas a rota de criação o manda de volta"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/novo",
+    "perfil": "comercial",
+    "esperaStatus": 307,
+    "nota": "9.2: comercial nem entra em /financeiro"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfPaga}",
+    "esperaHtml": [
+      "Nota fiscal SEED-NF-004",
+      "Valor total",
+      "Recebido",
+      "A receber",
+      "Instalação",
+      "Sem vínculo",
+      "Pagamentos (2)",
+      "Arquivos",
+      "Sprint 10",
+      "Editar"
+    ],
+    "nota": "bloco 9.3: cabeçalho com selo, valor, recebido (2.000) e a receber; abas Detalhes, Pagamentos (placeholder com os 2 do seed) e Arquivos"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfEmitida}",
+    "esperaHtml": [
+      "SEED-NF-001 / 1",
+      "Contrato SEED-CT-001",
+      "/financeiro/notas-fiscais/"
+    ],
+    "nota": "9.3: o vínculo de contrato vira link"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfCancelada}",
+    "esperaHtml": [
+      "Cancelamento",
+      "Emitida com valor errado; substituída",
+      "Nota fiscal cancelada não é editável"
+    ],
+    "naoEsperaHtml": [
+      "/editar\""
+    ],
+    "nota": "9.3: NF cancelada mostra o motivo, e o Editar vem desabilitado com o porquê (sem link para a edição)"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfPaga}",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Nota fiscal SEED-NF-004"
+    ],
+    "naoEsperaHtml": [
+      "Editar"
+    ],
+    "nota": "9.3: visualizador lê, sem Editar"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfEmitida}/editar",
+    "esperaHtml": [
+      "Editar nota fiscal",
+      "SEED-NF-001",
+      "Salvar alterações"
+    ],
+    "nota": "9.3: a edição abre com o form da criação"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfCancelada}/editar",
+    "esperaStatus": 307,
+    "nota": "9.3: NF cancelada nem abre a edição"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfEmitida}/editar",
+    "perfil": "visualizador",
+    "esperaStatus": 307,
+    "nota": "9.3: visualizador não edita"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/00000000-0000-4000-8000-000000000000",
+    "esperaStatus": 404,
+    "nota": "9.3: NF inexistente"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfEmitida}",
+    "esperaHtml": [
+      "Cancelar NF",
+      "aria-label=\"Excluir nota fiscal\""
+    ],
+    "nota": "9.4: emitida sem pagamento: Cancelar NF e Excluir (admin) habilitados"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfPaga}",
+    "esperaHtml": [
+      "Cancelar NF",
+      "Nota fiscal com pagamento não pode ser excluída"
+    ],
+    "nota": "9.4: com pagamento, o Excluir vem desabilitado com o porquê"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfCancelada}",
+    "esperaHtml": [
+      "Nota fiscal cancelada não é excluída"
+    ],
+    "naoEsperaHtml": [
+      "Cancelar NF"
+    ],
+    "nota": "9.4: cancelada: sem Cancelar NF, e o Excluir desabilitado"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfEmitida}",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "Cancelar NF"
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Excluir nota fiscal\""
+    ],
+    "nota": "9.4: financeiro cancela, mas não exclui (DELETE só admin)"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfEmitida}",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "SEED-NF-001"
+    ],
+    "naoEsperaHtml": [
+      "Cancelar NF",
+      "aria-label=\"Excluir nota fiscal\""
+    ],
+    "nota": "9.4: visualizador não cancela nem exclui"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfEmitida}",
+    "esperaHtml": [
+      "XML da NF",
+      "PDF da NF",
+      "Enviar XML",
+      "Enviar PDF",
+      "Nenhum arquivo"
+    ],
+    "nota": "9.5: aba Arquivos, sem arquivo ainda, com o envio de cada tipo"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfEmitida}",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "XML da NF"
+    ],
+    "naoEsperaHtml": [
+      "Enviar XML"
+    ],
+    "nota": "9.5: visualizador não envia"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfCancelada}",
+    "esperaHtml": [
+      "sem envio nem substituição"
+    ],
+    "naoEsperaHtml": [
+      "Enviar XML"
+    ],
+    "nota": "9.5: cancelada não recebe arquivo"
+  },
+  {
+    "path": "/financeiro/notas-fiscais",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "href=\"/financeiro/notas-fiscais\""
+    ],
+    "naoEsperaHtml": [
+      "href=\"/financeiro\""
+    ],
+    "nota": "9.5: o item Financeiro do menu vai direto à listagem. Com href=\"/financeiro\" (que só redireciona), o clique no menu usava o prefetch e não saía da tela — era o \"Em construção\" que o Breno via"
+  },
+  {
+    "path": "/",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "href=\"/contratos\""
+    ],
+    "naoEsperaHtml": [
+      "href=\"/financeiro/notas-fiscais\"",
+      "href=\"/fd\""
+    ],
+    "nota": "9.6: comercial não vê o menu Financeiro (nem o FD)"
+  },
+  {
+    "path": "/",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "href=\"/financeiro/notas-fiscais\""
+    ],
+    "nota": "9.6: financeiro vê o menu Financeiro"
+  },
+  {
+    "path": "/",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "href=\"/financeiro/notas-fiscais\""
+    ],
+    "nota": "9.6: visualizador vê o menu Financeiro"
+  },
+  {
+    "path": "/",
+    "perfil": "producao",
+    "esperaHtml": [
+      "href=\"/execucao\""
+    ],
+    "naoEsperaHtml": [
+      "href=\"/financeiro/notas-fiscais\""
+    ],
+    "nota": "9.6: produção não vê o menu Financeiro"
+  },
+  {
+    "path": "/financeiro/notas-fiscais",
+    "esperaHtml": [
+      "Exportar XLSX"
+    ],
+    "nota": "9.6: botão de export na listagem"
   }
 ]

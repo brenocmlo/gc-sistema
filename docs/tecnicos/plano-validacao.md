@@ -40,6 +40,17 @@ Efeito colateral já colhido: na primeira execução, o plano apontou que o
 documento do 4.3 dizia "22 rotas" quando são 29 — número que eu havia lido de
 `Generating static pages (23/23)` em vez da tabela de rotas.
 
+## Pasta de build própria
+
+Desde 2026-09-29, o `validar.sh` exporta `NEXT_DIST_DIR=.next-validacao`, e o
+`next.config.mjs` usa essa pasta como `distDir`. O build, o `next start` do runtime e da
+escrita e o `next dev` do navegador ficam todos em `.next-validacao/`, ignorada pelo git.
+
+Antes, a validação buildava na mesma `.next` do `next dev` aberto pelo Breno. Com o dev server
+no ar, as páginas passavam a sair sem CSS e com código velho, porque os arquivos que ele
+referenciava tinham sido regravados pelo `next build`. Quem roda uma camada fora do
+`validar.sh` precisa exportar a mesma variável.
+
 ## As camadas
 
 Ordem fixa, do mais barato ao mais caro. **Para no primeiro erro**: camada
@@ -260,12 +271,39 @@ corta em 1000 linhas sem avisar, e na primeira versão a limpeza leu exatamente
 
 **Rodadas em paralelo usam portas próprias.** Com duas sessões no mesmo
 repositório, rode com `VALIDACAO_PORTA=3211 VALIDACAO_PORTA_CDP=9322` (ou
-qualquer par livre). Até o 13.2, `VALIDACAO_PORTA_CDP` subia o Chrome na porta
+qualquer par livre; a escrita usa também `PORTA+2`, para o receptor do n8n). Até o 13.2, `VALIDACAO_PORTA_CDP` subia o Chrome na porta
 pedida, mas `validar-navegador.mjs` conectava sempre na 9222 e dirigia o Chrome
 da outra rodada. O perfil do Chrome também era um só. Agora a porta vai para o
 script, e o perfil é `/tmp/gc-validacao/chrome-profile-<porta>`. O `.next`
 continua sendo um por diretório: duas rodadas **no mesmo checkout** ainda se
 atropelam no build. Para isso, use um worktree.
+
+### O que o `validar.sh` garante antes e entre as camadas (desde o fechamento da sprint 9)
+
+O fechamento da sprint 9 perdeu cinco rodadas para ambiente, nenhuma para
+código. Cada causa virou uma trava:
+
+| Causa na sprint 9 | O que o plano faz agora |
+|---|---|
+| Rodada interrompida deixou `VALIDA-ESCRITA-*` em gc-dev; o contrato ocupou a única obra sem contrato e o runtime falhou com "falta dado" | **Camada 0, sobras:** antes da primeira camada que usa o banco, `scripts/validacao/verificar-sobras.mjs` procura `VALIDA-*` e `RUN-*` (os prefixos dos roteiros) em NFs, contratos, propostas, orçamentos e obras, e para se achar. `--apagar` remove, com itens, fotos e a auditoria delas |
+| `{obraSemContrato}` era "qualquer obra sem contrato" de gc-dev, que tem três | O runtime **cria a própria obra** (`VALIDA-RT-<ts>`, na empresa do SEED-CT-001) e a apaga no fim |
+| A escrita subia o `next start` com o do runtime ainda na 3111: `EADDRINUSE`, e a escrita testava o servidor que estivesse lá | `derrubar_servidor` no fim do runtime e da escrita, esperando a porta soltar; `exigir_porta_livre` antes de subir qualquer servidor ou Chrome, com o PID de quem ocupa. No fim, só as portas que a rodada abriu são derrubadas |
+| O Chrome de quem desenvolve ocupa a 9222; o Chrome da validação abria só em `[::1]` e o script lia o do outro | `VALIDACAO_PORTA_CDP` padrão **9333**, e a porta é conferida antes |
+| `fetch failed` com o Supabase no meio da escrita (rede IPv6 com NAT64) | `NODE_OPTIONS=--dns-result-order=ipv4first` exportado para scripts e servidores; login e `generateLink` repetem até 3 vezes **só em erro de rede** (`scripts/comum/rede.mjs`). As actions testadas nunca repetem |
+
+**Envio de documento pela tela.** Sem `VALIDACAO_ENVIO_REAL=1`, a escrita sobe
+`scripts/validacao/receptor-n8n.mjs` na porta `PORTA+2` e aponta
+`N8N_DOCUMENTO_WEBHOOK_URL` (com um token de teste) para ele. O roteiro confere
+o que chegou: o token no `x-documento-token`, JSON, canal `SISTEMA`, empresa,
+obra, nome do arquivo e a URL assinada, que baixa o PDF sem sessão. Isso prova o
+que o app manda; **não prova o n8n** (leitura e gravação de volta), que continua
+na trilha de automação. Com `VALIDACAO_ENVIO_REAL=1` o envio vai ao n8n do
+`.env.local`, como antes.
+
+**Seed da automação.** `supabase/seed_automacao.sql` (o SEED-DOC-001, com
+andamento NA_FILA → CONCLUIDO de 10 dias atrás) exercita as duas queries da
+automação que saíam "não exercitadas". Elas agora têm `exigeSeed`: com zero
+linha, a camada dados falha e diz qual seed aplicar.
 
 ## O que continua manual
 

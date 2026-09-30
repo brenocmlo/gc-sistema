@@ -21,6 +21,7 @@
 import { createClient } from '@supabase/supabase-js'
 
 import { exigirGcDev } from '../comum/gc-dev-guard.mjs'
+import { comNovaTentativa } from '../comum/rede.mjs'
 import { sessaoDePerfil } from '../comum/sessao-dev.mjs'
 
 const URL_SUPABASE = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -845,6 +846,7 @@ const CHECKS = [
     // coluna nova revisado_por (migration 20260925100000) legível sob RLS.
     nome: 'documentos_processamento: colunas de revisão e opções de vínculo da obra',
     bloco: 'automação · Fase 7',
+    exigeSeed: 'supabase/seed_automacao.sql',
     query: async (sb) => {
       const doc = await sb.from('documentos_processamento').select('id, obra_id, status, revisado_por, revisado_em').not('obra_id', 'is', null).limit(1).maybeSingle()
       if (doc.error || !doc.data) return doc.error ? doc : { data: [] }
@@ -864,6 +866,7 @@ const CHECKS = [
     // ao mais novo. Pega o documento mais recente que tenha etapa gravada.
     nome: 'automacao_eventos: etapa do documento e andamento em ordem',
     bloco: 'automação · log',
+    exigeSeed: 'supabase/seed_automacao.sql',
     query: async (sb) => {
       const doc = await sb
         .from('documentos_processamento')
@@ -918,13 +921,104 @@ const CHECKS = [
         .range(0, 19),
     valida: (r) => ((r.data ?? []).some((e) => e.nivel !== 'erro') ? 'filtro por nível devolveu outro nível' : null),
   },
+  // ============================================================
+  // Sprint 9 — notas fiscais (9.1). Queries copiadas de
+  // src/app/(app)/financeiro/notas-fiscais/page.tsx. Precisam do
+  // supabase/seed_notas_fiscais.sql.
+  // ============================================================
+  {
+    nome: 'notas_fiscais: listagem com JOIN de obra e os pagamentos (Recebido)',
+    bloco: '9.1',
+    query: (sb) =>
+      sb
+        .from('notas_fiscais')
+        .select(
+          'id, numero, serie, chave_nfe, obra_id, tipo, data_emissao, data_vencimento, valor_total, status, obra:obras(codigo_obra, nome), pagamentos(valor)',
+          { count: 'exact' },
+        )
+        .order('data_emissao', { ascending: false })
+        .order('numero', { ascending: false })
+        .range(0, 19),
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.length === 0) return 'nenhuma NF — rode bash scripts/banco/aplicar-seed.sh supabase/seed_notas_fiscais.sql'
+      if (linhas.some((n) => Array.isArray(n.obra))) return 'obra veio como array, esperado objeto'
+      if (linhas.some((n) => !Array.isArray(n.pagamentos))) return 'pagamentos não veio como array'
+      const paga = linhas.find((n) => n.numero === 'SEED-NF-004')
+      if (paga) {
+        const recebido = paga.pagamentos.reduce((a, p) => a + Number(p.valor), 0)
+        if (paga.status !== 'paga' || recebido !== Number(paga.valor_total)) {
+          return `SEED-NF-004: status ${paga.status}, recebido ${recebido} de ${paga.valor_total} (o trigger de pagamento devia ter posto "paga")`
+        }
+      }
+      return null
+    },
+  },
+  {
+    // Copiada de src/app/(app)/financeiro/notas-fiscais/[id]/page.tsx (9.3).
+    nome: 'notas_fiscais: detalhe com obra → cliente, contrato, proposta e pagamentos',
+    bloco: '9.3',
+    query: (sb) =>
+      sb
+        .from('notas_fiscais')
+        .select(
+          '*, obra:obras(codigo_obra, nome, cliente:clientes(nome)), contrato:contratos(id, numero), proposta:propostas(id, numero), pagamentos(valor)',
+        )
+        .eq('numero', 'SEED-NF-001')
+        .maybeSingle(),
+    valida: (r) => {
+      const nf = r.data
+      if (!nf) return 'SEED-NF-001 não veio — rode o seed_notas_fiscais.sql'
+      if (Array.isArray(nf.obra) || Array.isArray(nf.contrato) || Array.isArray(nf.proposta)) return 'obra, contrato ou proposta veio como array'
+      if (nf.contrato?.numero !== 'SEED-CT-001') return `contrato do vínculo: ${JSON.stringify(nf.contrato)}`
+      if (nf.proposta !== null) return 'proposta devia vir nula (XOR)'
+      if (!nf.obra?.cliente) return 'obra sem cliente no JOIN aninhado'
+      return null
+    },
+  },
+  {
+    nome: 'notas_fiscais: filtro "vencida" (emitida ou paga parcialmente, vencimento < hoje)',
+    bloco: '9.1',
+    query: (sb) =>
+      sb
+        .from('notas_fiscais')
+        .select('id, numero, status, data_vencimento', { count: 'exact' })
+        .in('status', ['emitida', 'paga_parcialmente'])
+        .lt('data_vencimento', hoje)
+        .range(0, 19),
+    valida: (r) => {
+      const errada = (r.data ?? []).find((n) => !['emitida', 'paga_parcialmente'].includes(n.status) || !(n.data_vencimento < hoje))
+      if (errada) return `linha fora do critério: ${JSON.stringify(errada)}`
+      if (!(r.data ?? []).some((n) => n.numero === 'SEED-NF-002')) return 'a SEED-NF-002 (vencida) não veio'
+      return null
+    },
+  },
+  {
+    nome: 'notas_fiscais: filtro "emitida" tira as vencidas (dois .or na mesma query)',
+    bloco: '9.1',
+    query: (sb) =>
+      sb
+        .from('notas_fiscais')
+        .select('id, numero, status, data_vencimento', { count: 'exact' })
+        .or('numero.ilike.%SEED-NF%,chave_nfe.ilike.%SEED-NF%')
+        .in('status', ['emitida'])
+        .or(`data_vencimento.is.null,data_vencimento.gte.${hoje}`)
+        .range(0, 19),
+    // A busca e o "não vencida" são dois .or() na mesma query, como na page:
+    // o PostgREST tem de combinar os dois com E.
+    valida: (r) => {
+      const nums = (r.data ?? []).map((n) => n.numero).sort()
+      if (nums.includes('SEED-NF-002')) return 'a SEED-NF-002, vencida, veio no filtro "emitida"'
+      if (JSON.stringify(nums) !== JSON.stringify(['SEED-NF-001', 'SEED-NF-006'])) return `esperado SEED-NF-001 e 006, veio ${JSON.stringify(nums)}`
+      return null
+    },
+  },
 ]
 
 const supabase = createClient(URL_SUPABASE, ANON)
-const login = await supabase.auth.signInWithPassword({
-  email: EMAIL,
-  password: SENHA,
-})
+const login = await comNovaTentativa(`login de ${EMAIL}`, () =>
+  supabase.auth.signInWithPassword({ email: EMAIL, password: SENHA }),
+)
 
 if (login.error) {
   console.error(`FALHA: login de ${EMAIL} em gc-dev: ${login.error.message}`)
@@ -955,6 +1049,14 @@ for (const check of CHECKS) {
   }
 
   const n = r.count ?? (Array.isArray(r.data) ? r.data.length : r.data ? 1 : 0)
+  // `exigeSeed`: a query tem seed próprio, então zero linha é dado faltando,
+  // não "não exercitada" — antes ela passava calada sem provar nada.
+  if (n === 0 && check.exigeSeed) {
+    falhas += 1
+    console.log(`  FALHA [${check.bloco}] ${check.nome}`)
+    console.log(`         0 registro em gc-dev; aplique: bash scripts/banco/aplicar-seed.sh ${check.exigeSeed}`)
+    continue
+  }
   if (n === 0) vazias += 1
   console.log(
     `  ok   [${check.bloco}] ${check.nome} — ${n} registro(s)${n === 0 ? ' (query válida, mas não exercitada)' : ''}`,

@@ -94,12 +94,15 @@ descritivo, nada solto na raiz.
 scripts/
   validacao/    o plano de validação: validar.sh (orquestrador das sete
                 camadas), uma validar-<camada>.mjs por camada, os insumos
-                delas (validacao-rotas.json, rotas-esperadas.txt) e a
-                fixture planilha-teste.mjs
+                delas (validacao-rotas.json, rotas-esperadas.txt), a
+                fixture planilha-teste.mjs, verificar-sobras.mjs (sobras
+                VALIDA-*/RUN-* de rodada interrompida) e receptor-n8n.mjs
+                (webhook local da escrita)
   comum/        o que mais de uma frente importa: gc-dev-guard.mjs (trava
                 de gc-dev), sessao-dev.mjs (sessão por perfil sem senha),
                 navegador-cdp.mjs (CDP, também usado pela skill
-                run-gc-sistema) e auditoria-limpeza.mjs
+                run-gc-sistema), auditoria-limpeza.mjs e rede.mjs (nova
+                tentativa de login em erro de rede)
   banco/        dados de gc-dev fora do plano: aplicar-seed.sh,
                 seed-propostas-dev.mjs, resetar-senha-dev.mjs
   docs/         docs-pdf.sh + docs-pdf.css (o PDF dos documentos)

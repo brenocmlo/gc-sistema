@@ -24,6 +24,8 @@ import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
 
 import { exigirGcDev } from '../comum/gc-dev-guard.mjs'
+import { limparAuditoriaDoRoteiro } from '../comum/auditoria-limpeza.mjs'
+import { comNovaTentativa } from '../comum/rede.mjs'
 import { PERFIS_DE_TESTE, sessaoDePerfil } from '../comum/sessao-dev.mjs'
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3111'
@@ -149,10 +151,9 @@ async function conferirXlsx(buffer, espera) {
 }
 
 const supabase = createClient(URL_SUPABASE, ANON)
-const { data, error } = await supabase.auth.signInWithPassword({
-  email: EMAIL,
-  password: SENHA,
-})
+const { data, error } = await comNovaTentativa(`login de ${EMAIL}`, () =>
+  supabase.auth.signInWithPassword({ email: EMAIL, password: SENHA }),
+)
 
 if (error) {
   console.error(`FALHA: login de ${EMAIL} em gc-dev: ${error.message}`)
@@ -273,11 +274,28 @@ const { data: ctComObra } = await supabase
   .eq('numero', 'SEED-CT-001')
   .maybeSingle()
 const clienteDosContratos = ctComObra?.obra?.cliente?.nome ?? null
-const { data: obrasComContrato } = await supabase.from('contratos').select('obra_id')
-const { data: todasAsObras } = await supabase.from('obras').select('id')
-const obraSemContrato = (todasAsObras ?? []).find(
-  (o) => !(obrasComContrato ?? []).some((c) => c.obra_id === o.id),
-)?.id ?? null
+// {obraSemContrato}: uma obra criada aqui e apagada no fim. Antes era "a
+// primeira obra sem contrato" de gc-dev, que tem três; um seed novo ou a sobra
+// de uma escrita interrompida ocupava a última livre e a rota falhava com
+// "falta dado" (fechamento da sprint 9). Mesma empresa e cliente do
+// SEED-CT-001, para a sessão do admin enxergá-la. Se a rodada morrer antes do
+// fim, o verificar-sobras.mjs acha o VALIDA-RT-* na próxima.
+const svc = createClient(URL_SUPABASE, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
+})
+const INICIO_AUDITORIA = new Date(Date.now() - 60_000).toISOString()
+let obraSemContrato = null
+if (ctComObra?.obra_id) {
+  const { data: base } = await svc.from('obras').select('empresa_id, cliente_id').eq('id', ctComObra.obra_id).single()
+  const codigo = `VALIDA-RT-${Date.now()}`
+  const { data: criada, error: erroObra } = await svc
+    .from('obras')
+    .insert({ ...base, codigo_obra: codigo, nome: `Obra sem contrato da validação ${codigo}` })
+    .select('id')
+    .single()
+  if (erroObra) console.log(`  aviso: obra sem contrato não criada: ${erroObra.message}`)
+  obraSemContrato = criada?.id ?? null
+}
 
 // {obraExecucao} → a obra do SEED-CT-EXEC (supabase/seed_execucao.sql): 4
 // execuções em estágios diferentes e 1 item de contrato sem execução (7.2).
@@ -300,6 +318,10 @@ const { data: orcamentoPrimeiro } = await supabase
   .order('data_solicitacao', { ascending: false })
   .limit(1)
   .maybeSingle()
+
+// {nfEmitida} / {nfPaga} / {nfCancelada} → as NFs do supabase/seed_notas_fiscais.sql (9.3).
+const { data: nfsSeed } = await supabase.from('notas_fiscais').select('id, numero').in('numero', ['SEED-NF-001', 'SEED-NF-004', 'SEED-NF-005'])
+const nfSeed = (numero) => (nfsSeed ?? []).find((n) => n.numero === numero)?.id ?? null
 
 let falhas = 0
 
@@ -372,7 +394,7 @@ for (const rota of rotas) {
   ) {
     falhas += 1
     console.log(
-      `  FALHA ${rota.path} — falta dado: SEED-CT-001 com obra e cliente, ou uma obra sem contrato em gc-dev`,
+      `  FALHA ${rota.path} — falta dado: SEED-CT-001 com obra e cliente (a obra sem contrato é criada na empresa dele; veja o aviso acima)`,
     )
     continue
   }
@@ -388,6 +410,12 @@ for (const rota of rotas) {
   if (rota.path.includes('{obraPrimeira}') && !obraPrimeira) {
     falhas += 1
     console.log(`  FALHA ${rota.path} — gc-dev não tem nenhuma obra`)
+    continue
+  }
+
+  if (/\{nf(Emitida|Paga|Cancelada)\}/.test(rota.path) && !(nfSeed('SEED-NF-001') && nfSeed('SEED-NF-004') && nfSeed('SEED-NF-005'))) {
+    falhas += 1
+    console.log(`  FALHA ${rota.path} — sem as NFs do seed; rode bash scripts/banco/aplicar-seed.sh supabase/seed_notas_fiscais.sql`)
     continue
   }
 
@@ -411,6 +439,9 @@ for (const rota of rotas) {
     .replace('{obraExecucao}', ctExecucao?.obra_id ?? '')
     .replace('{obraPrimeira}', obraPrimeira?.id ?? '')
     .replace('{orcamentoPrimeiro}', orcamentoPrimeiro?.id ?? '')
+    .replace('{nfEmitida}', nfSeed('SEED-NF-001') ?? '')
+    .replace('{nfPaga}', nfSeed('SEED-NF-004') ?? '')
+    .replace('{nfCancelada}', nfSeed('SEED-NF-005') ?? '')
   const cookieDaRota = cookiesPorPerfil[perfil ?? 'admin']
   const problemas = []
 
@@ -475,6 +506,15 @@ for (const rota of rotas) {
     console.log(`  FALHA ${rotulo}`)
     for (const p of problemas) console.log(`         ${p}`)
   }
+}
+
+if (obraSemContrato) {
+  const { error: erroApagar } = await svc.from('obras').delete().eq('id', obraSemContrato)
+  if (erroApagar) {
+    falhas += 1
+    console.log(`  FALHA limpeza da obra sem contrato ${obraSemContrato}: ${erroApagar.message}`)
+  }
+  await limparAuditoriaDoRoteiro(svc, INICIO_AUDITORIA)
 }
 
 console.log(

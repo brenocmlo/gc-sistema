@@ -17,6 +17,7 @@
 import { createClient } from '@supabase/supabase-js'
 
 import { exigirGcDev } from './gc-dev-guard.mjs'
+import { comNovaTentativa } from './rede.mjs'
 
 /** Os perfis de teste criados por `supabase/setup_inicial_dev.sql`. */
 export const PERFIS_DE_TESTE = {
@@ -77,10 +78,9 @@ async function gerarSessao(perfil) {
 
   const admin = createClient(url, service, { auth: { persistSession: false } })
 
-  const { data, error } = await admin.auth.admin.generateLink({
-    type: 'magiclink',
-    email,
-  })
+  const { data, error } = await comNovaTentativa(`generateLink de ${email}`, () =>
+    admin.auth.admin.generateLink({ type: 'magiclink', email }),
+  )
   if (error) throw new Error(`generateLink de ${email}: ${error.message}`)
 
   const cliente = createClient(url, anon, { auth: { persistSession: false } })

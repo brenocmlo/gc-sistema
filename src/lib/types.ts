@@ -296,9 +296,34 @@ export type ExecucaoListItem = Execucao & {
 }
 
 // Financeiro
-export type NotaFiscal = Tables['notas_fiscais']['Row']
+// tipo — CHECK de 20260424121550 (`notas_fiscais.tipo`).
+export type NotaFiscalTipo = 'sinal' | 'entrega_material' | 'medicao' | 'instalacao' | 'fat_direto' | 'outro'
+
+// Como Contrato: o gen tipa status e tipo como `string`, o CHECK garante a lista.
+export type NotaFiscal = Omit<Tables['notas_fiscais']['Row'], 'status' | 'tipo'> & {
+  status: NotaFiscalStatus
+  tipo: NotaFiscalTipo
+}
 export type NotaFiscalInsert = Tables['notas_fiscais']['Insert']
 export type NotaFiscalUpdate = Tables['notas_fiscais']['Update']
+
+// Subset da listagem (9.1): a obra por JOIN e os pagamentos para o "Recebido".
+export type NotaFiscalListItem = Pick<
+  NotaFiscal,
+  | 'id'
+  | 'numero'
+  | 'serie'
+  | 'chave_nfe'
+  | 'obra_id'
+  | 'tipo'
+  | 'data_emissao'
+  | 'data_vencimento'
+  | 'valor_total'
+  | 'status'
+> & {
+  obra: Pick<Obra, 'codigo_obra' | 'nome'> | null
+  pagamentos: Pick<Pagamento, 'valor'>[] | null
+}
 
 export type Pagamento = Tables['pagamentos']['Row']
 export type PagamentoInsert = Tables['pagamentos']['Insert']

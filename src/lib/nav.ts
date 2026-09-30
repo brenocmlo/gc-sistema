@@ -21,6 +21,21 @@ export type MenuItem = {
   href: string
   icon: LucideIcon
   perfis: readonly Perfil[]
+  /**
+   * Prefixo da seção, quando o link não é a raiz dela: o item fica ativo (e
+   * dá o título) em qualquer rota sob ele. Ver o Financeiro.
+   */
+  secao?: string
+}
+
+/** A rota a partir da qual o item conta como ativo: a seção, ou o próprio link. */
+export function prefixoDoItem(item: MenuItem): string {
+  return item.secao ?? item.href
+}
+
+export function itemAtivo(item: MenuItem, pathname: string): boolean {
+  const base = prefixoDoItem(item)
+  return pathname === base || (base !== '/' && pathname.startsWith(`${base}/`))
 }
 
 const TODOS: readonly Perfil[] = [
@@ -73,8 +88,13 @@ export const MENU_ITEMS: readonly MenuItem[] = [
     perfis: ['admin', 'producao', 'medicao', 'visualizador'],
   },
   {
+    // O link vai direto à listagem de NFs. `/financeiro` redireciona para lá,
+    // mas redirect() numa page quebra a navegação pelo Link no Next 14 (o
+    // clique usa o prefetch e não sai do lugar) — foi o "Em construção" que
+    // continuou aparecendo no fechamento do 9.5.
     label: 'Financeiro',
-    href: '/financeiro',
+    href: '/financeiro/notas-fiscais',
+    secao: '/financeiro',
     icon: Wallet,
     perfis: ['admin', 'financeiro', 'visualizador'],
   },
@@ -102,7 +122,7 @@ export function getMenuItemsForPerfil(perfil: Perfil): MenuItem[] {
 export function getTitleForPathname(pathname: string): string {
   const all = [...MENU_ITEMS, SETTINGS_ITEM]
   const match = all.find(
-    (item) => item.href === pathname || pathname.startsWith(`${item.href}/`),
+    (item) => itemAtivo(item, pathname),
   )
   return match?.label ?? 'Gestão de Contratos'
 }

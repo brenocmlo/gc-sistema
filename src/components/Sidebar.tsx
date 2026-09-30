@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect } from 'react'
 
-import { getMenuItemsForPerfil, SETTINGS_ITEM, type MenuItem } from '@/lib/nav'
+import { getMenuItemsForPerfil, itemAtivo, SETTINGS_ITEM, type MenuItem } from '@/lib/nav'
 import type { Perfil } from '@/lib/types'
 
 type SidebarProps = {
@@ -94,8 +94,7 @@ function Conteudo({ perfil }: { perfil: Perfil }) {
 
 function NavLink({ item, pathname }: { item: MenuItem; pathname: string }) {
   const active =
-    pathname === item.href ||
-    (item.href !== '/' && pathname.startsWith(`${item.href}/`))
+    itemAtivo(item, pathname)
   const Icon = item.icon
 
   return (

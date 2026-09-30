@@ -22,6 +22,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { exigirGcDev } from '../comum/gc-dev-guard.mjs'
 import { conectar } from '../comum/navegador-cdp.mjs'
 import { limparAuditoriaDoRoteiro } from '../comum/auditoria-limpeza.mjs'
+import { comNovaTentativa } from '../comum/rede.mjs'
 import { sessaoDePerfil } from '../comum/sessao-dev.mjs'
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3111'
@@ -1479,6 +1480,211 @@ try {
     }
   }
 
+  // 34. Nova nota fiscal (9.2), como admin: botão da listagem, zod do
+  //     cliente, o vínculo condicional (o select só mostra contratos da obra;
+  //     trocar para proposta limpa o contrato) e a criação. A NF sai no fim
+  //     (limparRestosDoRoteiro).
+  {
+    const sb = await clienteSupabase()
+    const { data: ctNf } = await sb.from('contratos').select('id, numero, obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    if (ctNf) {
+      await b.ir(`${BASE}/financeiro/notas-fiscais`)
+      await b.esperar('Array.from(document.querySelectorAll("a")).some((a) => a.innerText.includes("Nova nota fiscal"))', { rotulo: 'botão Nova nota fiscal', ms: 25000 })
+      await b.clicar('a', { texto: 'Nova nota fiscal' })
+      await b.esperar('location.pathname === "/financeiro/notas-fiscais/novo" && document.querySelector("#numero")', { rotulo: 'form de NF', ms: 25000 })
+      checar('a emissão nasce com a data de hoje', (await b.avaliar('document.querySelector("#data_emissao").value')) === new Date().toISOString().slice(0, 10))
+
+      await b.clicar('button[type="submit"]', { texto: 'Criar nota fiscal' })
+      await b.esperar('document.body.innerText.includes("Selecione uma obra") && document.body.innerText.includes("Número obrigatório")', { rotulo: 'erros do zod' })
+      const errosVazio = await b.texto()
+      checar('envio vazio: obra, número, tipo e valor barrados no cliente, sem sair do form',
+        ['Selecione uma obra', 'Número obrigatório', 'Selecione o tipo', 'maior que zero'].every((t) => errosVazio.includes(t)) &&
+          (await b.url()) === '/financeiro/notas-fiscais/novo')
+
+      await b.preencher('#obra_id', ctNf.obra_id)
+      await b.clicar('input[name="vinculo"][value="contrato"]')
+      await b.esperar('document.querySelector("#contrato_id")', { rotulo: 'select de contrato' })
+      const contratosNoSelect = await b.avaliar('Array.from(document.querySelector("#contrato_id").options).filter((o) => o.value).map((o) => o.value)')
+      const { data: daObra } = await sb.from('contratos').select('id').eq('obra_id', ctNf.obra_id)
+      checar('com "Contrato", o select aparece só com os contratos da obra escolhida',
+        contratosNoSelect.length === (daObra ?? []).length && contratosNoSelect.includes(ctNf.id), `${contratosNoSelect.length} no select, ${(daObra ?? []).length} na obra`)
+      await b.preencher('#contrato_id', ctNf.id)
+      await b.clicar('input[name="vinculo"][value="proposta"]')
+      await b.esperar('document.querySelector("#proposta_id") && !document.querySelector("#contrato_id")', { rotulo: 'troca para proposta' })
+      checar('trocar para "Proposta" esconde o contrato e mostra o select de proposta', true)
+      await b.clicar('input[name="vinculo"][value="contrato"]')
+      await b.esperar('document.querySelector("#contrato_id")', { rotulo: 'volta para contrato' })
+      checar('ao voltar para "Contrato", a escolha anterior foi limpa (contrato OU proposta, nunca os dois)',
+        (await b.avaliar('document.querySelector("#contrato_id").value')) === '')
+
+      await b.preencher('#contrato_id', ctNf.id)
+      await b.preencher('#numero', `${NUMERO}-NF`)
+      await b.preencher('#serie', '9')
+      await b.preencher('#tipo', 'medicao')
+      await b.preencher('#valor_total', '0')
+      await b.preencher('#chave_nfe', '123')
+      await b.clicar('button[type="submit"]', { texto: 'Criar nota fiscal' })
+      await b.esperar('document.body.innerText.includes("A chave da NF-e tem 44 dígitos")', { rotulo: 'erro da chave' })
+      checar('valor zero e chave curta são barrados no cliente, com a mensagem de cada um',
+        (await b.texto()).includes('O valor tem de ser maior que zero'))
+      await b.screenshot(`${SHOTS}/34-nf-form-erros.png`)
+
+      await b.preencher('#valor_total', '2500.50')
+      await b.preencher('#chave_nfe', '')
+      await b.clicar('button[type="submit"]', { texto: 'Criar nota fiscal' })
+      await b.esperar('/^\\/financeiro\\/notas-fiscais\\/[0-9a-f-]{36}$/.test(location.pathname)', { rotulo: 'depois de criar', ms: 25000 })
+      const { data: criada } = await sb.from('notas_fiscais').select('status, contrato_id, proposta_id, serie, valor_total, tipo').eq('numero', `${NUMERO}-NF`).maybeSingle()
+      checar('corrigido, cria a NF emitida com o contrato, a série e o valor da tela, e leva ao detalhe',
+        criada?.status === 'emitida' && criada?.contrato_id === ctNf.id && criada?.proposta_id === null && criada?.serie === '9' &&
+          Number(criada?.valor_total) === 2500.5 && criada?.tipo === 'medicao', JSON.stringify(criada ?? null))
+    } else {
+      checar('seed: SEED-CT-EXEC existe (passo 34)', false)
+    }
+  }
+
+  // 35. Detalhe e edição da NF (9.3), sobre a NF que o passo 34 criou: as
+  //     três abas, o Editar do cabeçalho, a edição com o vínculo carregado, e
+  //     a NF cancelada do seed com o Editar desabilitado.
+  {
+    const sb = await clienteSupabase()
+    const { data: nf35 } = await sb.from('notas_fiscais').select('id').eq('numero', `${NUMERO}-NF`).maybeSingle()
+    const { data: canc35 } = await sb.from('notas_fiscais').select('id').eq('numero', 'SEED-NF-005').maybeSingle()
+    if (nf35 && canc35) {
+      await b.ir(`${BASE}/financeiro/notas-fiscais/${nf35.id}`)
+      await b.esperar('Array.from(document.querySelectorAll("[role=tab]")).length === 3', { rotulo: 'abas da NF', ms: 25000 })
+      const abas = await b.avaliar('Array.from(document.querySelectorAll("[role=tab]")).map((t) => t.innerText.trim())')
+      const topo = await b.avaliar('document.querySelector("[aria-label=\\"Valores da nota fiscal\\"]").innerText.replace(/\\s+/g, " ")')
+      checar('o detalhe tem as abas Detalhes, Pagamentos e Arquivos, e o cabeçalho com valor, recebido e a receber',
+        JSON.stringify(abas) === JSON.stringify(['Detalhes', 'Pagamentos', 'Arquivos']) && /Valor total R\$\s?2\.500,50/.test(topo) && /A receber R\$\s?2\.500,50/.test(topo),
+        `${JSON.stringify(abas)} · ${topo}`)
+      await b.clicar('[role=tab]', { texto: 'Pagamentos' })
+      checar('a aba Pagamentos é o placeholder do Sprint 10',
+        await b.avaliar('Array.from(document.querySelectorAll("[role=tabpanel]")).some((p) => !p.hidden && p.innerText.includes("Sprint 10"))'))
+      await b.screenshot(`${SHOTS}/35-nf-detalhe.png`)
+
+      await b.clicar('a', { texto: 'Editar' })
+      await b.esperar(`location.pathname === "/financeiro/notas-fiscais/${nf35.id}/editar" && document.querySelector("#contrato_id")`, { rotulo: 'form de edição', ms: 25000 })
+      const carregado = await b.avaliar(`({
+        numero: document.querySelector('#numero').value, serie: document.querySelector('#serie').value,
+        vinculo: document.querySelector('input[name=vinculo]:checked')?.value, contrato: document.querySelector('#contrato_id').value,
+        valor: Number(document.querySelector('#valor_total').value),
+      })`)
+      checar('a edição abre com os valores e o vínculo de contrato da NF',
+        carregado.numero === `${NUMERO}-NF` && carregado.serie === '9' && carregado.vinculo === 'contrato' && carregado.contrato !== '' && carregado.valor === 2500.5,
+        JSON.stringify(carregado))
+      await b.preencher('#observacao', 'editada pela tela')
+      await b.clicar('button[type="submit"]', { texto: 'Salvar alterações' })
+      await b.esperar(`location.pathname === "/financeiro/notas-fiscais/${nf35.id}"`, { rotulo: 'volta ao detalhe', ms: 25000 })
+      await b.esperar('document.body.innerText.includes("editada pela tela")', { rotulo: 'observação no detalhe', ms: 15000 })
+      checar('salvar volta ao detalhe com a observação nova, gravada no banco',
+        (await sb.from('notas_fiscais').select('observacao').eq('id', nf35.id).single()).data?.observacao === 'editada pela tela')
+
+      await b.ir(`${BASE}/financeiro/notas-fiscais/${canc35.id}`)
+      await b.esperar('document.body.innerText.includes("Cancelamento")', { rotulo: 'detalhe da cancelada', ms: 25000 })
+      const editarCanc = await b.avaliar(`(() => {
+        const bt = Array.from(document.querySelectorAll('button, a')).find((x) => x.innerText.trim() === 'Editar');
+        return { tag: bt?.tagName, disabled: bt?.disabled ?? null, title: bt?.title ?? null };
+      })()`)
+      checar('NF cancelada: o Editar vem desabilitado, com o porquê, e o motivo do cancelamento aparece',
+        editarCanc.tag === 'BUTTON' && editarCanc.disabled === true && /cancelada/.test(editarCanc.title ?? '') &&
+          (await b.texto()).includes('Emitida com valor errado'), JSON.stringify(editarCanc))
+    } else {
+      checar('a NF do passo 34 e a SEED-NF-005 existem (passo 35)', false)
+    }
+  }
+
+  // 37. Arquivos da NF (9.5), sobre a NF do passo 34, antes do 36 a
+  //     cancelar: o seletor de verdade para o XML, a recusa de um PDF no
+  //     lugar do XML, a substituição e o "Visualizar".
+  {
+    const sb = await clienteSupabase()
+    const { data: nf37 } = await sb.from('notas_fiscais').select('id, empresa_id, obra_id').eq('numero', `${NUMERO}-NF`).maybeSingle()
+    if (nf37) {
+      const pasta37 = `${nf37.empresa_id}/${nf37.obra_id}/nf/${nf37.id}/`
+      const xml37 = `${SHOTS}/nota-do-run.xml`
+      const falso37 = `${SHOTS}/pdf-com-nome-de-xml.xml`
+      writeFileSync(xml37, '<?xml version="1.0"?><nfeProc/>')
+      writeFileSync(falso37, '%PDF-1.4\n% não é xml\n')
+      try {
+        await b.ir(`${BASE}/financeiro/notas-fiscais/${nf37.id}`)
+        await b.esperar('Array.from(document.querySelectorAll("[role=tab]")).some((t) => t.innerText.startsWith("Arquivos"))', { rotulo: 'aba Arquivos', ms: 25000 })
+        await b.clicar('[role=tab]', { texto: 'Arquivos' })
+        await b.esperar('document.querySelector(\'[data-arquivo-nf="xml"] input[type=file]\')', { rotulo: 'input do XML' })
+
+        await b.anexarArquivo('[data-arquivo-nf="xml"] input[type=file]', falso37)
+        await b.esperar('document.querySelector(\'[data-arquivo-nf="xml"]\').innerText.includes("não é de um arquivo XML")', { rotulo: 'recusa do conteúdo' })
+        checar('um PDF renomeado para .xml é recusado no cliente pelo conteúdo, sem subir',
+          ((await sb.storage.from('notas-fiscais').list(pasta37)).data ?? []).length === 0)
+
+        await b.anexarArquivo('[data-arquivo-nf="xml"] input[type=file]', xml37)
+        await b.esperar('document.querySelector(\'[data-arquivo-nf="xml"]\').innerText.includes("Enviado")', { rotulo: 'XML enviado', ms: 30000 })
+        const { data: comXml } = await sb.from('notas_fiscais').select('xml_url, pdf_url').eq('id', nf37.id).single()
+        const botoes = await b.avaliar(`Array.from(document.querySelectorAll('[data-arquivo-nf="xml"] button')).map((x) => x.innerText.trim())`)
+        checar('o XML sobe pelo seletor, a coluna guarda o caminho, e a linha passa a oferecer Visualizar e Substituir',
+          comXml?.xml_url === `${pasta37}nota.xml` && comXml?.pdf_url === null && botoes.includes('Visualizar') && botoes.includes('Substituir'),
+          JSON.stringify({ comXml, botoes }))
+        await b.screenshot(`${SHOTS}/37-nf-arquivos.png`)
+
+        writeFileSync(xml37, '<?xml version="1.0"?><nfeProc versao="2"/>')
+        await b.anexarArquivo('[data-arquivo-nf="xml"] input[type=file]', xml37)
+        await b.esperar('document.body.innerText.includes("XML da NF substituído")', { rotulo: 'toast da substituição', ms: 30000 })
+        const { data: baixado } = await sb.storage.from('notas-fiscais').download(`${pasta37}nota.xml`)
+        checar('substituir pela tela troca o conteúdo no mesmo caminho', (await baixado?.text())?.includes('versao="2"') === true)
+      } finally {
+        const { data: sobras } = await sb.storage.from('notas-fiscais').list(pasta37)
+        if ((sobras ?? []).length > 0) await sb.storage.from('notas-fiscais').remove(sobras.map((o) => `${pasta37}${o.name}`))
+      }
+    } else {
+      checar('a NF do passo 34 existe (passo 37)', false)
+    }
+  }
+
+  // 36. Cancelamento pela tela (9.4), sobre a NF do passo 34: o aviso de
+  //     irreversível, o motivo obrigatório, e o detalhe depois (selo, motivo,
+  //     sem Cancelar NF, Editar e Excluir desabilitados).
+  {
+    const sb = await clienteSupabase()
+    const { data: nf36 } = await sb.from('notas_fiscais').select('id').eq('numero', `${NUMERO}-NF`).maybeSingle()
+    if (nf36) {
+      await b.ir(`${BASE}/financeiro/notas-fiscais/${nf36.id}`)
+      await b.esperar('Array.from(document.querySelectorAll("button")).some((x) => x.innerText.trim() === "Cancelar NF")', { rotulo: 'botão Cancelar NF', ms: 25000 })
+      await b.clicar('button', { texto: 'Cancelar NF' })
+      await b.esperar('document.querySelector("#motivo_cancelamento")', { rotulo: 'diálogo de cancelamento' })
+      checar('o diálogo avisa que a ação é irreversível',
+        (await b.avaliar('document.querySelector("[role=dialog]").innerText')).includes('Esta ação é irreversível'))
+      await b.clicar('[role=dialog] button', { texto: 'Cancelar nota fiscal' })
+      await b.esperar('document.querySelector("#erro-motivo")', { rotulo: 'erro do motivo' })
+      checar('sem motivo, o diálogo barra e nada muda no banco',
+        (await sb.from('notas_fiscais').select('status').eq('id', nf36.id).single()).data?.status === 'emitida')
+      await b.screenshot(`${SHOTS}/36-nf-cancelar.png`)
+
+      await b.preencher('#motivo_cancelamento', 'Emitida para a obra errada')
+      await b.clicar('[role=dialog] button', { texto: 'Cancelar nota fiscal' })
+      await b.esperar('!document.querySelector("#motivo_cancelamento") && document.body.innerText.includes("Emitida para a obra errada")', { rotulo: 'detalhe cancelado', ms: 25000 })
+      const depois = await b.avaliar(`(() => {
+        const bts = Array.from(document.querySelectorAll('button, a'));
+        const editar = bts.find((x) => x.innerText.trim() === 'Editar');
+        const excluir = document.querySelector('button[aria-label="Excluir nota fiscal"]');
+        return {
+          cancelarNf: bts.some((x) => x.innerText.trim() === 'Cancelar NF'),
+          editar: editar ? { tag: editar.tagName, disabled: editar.disabled } : null,
+          excluirDesabilitado: excluir?.disabled ?? null,
+          selo: document.body.innerText.includes('Cancelada'),
+        };
+      })()`)
+      const { data: gravada } = await sb.from('notas_fiscais').select('status, motivo_cancelamento, data_cancelamento').eq('id', nf36.id).single()
+      checar('cancelada pela tela: o banco tem status, motivo e data; o detalhe mostra o motivo, sem Cancelar NF, com Editar e Excluir desabilitados',
+        gravada?.status === 'cancelada' && gravada?.motivo_cancelamento === 'Emitida para a obra errada' && gravada?.data_cancelamento === new Date().toISOString().slice(0, 10) &&
+          !depois.cancelarNf && depois.editar?.tag === 'BUTTON' && depois.editar?.disabled === true && depois.excluirDesabilitado === true && depois.selo,
+        JSON.stringify({ gravada, depois }))
+      await b.clicar('[role=tab]', { texto: 'Arquivos' })
+      checar('na cancelada, a aba Arquivos não oferece envio nem substituição',
+        await b.avaliar(`document.querySelectorAll('[data-arquivo-nf] input[type=file]').length === 0 && document.body.innerText.includes('sem envio nem substituição')`))
+    } else {
+      checar('a NF do passo 34 existe (passo 36)', false)
+    }
+  }
+
   // 28. Documentos (automação, Fase 7), antes do passo 22 (que troca a
   //     sessão). Menu, listagem com filtro na URL, detalhe de um documento do
   //     gc-dev e a validação do envio pela tela — sem subir arquivo: o envio
@@ -1741,7 +1947,9 @@ async function clienteSupabase() {
   if (_sb) return _sb
   const { createClient } = await import('@supabase/supabase-js')
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
-  const { error } = await sb.auth.signInWithPassword({ email: EMAIL, password: SENHA })
+  const { error } = await comNovaTentativa(`login de ${EMAIL}`, () =>
+    sb.auth.signInWithPassword({ email: EMAIL, password: SENHA }),
+  )
   if (error) throw new Error(`login do cliente Supabase falhou: ${error.message}`)
   _sb = sb
   return sb
@@ -1754,6 +1962,10 @@ async function limparRestosDoRoteiro() {
     // Contratos gerados pelo passo 17 (6.2). Sem itens: a PROP-2026-008 não tem.
     // E o avulso do passo 18 (6.3), `${NUMERO}-AV`.
     // E o do passo 21, `${NUMERO}-CI1`, que tem itens: eles saem antes.
+    // Passo 34 (9.2): a NF criada pela tela.
+    const { data: nfRestos } = await sb.from('notas_fiscais').delete().like('numero', `${NUMERO}-NF%`).select('id')
+    if ((nfRestos ?? []).length > 0) console.log(`  limpeza: ${nfRestos.length} nota(s) fiscal(is) ${NUMERO}-NF apagada(s)`)
+
     const { data: ctRestos } = await sb.from('contratos').select('id')
       .or(`numero.like.${NUMERO}-CT%,numero.eq.${NUMERO}-AV,numero.like.${NUMERO}-CI%`)
     if ((ctRestos ?? []).length > 0) {

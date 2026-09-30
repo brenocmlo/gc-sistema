@@ -93,6 +93,20 @@ no celular fica a cargo do Breno.
 | 8.4 Relatório PDF de medição por obra | `8.4-status-entrega.md` — validado; migration aplicada em gc-dev |
 | 8.5 Execução: export XLSX e testes (fechamento) | `8.5-status-entrega.md` — rodada de fechamento; migration do deadlock |
 
+## Sprint 9 — Financeiro: Notas Fiscais · `sprint-9/`
+
+Aberta em 2026-09-28, **fechada em 2026-09-29** com as sete camadas do plano passando. O teste
+no celular fica a cargo do Breno.
+
+| Bloco | Documento |
+|---|---|
+| 9.1 NF: types, helpers e listagem | `9.1-status-entrega.md` — validado no fechamento (9.6) |
+| 9.2 NF: formulário de criação | `9.2-status-entrega.md` — validado no fechamento (9.6) |
+| 9.3 NF: detalhes, edição e abas | `9.3-status-entrega.md` — validado no fechamento (9.6) |
+| 9.4 NF: cancelamento como status terminal | `9.4-status-entrega.md` — validado no fechamento (9.6); migration aplicada em gc-dev |
+| 9.5 NF: upload de XML e PDF | `9.5-status-entrega.md` — validado no fechamento (9.6) |
+| 9.6 NF: export XLSX, seed e testes (fechamento) | `9.6-status-entrega.md` — rodada de fechamento |
+
 ## Sprint 13 — Administração, qualidade e segurança · `sprint-13/`
 
 Um bloco **adiantado** em 2026-09-23, a pedido do Breno: a tela de logs e auditoria.

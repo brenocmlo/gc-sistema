@@ -31,6 +31,7 @@ import { join } from 'node:path'
 import { createClient } from '@supabase/supabase-js'
 
 import { exigirGcDev } from '../comum/gc-dev-guard.mjs'
+import { comNovaTentativa } from '../comum/rede.mjs'
 import { sessaoDePerfil } from '../comum/sessao-dev.mjs'
 import { limparAuditoriaDoRoteiro } from '../comum/auditoria-limpeza.mjs'
 
@@ -70,7 +71,7 @@ function mapaDeActions() {
   // `.next/server` inteiro, e não só `app/`: action usada por mais de uma rota
   // (as de item, desde o 6.4, servem proposta e contrato) vai para um chunk
   // compartilhado em `.next/server/chunks/`.
-  for (const arquivo of arquivosDoBuild('.next/server')) {
+  for (const arquivo of arquivosDoBuild(`${process.env.NEXT_DIST_DIR || '.next'}/server`)) {
     const conteudo = readFileSync(arquivo, 'utf8')
     for (const m of conteudo.matchAll(padrao)) mapa[m[2]] = m[1]
   }
@@ -123,6 +124,15 @@ const NECESSARIAS = [
   'lerExecucao',
   // Várias execuções por item (7.4)
   'criarNovaExecucao',
+  // Notas fiscais (9.2 a 9.4)
+  'createNotaFiscal',
+  'updateNotaFiscal',
+  'cancelarNotaFiscal',
+  'excluirNotaFiscal',
+  // Arquivos da NF (9.5)
+  'prepararEnvioArquivoNf',
+  'registrarArquivoNf',
+  'urlArquivoNf',
   // Evidências por etapa (8.1)
   'registrarEvidencia',
   'excluirEvidencia',
@@ -146,7 +156,7 @@ const faltando = NECESSARIAS.filter((n) => !ACTIONS[n])
 if (faltando.length > 0) {
   console.error(
     `FALHA: não achei no build as actions: ${faltando.join(', ')}.\n` +
-      '  Rode a camada build antes (o mapa vem de .next/server).',
+      `  Rode a camada build antes (o mapa vem de ${process.env.NEXT_DIST_DIR || '.next'}/server).`,
   )
   process.exit(1)
 }
@@ -165,7 +175,9 @@ function cookieDeSessao(session) {
 
 async function cookieDe(email, senha) {
   const sb = createClient(URL_SUPABASE, ANON)
-  const { data, error } = await sb.auth.signInWithPassword({ email, password: senha })
+  const { data, error } = await comNovaTentativa(`login de ${email}`, () =>
+    sb.auth.signInWithPassword({ email, password: senha }),
+  )
   if (error) {
     console.error(`FALHA no login de ${email}: ${error.message}`)
     process.exit(1)
@@ -275,6 +287,8 @@ const documentosRevisao = []
 const obrasTesteIngestao = []
 /** A obra isolada dos blocos 7.2 a 8.5; sai no fim da limpeza. */
 let obraTesteExecucao = null
+/** NFs de teste do 9.x: saem no finally pelo número `${NUMERO}-NF*`. */
+let nfsDeTeste = false
 /** Fase 7 da automação: PDF de teste no bucket e documento do envio pela tela — apagados no finally. */
 let envioTesteCaminho = null
 let envioTesteDocId = null
@@ -2867,13 +2881,30 @@ try {
     const { count: docsRecusa } = await supabase.from('documentos_processamento').select('id', { count: 'exact', head: true }).like('arquivo_url', `%${envioTesteCaminho.split('/').pop()}%`)
     checar('nenhuma recusa deixou documento gravado', docsRecusa === 0, `linhas: ${docsRecusa}`)
 
-    if (process.env.VALIDACAO_ENVIO_REAL === '1') {
+    // Com o receptor local (validar.sh, sem VALIDACAO_ENVIO_REAL=1) o envio
+    // roda sempre; com VALIDACAO_ENVIO_REAL=1 vai para o n8n de verdade.
+    const RECEPTOR = process.env.VALIDACAO_RECEPTOR_N8N
+    if (process.env.VALIDACAO_ENVIO_REAL === '1' || RECEPTOR) {
       const envio = await chamar('registrarEnvioDocumento', [base], { rota: ROTA_DOC })
       envioTesteDocId = envio.id ?? null
       checar('envio válido grava o documento como PENDENTE e aciona o n8n', envio.ok === true && envio.automacao === 'acionada', JSON.stringify(envio))
       if (envioTesteDocId) {
         const { data: d } = await supabase.from('documentos_processamento').select('status, canal, obra_id, created_by').eq('id', envioTesteDocId).single()
         checar('documento pela tela: canal nulo, obra e autor preenchidos', d?.canal === null && d?.obra_id === obraDoc.id && Boolean(d?.created_by), JSON.stringify(d))
+      }
+      if (RECEPTOR && envioTesteDocId) {
+        const recebidos = await (await fetch(`${RECEPTOR}/recebidos`)).json()
+        const chamada = recebidos.find((r) => r.corpo?.documento_id === envioTesteDocId)
+        const c = chamada?.corpo ?? {}
+        checar('o webhook recebe o documento: token no x-documento-token, JSON, canal SISTEMA, empresa, obra e nome do arquivo',
+          Boolean(chamada) && chamada.token === process.env.VALIDACAO_N8N_TOKEN && /application\/json/.test(chamada.contentType ?? '') &&
+            c.canal === 'SISTEMA' && c.empresa_id === EMP && c.obra_id === obraDoc.id && c.nome_arquivo === 'validacao-escrita.pdf',
+          JSON.stringify({ ...chamada, corpo: { ...c, arquivo_url: c.arquivo_url ? '(url)' : null } }))
+        const pdfPelaUrl = c.arquivo_url ? await fetch(c.arquivo_url) : null
+        const bytes = pdfPelaUrl?.ok ? await pdfPelaUrl.text() : ''
+        checar('a URL do webhook é assinada e baixa o PDF enviado, sem sessão (é o que o n8n lê)',
+          /\/object\/sign\//.test(c.arquivo_url ?? '') && bytes.startsWith('%PDF'),
+          `status ${pdfPelaUrl?.status ?? '—'}`)
       }
     } else {
       console.log('  nota  envio válido pulado: chama o n8n de verdade (rode com VALIDACAO_ENVIO_REAL=1)')
@@ -3145,7 +3176,273 @@ try {
     p_empresa_id: perfilAdmin?.empresa_id,
   })
   checar('auditoria: anon não chama registrar_evento', Boolean(anon.error), 'anon conseguiu registrar')
+  // ============================================================
+  // Sprint 9 — notas fiscais: criação (9.2) e o XOR de vínculo, pela action
+  // e direto no banco. Na obra do SEED-CT-EXEC. As NFs levam `${NUMERO}-NF`
+  // e saem no finally.
+  // ============================================================
+  {
+    nfsDeTeste = true
+    const ROTA_NF = { rota: '/financeiro/notas-fiscais/novo' }
+    const { data: ctNf } = await supabase.from('contratos').select('id, obra_id, empresa_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    const { data: prNf } = ctNf
+      ? await supabase.from('propostas').select('id').eq('obra_id', ctNf.obra_id).limit(1).maybeSingle()
+      : { data: null }
+    const { data: outraObraCt } = ctNf
+      ? await supabase.from('contratos').select('id').neq('obra_id', ctNf.obra_id).limit(1).maybeSingle()
+      : { data: null }
+    checar('9.2: a obra do SEED-CT-EXEC tem contrato e proposta para o vínculo', Boolean(ctNf && prNf))
+    if (ctNf && prNf) {
+      const hoje9 = new Date().toISOString().slice(0, 10)
+      const nf = (x = {}) => ({
+        obra_id: ctNf.obra_id, numero: `${NUMERO}-NF`, serie: '1', chave_nfe: null, contrato_id: null, proposta_id: null,
+        tipo: 'medicao', data_emissao: hoje9, data_vencimento: null, valor_total: 1500, observacao: null, ...x,
+      })
+      const lerNf = async (id) => (await supabase.from('notas_fiscais').select('*').eq('id', id).maybeSingle()).data
+
+      const c1 = await chamar('createNotaFiscal', [nf({ contrato_id: ctNf.id, data_vencimento: hoje9 })], ROTA_NF)
+      const l1 = c1.ok ? await lerNf(c1.id) : null
+      checar('9.2: admin cria a NF com vínculo de contrato; nasce emitida, com autor, e sem proposta',
+        c1.ok === true && l1?.status === 'emitida' && l1?.contrato_id === ctNf.id && l1?.proposta_id === null && l1?.created_by === admin.userId && Number(l1?.valor_total) === 1500,
+        c1.error ?? JSON.stringify(l1))
+
+      const cookieFin9 = cookieDeSessao((await sessaoDePerfil('financeiro')).session)
+      const chave = `3526${String(Date.now()).padStart(40, '0')}`.slice(0, 44)
+      const c2 = await chamar('createNotaFiscal', [nf({ numero: `${NUMERO}-NF-2`, serie: null, proposta_id: prNf.id, tipo: 'sinal', chave_nfe: chave })], { ...ROTA_NF, cookie: cookieFin9 })
+      const l2 = c2.ok ? await lerNf(c2.id) : null
+      checar('9.2: financeiro cria a NF com vínculo de proposta, sem série e com a chave de 44 dígitos',
+        c2.ok === true && l2?.proposta_id === prNf.id && l2?.contrato_id === null && l2?.serie === null && l2?.chave_nfe === chave,
+        c2.error ?? JSON.stringify(l2))
+
+      const semVinc = await chamar('createNotaFiscal', [nf({ numero: `${NUMERO}-NF-3`, tipo: 'outro' })], ROTA_NF)
+      checar('9.2: NF sem vínculo é aceita', semVinc.ok === true, semVinc.error)
+
+      // O XOR: pela action (validarPayloadNf) e direto no banco (CHECK nf_vinculo_xor).
+      const antesXor = (await supabase.from('notas_fiscais').select('id', { count: 'exact', head: true }).like('numero', `${NUMERO}-NF%`)).count
+      const xorAction = await chamar('createNotaFiscal', [nf({ numero: `${NUMERO}-NF-XOR`, contrato_id: ctNf.id, proposta_id: prNf.id })], ROTA_NF)
+      const { error: xorBanco } = await supabase.from('notas_fiscais').insert({
+        empresa_id: ctNf.empresa_id, obra_id: ctNf.obra_id, numero: `${NUMERO}-NF-XOR2`, tipo: 'outro', valor_total: 10,
+        contrato_id: ctNf.id, proposta_id: prNf.id,
+      })
+      const depoisXor = (await supabase.from('notas_fiscais').select('id', { count: 'exact', head: true }).like('numero', `${NUMERO}-NF%`)).count
+      checar('9.2: contrato e proposta juntos são recusados pela action ("nunca dos dois") e pelo banco (nf_vinculo_xor), sem gravar',
+        !xorAction.ok && /nunca dos dois/.test(xorAction.error ?? '') && /nf_vinculo_xor/.test(xorBanco?.message ?? '') && depoisXor === antesXor,
+        `${xorAction.error ?? 'PASSOU'} · ${xorBanco?.message ?? 'BANCO ACEITOU'}`)
+
+      const recusas = [
+        ['número e série repetidos', nf({ contrato_id: ctNf.id }), /número e série/],
+        ['chave de NF-e repetida', nf({ numero: `${NUMERO}-NF-4`, chave_nfe: chave }), /chave de NF-e/],
+        ['contrato de outra obra', nf({ numero: `${NUMERO}-NF-5`, contrato_id: outraObraCt?.id ?? '00000000-0000-4000-8000-000000000000' }), /mesma obra/],
+        ['valor zero', nf({ numero: `${NUMERO}-NF-6`, valor_total: 0 }), /maior que zero/],
+        ['tipo fora da lista', nf({ numero: `${NUMERO}-NF-7`, tipo: 'boleto' }), /Tipo/],
+        ['chave com 43 dígitos', nf({ numero: `${NUMERO}-NF-8`, chave_nfe: chave.slice(1) }), /44 dígitos/],
+        ['vencimento antes da emissão', nf({ numero: `${NUMERO}-NF-9`, data_vencimento: '2000-01-01' }), /antes da emissão/],
+      ]
+      const erradas = []
+      for (const [rotulo, payload, msg] of recusas) {
+        const r = await chamar('createNotaFiscal', [payload], ROTA_NF)
+        if (r.ok || !msg.test(r.error ?? '')) erradas.push(`${rotulo}: ${r.ok ? 'PASSOU' : r.error}`)
+      }
+      checar('9.2: recusa número/série repetidos, chave repetida, contrato de outra obra, valor zero, tipo fora da lista, chave curta e vencimento antes da emissão',
+        erradas.length === 0, erradas.join(' | '))
+
+      const perfis = {}
+      for (const perfil of ['comercial', 'visualizador', 'producao', 'medicao']) {
+        const r = await chamar('createNotaFiscal', [nf({ numero: `${NUMERO}-NF-P-${perfil}` })], { ...ROTA_NF, cookie: cookieDeSessao((await sessaoDePerfil(perfil)).session) })
+        perfis[perfil] = r.ok ? 'PASSOU' : /permissão/i.test(r.error ?? '') ? 'recusado' : r.error
+      }
+      checar('9.2: comercial, visualizador, produção e medição não criam NF (recusados pela checagem de perfil)',
+        Object.values(perfis).every((v) => v === 'recusado'), JSON.stringify(perfis))
+
+      // 9.3 — edição, sobre a NF criada em c1.
+      if (c1.ok) {
+        const ROTA_ED = { rota: `/financeiro/notas-fiscais/${c1.id}/editar` }
+        const venc = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10)
+        const ed = await chamar('updateNotaFiscal', [c1.id, nf({ contrato_id: null, proposta_id: prNf.id, valor_total: 1750.25, data_vencimento: venc, observacao: 'editada' })], ROTA_ED)
+        const le = await lerNf(c1.id)
+        checar('9.3: a edição troca o vínculo de contrato para proposta, o valor, o vencimento e a observação; o status segue emitida',
+          ed.ok === true && le?.contrato_id === null && le?.proposta_id === prNf.id && Number(le?.valor_total) === 1750.25 &&
+            le?.data_vencimento === venc && le?.observacao === 'editada' && le?.status === 'emitida',
+          ed.error ?? JSON.stringify(le))
+        const edXor = await chamar('updateNotaFiscal', [c1.id, nf({ contrato_id: ctNf.id, proposta_id: prNf.id })], ROTA_ED)
+        checar('9.3: a edição também recusa contrato e proposta juntos', !edXor.ok && /nunca dos dois/.test(edXor.error ?? ''), edXor.error ?? 'PASSOU')
+
+        const { data: nfCanc } = await supabase.from('notas_fiscais').select('id, numero, serie, obra_id, tipo, data_emissao, valor_total, updated_at').eq('numero', 'SEED-NF-005').maybeSingle()
+        const { data: nfPaga } = await supabase.from('notas_fiscais').select('id, numero, serie, obra_id, tipo, data_emissao, valor_total, updated_at').eq('numero', 'SEED-NF-004').maybeSingle()
+        if (nfCanc && nfPaga) {
+          const mesmo = (n, x = {}) => nf({ numero: n.numero, serie: n.serie, obra_id: n.obra_id, tipo: n.tipo, data_emissao: n.data_emissao, valor_total: Number(n.valor_total), ...x })
+          const rCanc = await chamar('updateNotaFiscal', [nfCanc.id, mesmo(nfCanc, { observacao: 'não pode' })], ROTA_ED)
+          const rPaga = await chamar('updateNotaFiscal', [nfPaga.id, mesmo(nfPaga, { valor_total: 1999.99 })], ROTA_ED)
+          const [dCanc, dPaga] = await Promise.all([lerNf(nfCanc.id), lerNf(nfPaga.id)])
+          checar('9.3: NF cancelada não edita, e o valor não fica abaixo do já recebido; as duas do seed ficam intactas',
+            !rCanc.ok && /cancelada/.test(rCanc.error ?? '') && !rPaga.ok && /abaixo do já recebido/.test(rPaga.error ?? '') &&
+              dCanc?.updated_at === nfCanc.updated_at && dPaga?.updated_at === nfPaga.updated_at,
+            `${rCanc.error ?? 'PASSOU'} · ${rPaga.error ?? 'PASSOU'}`)
+        } else {
+          checar('9.3: seed tem a SEED-NF-004 e a SEED-NF-005', false)
+        }
+
+        const perfisEd = {}
+        for (const perfil of ['visualizador', 'comercial']) {
+          const r = await chamar('updateNotaFiscal', [c1.id, nf({ observacao: perfil })], { ...ROTA_ED, cookie: cookieDeSessao((await sessaoDePerfil(perfil)).session) })
+          perfisEd[perfil] = r.ok ? 'PASSOU' : /permissão/i.test(r.error ?? '') ? 'recusado' : r.error
+        }
+        const rFin = await chamar('updateNotaFiscal', [c1.id, nf({ proposta_id: prNf.id, valor_total: 1750.25, observacao: 'financeiro editou' })], { ...ROTA_ED, cookie: cookieFin9 })
+        checar('9.3: financeiro edita; visualizador e comercial são recusados',
+          rFin.ok === true && Object.values(perfisEd).every((v) => v === 'recusado') && (await lerNf(c1.id))?.observacao === 'financeiro editou',
+          `${rFin.error ?? ''} ${JSON.stringify(perfisEd)}`)
+
+        // 9.4 — cancelamento e exclusão, sobre NFs de teste (c1, a proposta, e a sem vínculo).
+        const ROTA_DET = (id) => ({ rota: `/financeiro/notas-fiscais/${id}` })
+        const semMotivo = await chamar('cancelarNotaFiscal', [c1.id, '   '], ROTA_DET(c1.id))
+        const perfisCanc = {}
+        for (const perfil of ['visualizador', 'comercial']) {
+          const r = await chamar('cancelarNotaFiscal', [c1.id, 'não pode cancelar'], { ...ROTA_DET(c1.id), cookie: cookieDeSessao((await sessaoDePerfil(perfil)).session) })
+          perfisCanc[perfil] = r.ok ? 'PASSOU' : /permissão/i.test(r.error ?? '') ? 'recusado' : r.error
+        }
+        checar('9.4: cancelar exige o motivo, e visualizador e comercial são recusados; a NF segue emitida',
+          !semMotivo.ok && /motivo/.test(semMotivo.error ?? '') && Object.values(perfisCanc).every((v) => v === 'recusado') && (await lerNf(c1.id))?.status === 'emitida',
+          `${semMotivo.error ?? 'PASSOU'} ${JSON.stringify(perfisCanc)}`)
+
+        const canc = await chamar('cancelarNotaFiscal', [c1.id, '  Emitida em duplicidade  '], { ...ROTA_DET(c1.id), cookie: cookieFin9 })
+        const lc = await lerNf(c1.id)
+        checar('9.4: financeiro cancela: status cancelada, motivo aparado e data de hoje',
+          canc.ok === true && lc?.status === 'cancelada' && lc?.motivo_cancelamento === 'Emitida em duplicidade' && lc?.data_cancelamento === hoje9,
+          canc.error ?? JSON.stringify(lc))
+        const deNovo = await chamar('cancelarNotaFiscal', [c1.id, 'outro motivo qualquer'], ROTA_DET(c1.id))
+        const edCanc = await chamar('updateNotaFiscal', [c1.id, nf({ proposta_id: prNf.id, valor_total: 1750.25, observacao: 'reabrir' })], { rota: `/financeiro/notas-fiscais/${c1.id}/editar` })
+        const exCanc = await chamar('excluirNotaFiscal', [c1.id], ROTA_DET(c1.id))
+        checar('9.4: depois de cancelada, não cancela de novo (o motivo fica o primeiro), não edita e não exclui',
+          !deNovo.ok && !edCanc.ok && /cancelada/.test(edCanc.error ?? '') && !exCanc.ok && /cancelada/.test(exCanc.error ?? '') &&
+            (await lerNf(c1.id))?.motivo_cancelamento === 'Emitida em duplicidade',
+          `${deNovo.error ?? 'PASSOU'} · ${edCanc.error ?? 'PASSOU'} · ${exCanc.error ?? 'PASSOU'}`)
+
+        // Direto no banco, sem a action: os triggers de 20260929100000.
+        const { error: upBanco } = await supabase.from('notas_fiscais').update({ status: 'emitida', motivo_cancelamento: null }).eq('id', c1.id)
+        const { error: pgBanco } = await supabase.from('pagamentos').insert({ empresa_id: ctNf.empresa_id, obra_id: ctNf.obra_id, nota_id: c1.id, origem: 'nf', valor: 10 })
+        checar('9.4: no banco, a NF cancelada não reabre (nf_cancelada_imutavel) e não recebe pagamento (pagamento_nf_cancelada)',
+          /nf_cancelada_imutavel/.test(upBanco?.message ?? '') && /pagamento_nf_cancelada/.test(pgBanco?.message ?? '') && (await lerNf(c1.id))?.status === 'cancelada',
+          `${upBanco?.message ?? 'ACEITOU O UPDATE'} · ${pgBanco?.message ?? 'ACEITOU O PAGAMENTO'}`)
+
+        // Exclusão: só admin, e não com pagamento.
+        const exFin = semVinc.ok ? await chamar('excluirNotaFiscal', [semVinc.id], { ...ROTA_DET(semVinc.id), cookie: cookieFin9 }) : { ok: false, error: 'sem NF' }
+        const { data: pagaSeed } = await supabase.from('notas_fiscais').select('id').eq('numero', 'SEED-NF-004').maybeSingle()
+        const exPaga = pagaSeed ? await chamar('excluirNotaFiscal', [pagaSeed.id], ROTA_DET(pagaSeed.id)) : { ok: true }
+        const exAdm = semVinc.ok ? await chamar('excluirNotaFiscal', [semVinc.id], ROTA_DET(semVinc.id)) : { ok: false, error: 'sem NF' }
+        checar('9.4: financeiro não exclui; a NF com pagamento não é excluída; o admin exclui a NF emitida sem pagamento',
+          !exFin.ok && /admin/.test(exFin.error ?? '') && !exPaga.ok && /pagamento/.test(exPaga.error ?? '') &&
+            exAdm.ok === true && semVinc.ok && (await lerNf(semVinc.id)) === null && (pagaSeed ? Boolean(await lerNf(pagaSeed.id)) : false),
+          `${exFin.error ?? 'PASSOU'} · ${exPaga.error ?? 'PASSOU'} · ${exAdm.error ?? ''}`)
+
+        // 9.5 — XML e PDF da NF c2 (emitida, com proposta). Upload pela URL
+        // assinada que a action devolve; os arquivos saem no finally do passo.
+        if (c2.ok) {
+          const ROTA_ARQ = { rota: `/financeiro/notas-fiscais/${c2.id}` }
+          const pastaNf = `${ctNf.empresa_id}/${ctNf.obra_id}/nf/${c2.id}/`
+          const xmlBlob = new Blob(['<?xml version="1.0"?><nfeProc/>'], { type: 'application/xml' })
+          const pdfBlob = new Blob(['%PDF-1.4\n% nf de teste\n%%EOF\n'], { type: 'application/pdf' })
+          const subir = async (tipo, blob, cookie = admin.cookie) => {
+            const prep = await chamar('prepararEnvioArquivoNf', [c2.id, tipo], { ...ROTA_ARQ, cookie })
+            if (!prep.ok) return { etapa: 'preparar', ...prep }
+            const { error } = await createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+              .storage.from('notas-fiscais').uploadToSignedUrl(prep.path, prep.token, blob, { contentType: blob.type, upsert: true })
+            if (error) return { ok: false, etapa: 'upload', error: error.message }
+            const reg = await chamar('registrarArquivoNf', [c2.id, tipo], { ...ROTA_ARQ, cookie })
+            return { ...reg, path: prep.path }
+          }
+          try {
+            const x = await subir('xml', xmlBlob, cookieFin9)
+            const p = await subir('pdf', pdfBlob)
+            const l = await lerNf(c2.id)
+            checar('9.5: financeiro envia o XML e admin o PDF pela URL assinada; as colunas guardam o caminho fixo {empresa}/{obra}/nf/{nf}/nota.xml|.pdf',
+              x.ok === true && p.ok === true && l?.xml_url === `${pastaNf}nota.xml` && l?.pdf_url === `${pastaNf}nota.pdf`,
+              `${x.etapa ?? ''} ${x.error ?? ''} ${p.etapa ?? ''} ${p.error ?? ''} ${JSON.stringify([l?.xml_url, l?.pdf_url])}`)
+
+            const u = await chamar('urlArquivoNf', [c2.id, 'pdf'], { ...ROTA_ARQ, cookie: cookieDeSessao((await sessaoDePerfil('visualizador')).session) })
+            const baixado = u.ok ? await (await fetch(u.url)).text() : ''
+            checar('9.5: o visualizador recebe a URL assinada, e ela baixa o PDF enviado', u.ok === true && baixado.startsWith('%PDF'), u.error ?? baixado.slice(0, 20))
+
+            const antesUpd = (await lerNf(c2.id))?.updated_at
+            const novoXml = new Blob(['<?xml version="1.0"?><nfeProc versao="2"/>'], { type: 'application/xml' })
+            const x2 = await subir('xml', novoXml, cookieFin9)
+            const u2 = await chamar('urlArquivoNf', [c2.id, 'xml'], ROTA_ARQ)
+            const conteudo2 = u2.ok ? await (await fetch(u2.url)).text() : ''
+            const { data: naPasta } = await supabase.storage.from('notas-fiscais').list(pastaNf)
+            checar('9.5: substituir o XML sobrescreve o mesmo caminho (o financeiro não precisa apagar), sem arquivo sobrando e sem mexer na linha',
+              x2.ok === true && conteudo2.includes('versao="2"') && (naPasta ?? []).map((o) => o.name).sort().join(',') === 'nota.pdf,nota.xml' &&
+                (await lerNf(c2.id))?.updated_at === antesUpd,
+              `${x2.error ?? ''} ${(naPasta ?? []).map((o) => o.name).join(',')}`)
+
+            const perfisArq = {}
+            for (const perfil of ['visualizador', 'comercial']) {
+              const r = await chamar('prepararEnvioArquivoNf', [c2.id, 'xml'], { ...ROTA_ARQ, cookie: cookieDeSessao((await sessaoDePerfil(perfil)).session) })
+              perfisArq[perfil] = r.ok ? 'PASSOU' : /permissão/i.test(r.error ?? '') ? 'recusado' : r.error
+            }
+            const tipoRuim = await chamar('prepararEnvioArquivoNf', [c2.id, 'docx'], ROTA_ARQ)
+            const naCancelada = await chamar('prepararEnvioArquivoNf', [c1.id, 'xml'], ROTA_ARQ)
+            const semArquivo = await chamar('urlArquivoNf', [c1.id, 'pdf'], ROTA_ARQ)
+            checar('9.5: visualizador e comercial não enviam; tipo fora de xml/pdf é recusado; a NF cancelada não recebe arquivo; NF sem o arquivo não tem URL',
+              Object.values(perfisArq).every((v) => v === 'recusado') && !tipoRuim.ok && /inválido/.test(tipoRuim.error ?? '') &&
+                !naCancelada.ok && /cancelada/.test(naCancelada.error ?? '') && !semArquivo.ok,
+              `${JSON.stringify(perfisArq)} · ${tipoRuim.error ?? 'PASSOU'} · ${naCancelada.error ?? 'PASSOU'} · ${semArquivo.error ?? 'PASSOU'}`)
+
+            // A policy do bucket, sem a action: o visualizador não sobe, e o bucket recusa tipo fora da lista.
+            const sessVis95 = await sessaoDePerfil('visualizador')
+            const sbVis95 = createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+            await sbVis95.auth.setSession(sessVis95.session)
+            const { error: upVis } = await sbVis95.storage.from('notas-fiscais').upload(`${pastaNf}intruso.pdf`, pdfBlob, { contentType: 'application/pdf' })
+            const { error: upDocx } = await supabase.storage.from('notas-fiscais').upload(`${pastaNf}errado.docx`, new Blob(['x']), { contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+            checar('9.5: direto no bucket, o visualizador não sobe (policy) e um .docx é recusado (allowed_mime_types)',
+              Boolean(upVis) && Boolean(upDocx), `${upVis?.message ?? 'VISUALIZADOR SUBIU'} · ${upDocx?.message ?? 'DOCX ENTROU'}`)
+          } finally {
+            const { data: sobras } = await supabase.storage.from('notas-fiscais').list(pastaNf)
+            if ((sobras ?? []).length > 0) await supabase.storage.from('notas-fiscais').remove(sobras.map((o) => `${pastaNf}${o.name}`))
+          }
+        }
+
+        // 9.6 — export XLSX com os filtros da tela, e por perfil.
+        {
+          const { default: ExcelJS } = await import('exceljs')
+          const baixarNf = async (cookie, qs) => {
+            const res = await fetch(`${BASE}/api/export/notas-fiscais?${qs}`, { headers: { cookie } })
+            if (res.status !== 200) return { status: res.status }
+            const wb = new ExcelJS.Workbook()
+            await wb.xlsx.load(Buffer.from(await res.arrayBuffer()))
+            const celulas = []
+            wb.worksheets[0].eachRow((row) => celulas.push(row.values.slice(1)))
+            const total = Number(String(celulas.flat().find((v) => String(v ?? '').startsWith('Total de registros:')) ?? '').replace(/\D/g, ''))
+            const iCab = celulas.findIndex((r) => r[0] === 'Número' && r[1] === 'Série')
+            const linhas = celulas.slice(iCab + 1).filter((r) => r[0] && r[0] !== 'TOTAL')
+            return { status: 200, total, linhas, cab: celulas[iCab] ?? [] }
+          }
+          const venc = await baixarNf(admin.cookie, 'status=vencida&busca=SEED-NF')
+          const iStatus = venc.cab?.indexOf('Status') ?? -1
+          checar('9.6: o export com status=vencida traz só a SEED-NF-002, com "Vencida" calculada, e o total no cabeçalho',
+            venc.status === 200 && venc.total === 1 && venc.linhas.length === 1 && venc.linhas[0][0] === 'SEED-NF-002' && venc.linhas[0][iStatus] === 'Vencida',
+            JSON.stringify({ status: venc.status, total: venc.total, linhas: venc.linhas?.map((r) => [r[0], r[iStatus]]) }))
+          const tipo = await baixarNf(admin.cookie, 'tipo=instalacao&busca=SEED-NF')
+          const iRec = tipo.cab?.indexOf('Recebido') ?? -1
+          checar('9.6: filtro de tipo no export (a 004, instalação), com o recebido de 2.000',
+            tipo.status === 200 && tipo.total === 1 && tipo.linhas[0]?.[0] === 'SEED-NF-004' && Number(tipo.linhas[0]?.[iRec]) === 2000,
+            JSON.stringify({ total: tipo.total, linha: tipo.linhas?.[0] }))
+          const perfisExp = {}
+          for (const perfil of ['financeiro', 'visualizador', 'comercial', 'producao']) {
+            perfisExp[perfil] = (await baixarNf(cookieDeSessao((await sessaoDePerfil(perfil)).session), 'busca=SEED-NF')).status
+          }
+          checar('9.6: financeiro e visualizador exportam (200); comercial e produção não (403)',
+            perfisExp.financeiro === 200 && perfisExp.visualizador === 200 && perfisExp.comercial === 403 && perfisExp.producao === 403,
+            JSON.stringify(perfisExp))
+        }
+      }
+    }
+  }
+
 } finally {
+  // Sprint 9: NFs de teste (sem pagamento; a FK de pagamentos é restrita).
+  if (nfsDeTeste) {
+    const { error: enf } = await supabase.from('notas_fiscais').delete().like('numero', `${NUMERO}-NF%`)
+    checar('9.x: NFs de teste apagadas', !enf, enf?.message)
+  }
   // Rota de contrato e revisão. Documentos primeiro: documentos_processamento
   // aponta para o contrato criado (contrato_criado_id), e a FK recusa apagar o
   // contrato antes. Depois itens antes do pai (a FK de itens é set null).
