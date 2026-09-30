@@ -106,7 +106,7 @@ quebrava é dormente e só aparece na obra que tem contrato.
 
 A senha dos usuários `@teste.com` de gc-dev não era a do `setup_inicial_dev.sql`.
 Com sua autorização, a do `visualizador@teste.com` foi redefinida por
-`scripts/resetar-senha-dev.mjs`, que tem duas travas por mexer em credencial com
+`scripts/banco/resetar-senha-dev.mjs`, que tem duas travas por mexer em credencial com
 service role: só roda contra o project ref de gc-dev, e só aceita e-mail
 `@teste.com` — conta de pessoa real se troca pelo painel.
 
@@ -143,14 +143,14 @@ estava escrito no código:
    mesmo gatilho** — qualquer obra com contrato vigente ou proposta aprovada —,
    e a correção é esta migration.
 3. ~~A escrita segue sem exercício.~~ **Resolvida em 2026-09-05** pela camada 6
-   (`scripts/validar-escrita.mjs`): criar, editar, mudar status, histórico,
+   (`scripts/validacao/validar-escrita.mjs`): criar, editar, mudar status, histórico,
    anexo e excluir rodam contra gc-dev, com as recusas de perfil. O que sobra é
    o clique — nenhuma tela foi aberta em navegador.
 4. **Os outros cinco usuários `@teste.com`** continuam com senha desconhecida.
    Não foram mexidos de propósito: trocar credencial de conta que outra pessoa
    pode estar usando não se faz sem pedir. Quando algum bloco precisar de
    `comercial`, `financeiro`, `producao` ou `medicao`, é um comando
-   (`scripts/resetar-senha-dev.mjs`) e um aviso.
+   (`scripts/banco/resetar-senha-dev.mjs`) e um aviso.
 
 ## Arquivos
 
@@ -160,8 +160,8 @@ estava escrito no código:
 | `src/lib/listagem.ts` | `isRangeForaDoAlcance`, `urlSemPagina`, `RANGE_FORA_DO_ALCANCE` |
 | `src/lib/listagem.test.ts` | 3 casos novos |
 | `src/app/(app)/{propostas,orcamentos,fd,obras,clientes}/page.tsx` | redirect na página fora do alcance |
-| `scripts/validar.sh` | diagnóstico de servidor e detecção de `.next` de dev |
-| `scripts/validar-runtime.mjs` | login por perfil, asserção positiva obrigatória, proibição global de "Erro ao carregar" |
-| `scripts/validar-dados.mjs` | checagens da view e da função de obras |
-| `scripts/validacao-rotas.json` | 23 rotas, 4 delas como visualizador |
-| `scripts/resetar-senha-dev.mjs` | novo. Reset de senha de usuário `@teste.com` em gc-dev |
+| `scripts/validacao/validar.sh` | diagnóstico de servidor e detecção de `.next` de dev |
+| `scripts/validacao/validar-runtime.mjs` | login por perfil, asserção positiva obrigatória, proibição global de "Erro ao carregar" |
+| `scripts/validacao/validar-dados.mjs` | checagens da view e da função de obras |
+| `scripts/validacao/validacao-rotas.json` | 23 rotas, 4 delas como visualizador |
+| `scripts/banco/resetar-senha-dev.mjs` | novo. Reset de senha de usuário `@teste.com` em gc-dev |

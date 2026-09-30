@@ -1,7 +1,7 @@
 -- ============================================================
 -- SEED: execução em estágios diferentes (gc-dev)
 -- ============================================================
---   bash scripts/aplicar-seed.sh supabase/seed_execucao.sql
+--   bash scripts/banco/aplicar-seed.sh supabase/seed_execucao.sql
 --
 -- Bloco 7.2. A listagem de execução só mostra algo com itens de contrato que
 -- tenham execução, e gc-dev não tinha nenhuma. Este seed cria um contrato

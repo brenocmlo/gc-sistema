@@ -8,7 +8,7 @@
  *   shot listagem
  *   CMD
  *
- * O roteiro de regressão fixo é outra coisa: `bash scripts/validar.sh navegador`.
+ * O roteiro de regressão fixo é outra coisa: `bash scripts/validacao/validar.sh navegador`.
  * Este driver é pro caso "mudei X, quero ver X na tela".
  *
  * Sobe o Chrome sozinho se a porta CDP estiver livre; reusa se já estiver no ar.
@@ -32,7 +32,7 @@ import { spawn } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 
-import { conectar } from '../../../scripts/navegador-cdp.mjs'
+import { conectar } from '../../../scripts/comum/navegador-cdp.mjs'
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3111'
 const PORTA_CDP = Number(process.env.VALIDACAO_PORTA_CDP ?? 9222)

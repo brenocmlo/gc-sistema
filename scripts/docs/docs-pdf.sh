@@ -5,11 +5,11 @@
 # .md (fonte) e o .pdf (entrega) ficam no repositório.
 #
 # Uso:
-#   bash scripts/docs-pdf.sh                      # docs/*.md e docs/*/*.md
-#   bash scripts/docs-pdf.sh docs/sprint-4/4.2-status-entrega.md
+#   bash scripts/docs/docs-pdf.sh                      # docs/*.md e docs/*/*.md
+#   bash scripts/docs/docs-pdf.sh docs/sprint-4/4.2-status-entrega.md
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 CHROME="${CHROME_BIN:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 if [[ ! -x "$CHROME" ]]; then
@@ -18,7 +18,7 @@ if [[ ! -x "$CHROME" ]]; then
   exit 1
 fi
 
-TEMPLATE="scripts/docs-pdf.css"
+TEMPLATE="scripts/docs/docs-pdf.css"
 TMPDIR_RUN="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_RUN"' EXIT
 

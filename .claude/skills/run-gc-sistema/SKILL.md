@@ -10,8 +10,8 @@ middleware que exige sessão, então **abrir a URL sem login só prova o
 redirect** — dirigir o app significa autenticar primeiro.
 
 Não há Playwright nem `chromium-cli` aqui. O que existe é o Chrome local (o
-mesmo que `scripts/docs-pdf.sh` usa) dirigido por CDP através do WebSocket
-nativo do Node 24: driver em `scripts/navegador-cdp.mjs`, ~120 linhas, zero
+mesmo que `scripts/docs/docs-pdf.sh` usa) dirigido por CDP através do WebSocket
+nativo do Node 24: driver em `scripts/comum/navegador-cdp.mjs`, ~120 linhas, zero
 dependência.
 
 Caminhos abaixo são relativos à raiz do repositório.
@@ -29,7 +29,7 @@ grep -c '^VALIDACAO_' .env.local                  # 4 — o login que o driver u
 `CHROME_BIN` sobrepõe o caminho do Chrome se ele estiver em outro lugar.
 
 **O `.env.local` precisa apontar para gc-dev.** Os scripts abortam sozinhos se
-não apontar (`scripts/gc-dev-guard.mjs`): trabalhar em gc-prod está fora do
+não apontar (`scripts/comum/gc-dev-guard.mjs`): trabalhar em gc-prod está fora do
 escopo do projeto.
 
 ## Rodar (caminho do agente)
@@ -121,8 +121,8 @@ O roteiro fixo de Propostas (criar → enviar → histórico → excluir, com li
 é a camada 7 do plano de validação, e sobe servidor e Chrome sozinha:
 
 ```bash
-bash scripts/validar.sh navegador     # 20/20 passos, ~30s
-bash scripts/validar.sh               # as sete camadas
+bash scripts/validacao/validar.sh navegador     # 20/20 passos, ~30s
+bash scripts/validacao/validar.sh               # as sete camadas
 ```
 
 Ver `docs/tecnicos/plano-validacao.md`.
@@ -154,7 +154,7 @@ Coisas que pareciam funcionar e não funcionavam:
 - **`.next` de dev e de produção brigam.** Um `next dev` sobrescreve o build de
   produção; depois `next start` sobe, imprime "Ready", e devolve **500 em toda
   rota**. Sintoma enganoso: parece que o servidor não subiu. Rode
-  `npm run build` antes de usar `next start`. O `scripts/validar.sh` detecta
+  `npm run build` antes de usar `next start`. O `scripts/validacao/validar.sh` detecta
   `.next/static/development` e avisa.
 
 - **Prontidão do servidor: nunca teste com `curl -sf`.** O `-f` trata 500 como
@@ -212,6 +212,6 @@ Coisas que pareciam funcionar e não funcionavam:
 | Arquivo | O que é |
 |---|---|
 | `.claude/skills/run-gc-sistema/driver.mjs` | driver ad-hoc: comandos pelo stdin |
-| `scripts/navegador-cdp.mjs` | o CDP em si — navegar, clicar, medir, screenshot |
-| `scripts/validar-navegador.mjs` | roteiro fixo de Propostas (camada 7) |
-| `scripts/gc-dev-guard.mjs` | trava: nada roda fora de gc-dev |
+| `scripts/comum/navegador-cdp.mjs` | o CDP em si — navegar, clicar, medir, screenshot |
+| `scripts/validacao/validar-navegador.mjs` | roteiro fixo de Propostas (camada 7) |
+| `scripts/comum/gc-dev-guard.mjs` | trava: nada roda fora de gc-dev |

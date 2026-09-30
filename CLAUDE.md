@@ -24,21 +24,21 @@ primeiro erro:
 | escrita | Server Actions por HTTP contra gc-dev | criar, editar, status, histórico, anexo e excluir, com as regras de perfil |
 | navegador | Chrome headless por CDP sobre o `next dev` | o que só roda no cliente: zod do formulário, diálogo condicional, toast, navegação; deixa screenshots |
 
-Camada isolada: `bash scripts/validar.sh dados`. Detalhe do que cada uma prova
-e **não** prova: `bash scripts/validar.sh --lista` e `docs/tecnicos/plano-validacao.md`.
+Camada isolada: `bash scripts/validacao/validar.sh dados`. Detalhe do que cada uma prova
+e **não** prova: `bash scripts/validacao/validar.sh --lista` e `docs/tecnicos/plano-validacao.md`.
 
 Três obrigações que vêm com a regra:
 
 1. **Estender o plano junto com o código.** Tela nova entra em
-   `scripts/validacao-rotas.json` (rota + trechos de HTML que provam o render).
-   Query nova entra em `scripts/validar-dados.mjs`, **copiada do `page.tsx`**.
-   Server Action nova entra em `scripts/validar-escrita.mjs`, com limpeza do que
-   criar. Tela ou diálogo novo entra em `scripts/validar-navegador.mjs`.
+   `scripts/validacao/validacao-rotas.json` (rota + trechos de HTML que provam o render).
+   Query nova entra em `scripts/validacao/validar-dados.mjs`, **copiada do `page.tsx`**.
+   Server Action nova entra em `scripts/validacao/validar-escrita.mjs`, com limpeza do que
+   criar. Tela ou diálogo novo entra em `scripts/validacao/validar-navegador.mjs`.
    Regra de permissão por perfil entra como rota com `"perfil": "<nome>"` em
-   `scripts/validacao-rotas.json` — a sessão é gerada sem senha por
-   `scripts/sessao-dev.mjs`, e perfil novo é uma linha em `PERFIS_DE_TESTE`.
-   Rota nova exige `bash scripts/validar.sh build --aceitar-rotas` pra regravar
-   `scripts/rotas-esperadas.txt`.
+   `scripts/validacao/validacao-rotas.json` — a sessão é gerada sem senha por
+   `scripts/comum/sessao-dev.mjs`, e perfil novo é uma linha em `PERFIS_DE_TESTE`.
+   Rota nova exige `bash scripts/validacao/validar.sh build --aceitar-rotas` pra regravar
+   `scripts/validacao/rotas-esperadas.txt`.
 2. **Registrar os números reais** no documento de status do bloco
    (`docs/sprint-<N>/<m.n>-status-entrega.md`), uma linha por camada — "31 casos",
    "29 rotas", "9/9 rotas", "6/6 checagens". Nunca "passa" genérico, nunca
@@ -81,9 +81,36 @@ docs/
   depois, é `docs/tecnicos/` mesmo que fale de uma sprint só. Por isso
   `auditoria-cobertura-sprint-4.md` está em `tecnicos/` — o plano de validação
   ainda depende dela — e `sprint-4-apresentacao-gestao.md` está em `sprint-4/`.
-- **Só `.md` e `.pdf` ficam versionados.** `bash scripts/docs-pdf.sh <arquivo>`
+- **Só `.md` e `.pdf` ficam versionados.** `bash scripts/docs/docs-pdf.sh <arquivo>`
   gera o PDF; o HTML é intermediário e vive no diretório temporário. O script
   sem argumento varre `docs/*.md` e `docs/*/*.md`, então as subpastas entram.
+
+## Scripts
+
+`scripts/` segue a mesma lógica de `docs/`: uma subpasta por **função**, nome
+descritivo, nada solto na raiz.
+
+```
+scripts/
+  validacao/    o plano de validação: validar.sh (orquestrador das sete
+                camadas), uma validar-<camada>.mjs por camada, os insumos
+                delas (validacao-rotas.json, rotas-esperadas.txt) e a
+                fixture planilha-teste.mjs
+  comum/        o que mais de uma frente importa: gc-dev-guard.mjs (trava
+                de gc-dev), sessao-dev.mjs (sessão por perfil sem senha),
+                navegador-cdp.mjs (CDP, também usado pela skill
+                run-gc-sistema) e auditoria-limpeza.mjs
+  banco/        dados de gc-dev fora do plano: aplicar-seed.sh,
+                seed-propostas-dev.mjs, resetar-senha-dev.mjs
+  docs/         docs-pdf.sh + docs-pdf.css (o PDF dos documentos)
+```
+
+- **Script novo entra na pasta da sua função.** Se só a validação usa, é
+  `validacao/`; se duas frentes importam, é `comum/`.
+- **Imports relativos a partir da subpasta:** helper compartilhado é
+  `'../comum/<arquivo>.mjs'`, código da aplicação é `'../../src/lib/...'`, e
+  script `.sh` volta para a raiz com `cd "$(dirname "$0")/../.."`.
+- Os `npm run validar`, `seed` e `docs:pdf` já apontam para as subpastas.
 
 ## Convenções que o plano não pega
 
@@ -108,7 +135,7 @@ reset de senha, geração de types e as camadas runtime e dados do
 `npm run validar`. Se uma tarefa parecer exigir gc-prod, **pare e pergunte** —
 não é decisão de execução.
 
-A regra é executada, não só escrita: `scripts/gc-dev-guard.mjs` aborta qualquer
+A regra é executada, não só escrita: `scripts/comum/gc-dev-guard.mjs` aborta qualquer
 script que abra conexão com um project ref diferente, e o `validar.sh` confere o
 `.env.local` antes das camadas que conectam.
 

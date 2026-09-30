@@ -2,9 +2,9 @@
  * Camada 4 (runtime): abre as rotas num servidor de verdade, autenticado, e
  * confere que a página renderizou o que devia.
  *
- * Rodar via `bash scripts/validar.sh runtime` — ele faz o build, sobe o
+ * Rodar via `bash scripts/validacao/validar.sh runtime` — ele faz o build, sobe o
  * `next start` e passa BASE_URL. Sozinho:
- *   BASE_URL=http://127.0.0.1:3111 node --env-file=.env.local scripts/validar-runtime.mjs
+ *   BASE_URL=http://127.0.0.1:3111 node --env-file=.env.local scripts/validacao/validar-runtime.mjs
  *
  * Por que forjar o cookie em vez de usar navegador: toda rota de /(app) passa
  * pelo middleware, que redireciona quem não tem sessão pro /login. Sem sessão,
@@ -13,18 +13,18 @@
  * (`sb-<ref>-auth-token` = "base64-" + base64url do objeto session), então o
  * servidor trata a requisição como usuário logado de verdade, com RLS.
  *
- * As rotas conferidas ficam em scripts/validacao-rotas.json — cada bloco novo
+ * As rotas conferidas ficam em scripts/validacao/validacao-rotas.json — cada bloco novo
  * acrescenta as suas lá, não aqui. Os placeholders {propostaSeed} e
  * {propostaItens} no path são
- * trocado pelo id da proposta de scripts/seed-propostas-dev.mjs, que é como as
+ * trocado pelo id da proposta de scripts/banco/seed-propostas-dev.mjs, que é como as
  * rotas dinâmicas entram sem uuid chumbado no arquivo.
  */
 import { readFileSync } from 'node:fs'
 
 import { createClient } from '@supabase/supabase-js'
 
-import { exigirGcDev } from './gc-dev-guard.mjs'
-import { PERFIS_DE_TESTE, sessaoDePerfil } from './sessao-dev.mjs'
+import { exigirGcDev } from '../comum/gc-dev-guard.mjs'
+import { PERFIS_DE_TESTE, sessaoDePerfil } from '../comum/sessao-dev.mjs'
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3111'
 const URL_SUPABASE = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -33,7 +33,7 @@ const EMAIL = process.env.VALIDACAO_EMAIL
 const SENHA = process.env.VALIDACAO_SENHA
 
 // Perfis de teste: a rota com `"perfil": "<nome>"` entra por sessão gerada
-// sem senha (ver scripts/sessao-dev.mjs). Perfil novo é só uma linha lá.
+// sem senha (ver scripts/comum/sessao-dev.mjs). Perfil novo é só uma linha lá.
 
 // Limite do @supabase/ssr: acima disso o cookie é partido em .0, .1, ...
 const MAX_CHUNK = 3180
@@ -80,8 +80,8 @@ const PROIBIDO_EM_TODA_ROTA = ['Erro ao carregar', 'Application error']
  * O Node 24 importa .ts direto (type stripping).
  */
 async function conferirTemplateItens(buffer) {
-  const { lerPlanilhaItens } = await import('../src/lib/itens-planilha.ts')
-  const { validarPlanilha } = await import('../src/lib/itens-form.ts')
+  const { lerPlanilhaItens } = await import('../../src/lib/itens-planilha.ts')
+  const { validarPlanilha } = await import('../../src/lib/itens-form.ts')
   const lido = await lerPlanilhaItens(buffer)
   if (!lido.ok) return [`o parser da importação não leu o template: ${lido.erro}`]
   if (lido.linhas.length !== 1) return [`template deveria ter 1 linha (o exemplo), tem ${lido.linhas.length}`]
@@ -320,7 +320,7 @@ for (const rota of rotas) {
   if (rota.path.includes('{propostaSeed}') && !seed) {
     falhas += 1
     console.log(
-      `  FALHA ${rota.path} — sem SEED-VENCIDA-001; rode scripts/seed-propostas-dev.mjs`,
+      `  FALHA ${rota.path} — sem SEED-VENCIDA-001; rode scripts/banco/seed-propostas-dev.mjs`,
     )
     continue
   }
@@ -329,7 +329,7 @@ for (const rota of rotas) {
     falhas += 1
     console.log(
       `  FALHA ${rota.path} — sem SEED-ITENS-001; rode` +
-        ' bash scripts/aplicar-seed.sh supabase/seed_itens.sql',
+        ' bash scripts/banco/aplicar-seed.sh supabase/seed_itens.sql',
     )
     continue
   }
@@ -338,7 +338,7 @@ for (const rota of rotas) {
     falhas += 1
     console.log(
       `  FALHA ${rota.path} — sem SEED-DIVERGENTE-001; rode` +
-        ' bash scripts/aplicar-seed.sh supabase/seed_itens.sql',
+        ' bash scripts/banco/aplicar-seed.sh supabase/seed_itens.sql',
     )
     continue
   }
@@ -347,7 +347,7 @@ for (const rota of rotas) {
     falhas += 1
     console.log(
       `  FALHA ${rota.path} — sem PROP-2026-008 aprovada; rode` +
-        ' bash scripts/aplicar-seed.sh supabase/seed_propostas.sql',
+        ' bash scripts/banco/aplicar-seed.sh supabase/seed_propostas.sql',
     )
     continue
   }
@@ -360,7 +360,7 @@ for (const rota of rotas) {
     falhas += 1
     console.log(
       `  FALHA ${rota.path} — sem SEED-CT-001 ativo / 002 suspenso / 004 rescindido; rode` +
-        ' bash scripts/aplicar-seed.sh supabase/seed_contratos.sql',
+        ' bash scripts/banco/aplicar-seed.sh supabase/seed_contratos.sql',
     )
     continue
   }
@@ -380,7 +380,7 @@ for (const rota of rotas) {
   if (rota.path.includes('{obraExecucao}') && !ctExecucao) {
     falhas += 1
     console.log(
-      `  FALHA ${rota.path} — sem SEED-CT-EXEC; rode bash scripts/aplicar-seed.sh supabase/seed_execucao.sql`,
+      `  FALHA ${rota.path} — sem SEED-CT-EXEC; rode bash scripts/banco/aplicar-seed.sh supabase/seed_execucao.sql`,
     )
     continue
   }

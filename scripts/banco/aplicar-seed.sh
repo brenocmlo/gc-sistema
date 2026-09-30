@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Aplica um seed de supabase/ em gc-dev, sem copiar e colar no SQL Editor.
 #
-#   bash scripts/aplicar-seed.sh supabase/seed_propostas.sql
-#   bash scripts/aplicar-seed.sh --verificar supabase/seed_propostas.sql
+#   bash scripts/banco/aplicar-seed.sh supabase/seed_propostas.sql
+#   bash scripts/banco/aplicar-seed.sh --verificar supabase/seed_propostas.sql
 #
 # Os arquivos de seed são escritos pra colar no SQL Editor do Studio — é o
 # caminho documentado, e continua valendo. Este script existe porque o caminho
@@ -16,7 +16,7 @@
 # supabase/migrations/ e nunca entra num `db push`.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 VERIFICAR=0
 if [[ "${1:-}" == "--verificar" ]]; then
@@ -26,7 +26,7 @@ fi
 
 ARQUIVO="${1:-}"
 if [[ -z "$ARQUIVO" || ! -f "$ARQUIVO" ]]; then
-  echo "uso: bash scripts/aplicar-seed.sh [--verificar] <arquivo.sql>" >&2
+  echo "uso: bash scripts/banco/aplicar-seed.sh [--verificar] <arquivo.sql>" >&2
   echo "seeds disponíveis:" >&2
   ls supabase/seed_*.sql 2>/dev/null | sed 's/^/  /' >&2
   exit 1

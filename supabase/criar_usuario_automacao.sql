@@ -1,8 +1,8 @@
 -- ============================================================
 -- PROFILE DE SERVIÇO DA AUTOMAÇÃO
 -- ============================================================
---   bash scripts/aplicar-seed.sh supabase/criar_usuario_automacao.sql
---   bash scripts/aplicar-seed.sh --verificar supabase/criar_usuario_automacao.sql
+--   bash scripts/banco/aplicar-seed.sh supabase/criar_usuario_automacao.sql
+--   bash scripts/banco/aplicar-seed.sh --verificar supabase/criar_usuario_automacao.sql
 --
 -- Fase 1 do plano docs/tecnicos/migracao-telegram-integracao-automacao.md,
 -- decisão 12 da Seção 4.

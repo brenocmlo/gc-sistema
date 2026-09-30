@@ -4,9 +4,9 @@
  *
  * Um módulo só para dois usos, para o teste automático e o manual nunca
  * divergirem:
- *   - a camada navegador (`scripts/validar-navegador.mjs`) importa
+ *   - a camada navegador (`scripts/validacao/validar-navegador.mjs`) importa
  *     `planilhaDeTeste()` e sobe o arquivo pela tela;
- *   - `node scripts/planilha-teste.mjs [caminho]` grava o mesmo arquivo em
+ *   - `node scripts/validacao/planilha-teste.mjs [caminho]` grava o mesmo arquivo em
  *     disco para quem quiser testar à mão (padrão: /tmp/gc-planilha-teste-50.xlsx).
  *
  * O layout é o do template real: as instruções de `INSTRUCOES_TEMPLATE`, uma
@@ -47,7 +47,7 @@ const INVALIDAS = [
 ]
 
 export async function planilhaDeTeste() {
-  const { COLUNAS_IMPORTACAO, INSTRUCOES_TEMPLATE } = await import('../src/lib/itens-form.ts')
+  const { COLUNAS_IMPORTACAO, INSTRUCOES_TEMPLATE } = await import('../../src/lib/itens-form.ts')
   const { default: ExcelJS } = await import('exceljs')
 
   const wb = new ExcelJS.Workbook()

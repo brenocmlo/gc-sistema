@@ -170,9 +170,9 @@ Lista nominal, como manda a regra do projeto.
 
 | Arquivo | O que mudou |
 |---|---|
-| `scripts/validacao-rotas.json` | +2 rotas de export, com `esperaXlsx`. 39 → 41 |
-| `scripts/validar-escrita.mjs` | `getAnexoUrl` em `NECESSARIAS` e 3 checagens; gate de env do visualizador trocado por `sessaoDePerfil` |
-| `scripts/validar-navegador.mjs` | passo 13 (`/orcamentos/[id]` + aba Histórico) e a espera do toast antes da exclusão |
+| `scripts/validacao/validacao-rotas.json` | +2 rotas de export, com `esperaXlsx`. 39 → 41 |
+| `scripts/validacao/validar-escrita.mjs` | `getAnexoUrl` em `NECESSARIAS` e 3 checagens; gate de env do visualizador trocado por `sessaoDePerfil` |
+| `scripts/validacao/validar-navegador.mjs` | passo 13 (`/orcamentos/[id]` + aba Histórico) e a espera do toast antes da exclusão |
 | `src/lib/historico.test.ts` | **novo.** 5 casos de `novaEntradaHistoricoOrcamento` |
 | `src/lib/historico.ts` | digitação em comentário |
 | `docs/tecnicos/auditoria-cobertura-sprint-4.md` | este documento |

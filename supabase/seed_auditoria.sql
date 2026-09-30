@@ -1,7 +1,7 @@
 -- ============================================================
 -- SEED: dois eventos fixos de auditoria (gc-dev) — bloco 13.2
 -- ============================================================
---   bash scripts/aplicar-seed.sh supabase/seed_auditoria.sql
+--   bash scripts/banco/aplicar-seed.sh supabase/seed_auditoria.sql
 --
 -- A camada de escrita limpa os eventos que gera, então sem este seed a tela
 -- /logs só teria linha por acaso — e as camadas runtime, dados e navegador

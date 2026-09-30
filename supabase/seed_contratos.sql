@@ -1,7 +1,7 @@
 -- ============================================================
 -- SEED: contratos de teste para a listagem (gc-dev)
 -- ============================================================
---   bash scripts/aplicar-seed.sh supabase/seed_contratos.sql
+--   bash scripts/banco/aplicar-seed.sh supabase/seed_contratos.sql
 --
 -- Bloco 6.1. Os únicos contratos de gc-dev eram os três TESTE-FASE2-* da
 -- automação: todos `ativo`, sem data de assinatura e sem desconto. Com eles, os

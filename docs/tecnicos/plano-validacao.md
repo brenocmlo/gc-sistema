@@ -4,7 +4,7 @@ Data: 2026-09-04. Vale a partir do bloco 4.3 (aplicado retroativamente a ele).
 
 ## A regra, em uma frase
 
-**Nenhuma sprint fecha antes de `bash scripts/validar.sh` passar, e o que o
+**Nenhuma sprint fecha antes de `bash scripts/validacao/validar.sh` passar, e o que o
 plano não cobre entra como pendência escrita no documento do bloco.**
 
 ### Quando roda (desde 2026-09-23, a pedido do Breno)
@@ -20,8 +20,8 @@ bloco; os documentos do 4.3 ao 6.3 foram escritos sob ela.
 São **sete camadas**, da mais barata à mais cara: estático, unitário, build,
 runtime, dados, escrita e navegador.
 
-Comando: `npm run validar` (ou `bash scripts/validar.sh`). Camada isolada:
-`bash scripts/validar.sh escrita`. O que cada uma faz: `bash scripts/validar.sh --lista`.
+Comando: `npm run validar` (ou `bash scripts/validacao/validar.sh`). Camada isolada:
+`bash scripts/validacao/validar.sh escrita`. O que cada uma faz: `bash scripts/validacao/validar.sh --lista`.
 
 ## Por que existe
 
@@ -72,13 +72,13 @@ instalado — por isso os imports nos testes trazem a extensão `.ts`.
 
 | | |
 |---|---|
-| **Prova** | Toda rota monta (Server Components, `generateStaticParams`, middleware) e **nenhuma rota sumiu sem intenção**: a lista é comparada com `scripts/rotas-esperadas.txt`. |
+| **Prova** | Toda rota monta (Server Components, `generateStaticParams`, middleware) e **nenhuma rota sumiu sem intenção**: a lista é comparada com `scripts/validacao/rotas-esperadas.txt`. |
 | **Não prova** | Que qualquer página abre. Build passa com página que dá 500 no primeiro acesso. |
 | **Passou** | Build sem erro e lista idêntica à baseline (hoje 29 rotas). |
 | **Falhou** | Erro de build, ou rota adicionada/removida sem atualizar a baseline. |
 | **Custo** | ~40s |
 
-Rota nova é mudança intencional: `bash scripts/validar.sh build --aceitar-rotas`
+Rota nova é mudança intencional: `bash scripts/validacao/validar.sh build --aceitar-rotas`
 regrava a baseline. O passo existe pra a atualização ser deliberada, não
 silenciosa.
 
@@ -86,7 +86,7 @@ silenciosa.
 
 | | |
 |---|---|
-| **Prova** | Cada rota de `scripts/validacao-rotas.json`: **sem sessão** redireciona pro `/login` (o guard funciona) e **com sessão real** devolve o status esperado (200, ou o `esperaStatus` de uma rota que redireciona por regra de negócio) com os trechos esperados no HTML. Renderização de Server Component com dados de verdade. |
+| **Prova** | Cada rota de `scripts/validacao/validacao-rotas.json`: **sem sessão** redireciona pro `/login` (o guard funciona) e **com sessão real** devolve o status esperado (200, ou o `esperaStatus` de uma rota que redireciona por regra de negócio) com os trechos esperados no HTML. Renderização de Server Component com dados de verdade. |
 | **Não prova** | Aparência, layout, comportamento de clique, JS de cliente. Só o HTML do servidor. |
 | **Passou** | Todas as rotas ok; o script imprime `N/N rotas ok`. |
 | **Falhou** | 200 onde devia redirecionar, 500, ou trecho esperado ausente. |
@@ -98,7 +98,7 @@ silenciosa.
 `session`. O servidor trata a requisição como usuário logado, com RLS ativa. Não
 é mock: é o mesmo caminho de um navegador.
 
-Rotas novas entram em `scripts/validacao-rotas.json`, com os trechos de HTML que
+Rotas novas entram em `scripts/validacao/validacao-rotas.json`, com os trechos de HTML que
 provam que a tela renderizou o que deveria. Cada bloco acrescenta as suas.
 
 **Toda rota precisa de pelo menos uma asserção positiva**, e o validador
@@ -115,7 +115,7 @@ Quatro detalhes de quem escreve as asserções:
   existe como string contínua no HTML. Espere `SEED-VENCIDA-001`, não
   `Proposta SEED-VENCIDA-001`. Isso já reprovou uma execução com a página certa.
 - **Rota dinâmica usa placeholder.** `{propostaSeed}` no path é resolvido em
-  tempo de execução para o id da proposta de `scripts/seed-propostas-dev.mjs` —
+  tempo de execução para o id da proposta de `scripts/banco/seed-propostas-dev.mjs` —
   é assim que `/propostas/[id]` entra sem uuid chumbado no arquivo. Sem o seed,
   a rota é pulada com instrução, não falha.
 - **Redirect por regra de negócio é asserção legítima.** `esperaStatus: 307` em
@@ -124,14 +124,14 @@ Quatro detalhes de quem escreve as asserções:
   `"comercial"` ou `"financeiro"` numa rota faz o validador entrar com aquele
   usuário (`VALIDACAO_EMAIL_<PERFIL>` no `.env.local`) — é assim que
   "visualizador não vê o botão Nova proposta" deixa de ser só uma linha de
-  código. Senha desconhecida se resolve com `scripts/resetar-senha-dev.mjs`,
+  código. Senha desconhecida se resolve com `scripts/banco/resetar-senha-dev.mjs`,
   que só aceita `@teste.com` e só roda contra gc-dev.
 - **Ausência precisa de contraprova.** Ao afirmar "perfil X não acessa Y",
   acrescente uma rota que o perfil X **acessa** — sem ela, um erro de sessão
   passa como sucesso do teste de permissão. É por isso que financeiro, produção
   e medição têm `/fd` ou `/execucao` na lista, ao lado do `/propostas` que
   redireciona.
-- **Perfil de teste não precisa de senha.** `scripts/sessao-dev.mjs` gera sessão
+- **Perfil de teste não precisa de senha.** `scripts/comum/sessao-dev.mjs` gera sessão
   pelo Admin API (`generateLink` + `verifyOtp`) com o service role que o
   `.env.local` já tem. Perfil novo é **uma linha** em `PERFIS_DE_TESTE`, sem
   reset de senha nem variável nova — e nenhuma senha de teste fica guardada.
@@ -161,7 +161,7 @@ exercitada" — banco de dev pode estar vazio, e o script não pode inventar
 cobertura que não teve. Quando um filtro volta vazio, isso vira pendência no doc
 do bloco (é o caso do `?vencidas=1` no 4.3).
 
-As checagens ficam em `scripts/validar-dados.mjs`, uma por entidade/tela, com a
+As checagens ficam em `scripts/validacao/validar-dados.mjs`, uma por entidade/tela, com a
 query **copiada do `page.tsx`** — reescrever por fora valida outra coisa.
 
 **Função chamada por view entra em checagem própria, rodada para todas as
@@ -216,8 +216,8 @@ unitário sozinho não pega, porque depende do valor real gravado.
 | **Custo** | ~35s |
 
 **Sem dependência nova.** Playwright resolveria, mas o projeto já usa o Chrome
-local em `scripts/docs-pdf.sh` e o Node 24 tem WebSocket embutido — então o
-driver CDP em `scripts/navegador-cdp.mjs` custa um arquivo e zero pacote. Roda
+local em `scripts/docs/docs-pdf.sh` e o Node 24 tem WebSocket embutido — então o
+driver CDP em `scripts/comum/navegador-cdp.mjs` custa um arquivo e zero pacote. Roda
 sobre `next dev` (porta `PORTA+1`), porque a camada exercita o cliente e o dev
 server dá erro legível.
 
@@ -250,7 +250,7 @@ por exemplo.
 O trigger `auditar_mudanca` (migrations 019 e 020) grava um evento em
 `auditoria_eventos` a cada insert, update e delete, inclusive os do roteiro. Uma
 rodada gera por volta de 1.300 eventos, 1.000 deles só da carga de 500 itens do 5.8.
-`scripts/auditoria-limpeza.mjs` apaga, com a chave de serviço, os eventos desde o
+`scripts/comum/auditoria-limpeza.mjs` apaga, com a chave de serviço, os eventos desde o
 início da rodada **cujo registro não existe mais**, mais os de
 `entidade = 'validacao'`. As camadas escrita e navegador chamam essa limpeza no `finally`. Evento
 de registro que continua existindo fica, seja de quem for, e é isso que torna a
@@ -295,7 +295,7 @@ Duas coisas que **poderiam** ser automatizadas e não foram, com o porquê:
   `setup_inicial_dev.sql` cria seis perfis, então dá pra validar que
   `visualizador` não vê o botão "Nova proposta" e que `producao` é redirecionado.
   Fica pro bloco que mexer em permissão — a estrutura de
-  `scripts/validacao-rotas.json` já tem o campo `perfil` reservado.
+  `scripts/validacao/validacao-rotas.json` já tem o campo `perfil` reservado.
 - **Schema vs. types gerados.** `supabase/verificar_schema_aplicado.sql` existe e
   é somente leitura, mas depende de `supabase link` e do personal access token,
   que é a pendência herdada do 4.1. Enquanto isso, a camada dados cobre a parte
@@ -352,16 +352,16 @@ real de gc-dev.
 
 | Arquivo | O que é |
 |---|---|
-| `scripts/validar.sh` | orquestrador das cinco camadas; `--lista`, camada isolada, `--aceitar-rotas` |
-| `scripts/validar-runtime.mjs` | camada 4: sessão real + fetch das rotas |
-| `scripts/validar-dados.mjs` | camada 5: queries da aplicação sob RLS |
-| `scripts/validar-escrita.mjs` | camada 6: Server Actions por HTTP, com limpeza |
-| `scripts/validar-navegador.mjs` | camada 7: o roteiro clicado no Chrome |
-| `scripts/navegador-cdp.mjs` | driver CDP sem dependência nova |
+| `scripts/validacao/validar.sh` | orquestrador das cinco camadas; `--lista`, camada isolada, `--aceitar-rotas` |
+| `scripts/validacao/validar-runtime.mjs` | camada 4: sessão real + fetch das rotas |
+| `scripts/validacao/validar-dados.mjs` | camada 5: queries da aplicação sob RLS |
+| `scripts/validacao/validar-escrita.mjs` | camada 6: Server Actions por HTTP, com limpeza |
+| `scripts/validacao/validar-navegador.mjs` | camada 7: o roteiro clicado no Chrome |
+| `scripts/comum/navegador-cdp.mjs` | driver CDP sem dependência nova |
 | `.claude/skills/run-gc-sistema/` | skill `/run-gc-sistema`: dirige o app ad-hoc, fora do roteiro fixo |
-| `scripts/sessao-dev.mjs` | sessão de perfil de teste sem senha, via service role |
-| `scripts/aplicar-seed.sh` | `npm run seed`: aplica um `supabase/seed_*.sql` em gc-dev |
-| `scripts/gc-dev-guard.mjs` | trava de ambiente: nada roda fora de gc-dev |
-| `scripts/validacao-rotas.json` | rotas e trechos de HTML esperados — cada bloco acrescenta |
-| `scripts/rotas-esperadas.txt` | baseline das 29 rotas do build |
+| `scripts/comum/sessao-dev.mjs` | sessão de perfil de teste sem senha, via service role |
+| `scripts/banco/aplicar-seed.sh` | `npm run seed`: aplica um `supabase/seed_*.sql` em gc-dev |
+| `scripts/comum/gc-dev-guard.mjs` | trava de ambiente: nada roda fora de gc-dev |
+| `scripts/validacao/validacao-rotas.json` | rotas e trechos de HTML esperados — cada bloco acrescenta |
+| `scripts/validacao/rotas-esperadas.txt` | baseline das 29 rotas do build |
 | `.env.local` | `VALIDACAO_EMAIL` / `VALIDACAO_SENHA` (gitignored) |

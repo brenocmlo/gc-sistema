@@ -63,7 +63,7 @@ type ItemFormProps = {
  * formulário a editar célula por célula.
  *
  * Modal e não página dedicada: página nova significaria rota nova
- * (`scripts/rotas-esperadas.txt` de 31 para 32) e sair do detalhe da proposta
+ * (`scripts/validacao/rotas-esperadas.txt` de 31 para 32) e sair do detalhe da proposta
  * para voltar depois. O modal mantém a tabela atrás, visível.
  */
 export default function ItemForm({

@@ -1,8 +1,8 @@
 -- ============================================================
 -- SEED: 12 itens numa proposta rascunho de teste (gc-dev)
 -- ============================================================
---   bash scripts/aplicar-seed.sh supabase/seed_itens.sql
---   bash scripts/aplicar-seed.sh --verificar supabase/seed_itens.sql
+--   bash scripts/banco/aplicar-seed.sh supabase/seed_itens.sql
+--   bash scripts/banco/aplicar-seed.sh --verificar supabase/seed_itens.sql
 --
 -- Fecha dois gargalos dos blocos 5.1 e 5.2:
 --

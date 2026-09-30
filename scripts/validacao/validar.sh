@@ -3,9 +3,9 @@
 # Roda ANTES de declarar uma task pronta. Ver docs/tecnicos/plano-validacao.md.
 #
 # Uso:
-#   bash scripts/validar.sh                  # todas as camadas, em ordem
-#   bash scripts/validar.sh estatico unit    # só as camadas pedidas
-#   bash scripts/validar.sh --lista          # o que cada camada faz
+#   bash scripts/validacao/validar.sh                  # todas as camadas, em ordem
+#   bash scripts/validacao/validar.sh estatico unit    # só as camadas pedidas
+#   bash scripts/validacao/validar.sh --lista          # o que cada camada faz
 #
 # Camadas: estatico | unit | build | runtime | dados | escrita | navegador
 #
@@ -13,7 +13,7 @@
 # em frente só produz ruído. O resumo final diz o que passou e o que não rodou.
 set -uo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 # Regra do projeto: nada roda contra gc-prod (ver CLAUDE.md). As camadas
 # runtime e dados conectam no banco, então a trava vem antes de qualquer uma.
@@ -23,7 +23,7 @@ PORTA="${VALIDACAO_PORTA:-3111}"
 PORTA_CDP="${VALIDACAO_PORTA_CDP:-9222}"
 BASE_URL="http://127.0.0.1:$PORTA"
 BUILD_LOG="$(mktemp)"
-ROTAS_BASELINE="scripts/rotas-esperadas.txt"
+ROTAS_BASELINE="scripts/validacao/rotas-esperadas.txt"
 SERVER_PID=""
 CHROME_PID=""
 
@@ -53,19 +53,19 @@ estatico  tsc --noEmit + next lint. Prova que compila e segue o lint.
           NÃO prova que roda.
 unit      npm test. Prova a regra pura dos helpers (node --test).
           NÃO prova query, render nem integração.
-build     next build + diff da lista de rotas contra scripts/rotas-esperadas.txt.
+build     next build + diff da lista de rotas contra scripts/validacao/rotas-esperadas.txt.
           Prova que toda rota monta e que nenhuma sumiu sem intenção.
           NÃO prova que a página abre.
-runtime   next start + fetch autenticado das rotas de scripts/validacao-rotas.json.
+runtime   next start + fetch autenticado das rotas de scripts/validacao/validacao-rotas.json.
           Prova que a rota responde 200 com sessão, redireciona sem sessão, e
           que o HTML tem o conteúdo esperado. NÃO prova aparência.
-dados     queries reais da aplicação contra gc-dev, sob RLS (scripts/validar-dados.mjs).
+dados     queries reais da aplicação contra gc-dev, sob RLS (scripts/validacao/validar-dados.mjs).
           Prova select, JOIN e policy. NÃO prova a tela.
-escrita   Server Actions chamadas por HTTP, contra gc-dev (scripts/validar-escrita.mjs).
+escrita   Server Actions chamadas por HTTP, contra gc-dev (scripts/validacao/validar-escrita.mjs).
           Prova criar, editar, mudar status, histórico, anexo e excluir, com as
           regras de perfil. Limpa o que cria. NÃO prova o clique.
 navegador Chrome headless dirigido por CDP sobre o `next dev`
-          (scripts/validar-navegador.mjs). Prova o que só roda no cliente: zod
+          (scripts/validacao/validar-navegador.mjs). Prova o que só roda no cliente: zod
           do formulário, cálculo ao vivo, diálogo condicional, toast, navegação
           e o ConfirmDialog. Deixa screenshots. Mais lenta que as outras.
 TXT
@@ -141,7 +141,7 @@ camada_build() {
     echo "  rotas mudaram ($n_base → $n_atual):"
     sed -E 's/^/    /' /tmp/rotas.diff | grep -E '^\s+[+-]/' || true
     echo "  Se a mudança é intencional, atualize a baseline:"
-    echo "    bash scripts/validar.sh build --aceitar-rotas"
+    echo "    bash scripts/validacao/validar.sh build --aceitar-rotas"
     falhou build "$((SECONDS - t0))s, rotas divergentes"; return 1
   fi
 }
@@ -163,7 +163,7 @@ camada_runtime() {
   # devolve 500 em toda rota. Detectar aqui evita caçar o erro no lugar errado.
   if [[ -d .next/static/development ]]; then
     echo "  .next é de um 'next dev' — rode a camada build antes:"
-    echo "    bash scripts/validar.sh build runtime"
+    echo "    bash scripts/validacao/validar.sh build runtime"
     echo "  (a camada 'navegador' roda next dev e deixa o .next assim; rodando"
     echo "   o plano inteiro isso não acontece, porque build vem antes.)"
     falhou runtime "0s, build de dev"; return 1
@@ -193,7 +193,7 @@ camada_runtime() {
     falhou runtime "$((SECONDS - t0))s, /login devolveu $codigo"; return 1
   fi
 
-  if BASE_URL="$BASE_URL" node --env-file=.env.local scripts/validar-runtime.mjs; then
+  if BASE_URL="$BASE_URL" node --env-file=.env.local scripts/validacao/validar-runtime.mjs; then
     ok runtime "$((SECONDS - t0))s"
   else
     falhou runtime "$((SECONDS - t0))s"; return 1
@@ -207,7 +207,7 @@ camada_dados() {
   if ! exigir_gc_dev; then
     falhou dados "0s, banco errado"; return 1
   fi
-  if node --env-file=.env.local scripts/validar-dados.mjs; then
+  if node --env-file=.env.local scripts/validacao/validar-dados.mjs; then
     ok dados "$((SECONDS - t0))s"
   else
     falhou dados "$((SECONDS - t0))s"; return 1
@@ -243,7 +243,7 @@ camada_escrita() {
     falhou escrita "$((SECONDS - t0))s, /login devolveu $codigo"; return 1
   fi
 
-  if BASE_URL="$BASE_URL" node --env-file=.env.local scripts/validar-escrita.mjs; then
+  if BASE_URL="$BASE_URL" node --env-file=.env.local scripts/validacao/validar-escrita.mjs; then
     ok escrita "$((SECONDS - t0))s"
   else
     falhou escrita "$((SECONDS - t0))s"; return 1
@@ -295,7 +295,7 @@ camada_navegador() {
   # duas rodadas em paralelo (VALIDACAO_PORTA_CDP diferente), dirigia o Chrome
   # da outra. Pelo mesmo motivo o perfil do Chrome é um por porta.
   if BASE_URL="http://127.0.0.1:$porta_dev" VALIDACAO_PORTA_CDP="$PORTA_CDP" \
-    node --env-file=.env.local scripts/validar-navegador.mjs; then
+    node --env-file=.env.local scripts/validacao/validar-navegador.mjs; then
     ok navegador "$((SECONDS - t0))s"
   else
     falhou navegador "$((SECONDS - t0))s"; return 1

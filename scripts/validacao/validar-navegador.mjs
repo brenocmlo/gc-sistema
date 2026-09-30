@@ -2,7 +2,7 @@
  * Camada 7 (navegador): usa a aplicação como uma pessoa usaria — login pela
  * tela, clique nos botões, formulário preenchido, diálogo aberto.
  *
- * Rodar via `bash scripts/validar.sh navegador`. Precisa do `next dev` no ar e
+ * Rodar via `bash scripts/validacao/validar.sh navegador`. Precisa do `next dev` no ar e
  * do Chrome com `--remote-debugging-port` (o validar.sh sobe os dois).
  *
  * Por que existe: a camada 6 chama as Server Actions direto, então prova o
@@ -19,10 +19,10 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 
-import { exigirGcDev } from './gc-dev-guard.mjs'
-import { conectar } from './navegador-cdp.mjs'
-import { limparAuditoriaDoRoteiro } from './auditoria-limpeza.mjs'
-import { sessaoDePerfil } from './sessao-dev.mjs'
+import { exigirGcDev } from '../comum/gc-dev-guard.mjs'
+import { conectar } from '../comum/navegador-cdp.mjs'
+import { limparAuditoriaDoRoteiro } from '../comum/auditoria-limpeza.mjs'
+import { sessaoDePerfil } from '../comum/sessao-dev.mjs'
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3111'
 const EMAIL = process.env.VALIDACAO_EMAIL
@@ -255,7 +255,7 @@ try {
     { rotulo: 'toast do item sair', ms: 15000 })
 
   // 7d. Importação por planilha (blocos 5.4 e 5.8), com um .xlsx DE VERDADE:
-  // a planilha de teste de 50 linhas do 5.8 (`scripts/planilha-teste.mjs`),
+  // a planilha de teste de 50 linhas do 5.8 (`scripts/validacao/planilha-teste.mjs`),
   // com 6 linhas que o preview tem de recusar, cada uma por um motivo.
   let esperadoPlanilha
   {
@@ -264,7 +264,7 @@ try {
     esperadoPlanilha = esperado
     const planilha = `${SHOTS}/planilha-teste-50.xlsx`
     writeFileSync(planilha, buffer)
-    const { INSTRUCOES_TEMPLATE } = await import('../src/lib/itens-form.ts')
+    const { INSTRUCOES_TEMPLATE } = await import('../../src/lib/itens-form.ts')
 
     await b.clicar('button', { texto: 'Importar planilha' })
     await b.esperar('document.querySelector(\'input[aria-label="Planilha de itens"]\')', {
@@ -584,8 +584,8 @@ try {
   // MESMOS formatadores que a tela usa. A tela mostra previsão local enquanto
   // se digita; aqui, sem digitação, ela tem de mostrar exatamente o do banco.
   {
-    const { formatCurrency } = await import('../src/lib/format.ts')
-    const { formatArea } = await import('../src/lib/itens.ts')
+    const { formatCurrency } = await import('../../src/lib/format.ts')
+    const { formatArea } = await import('../../src/lib/itens.ts')
     const sb = await clienteSupabase()
     const { data: doBanco } = await sb.from('propostas')
       .select('itens(numero, tipo, area_m2, valor_total)').eq('numero', 'SEED-ITENS-001').single()
@@ -1626,7 +1626,7 @@ try {
   // 22. Pendência de anexos: o ícone de excluir só aparece no anexo que a
   //     pessoa pode apagar. Um anexo do admin e um do comercial no avulso do
   //     passo 18; a tela é aberta como comercial, pelo cookie da sessão sem
-  //     senha de scripts/sessao-dev.mjs. É o último passo: a sessão do admin
+  //     senha de scripts/comum/sessao-dev.mjs. É o último passo: a sessão do admin
   //     não volta depois dele.
   {
     const sb = await clienteSupabase()

@@ -1,7 +1,7 @@
 /**
  * Redefine a senha de um usuário de teste em gc-dev, via service role.
  *
- *   node --env-file=.env.local scripts/resetar-senha-dev.mjs <email> <senha>
+ *   node --env-file=.env.local scripts/banco/resetar-senha-dev.mjs <email> <senha>
  *
  * Existe porque a validação multiperfil precisa entrar como um usuário que
  * não é admin, e os usuários @teste.com de gc-dev tinham senha desconhecida
@@ -13,14 +13,14 @@
  */
 import { createClient } from '@supabase/supabase-js'
 
-import { exigirGcDev } from './gc-dev-guard.mjs'
+import { exigirGcDev } from '../comum/gc-dev-guard.mjs'
 
 const [email, senha] = process.argv.slice(2)
 const URL_SUPABASE = process.env.NEXT_PUBLIC_SUPABASE_URL
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 if (!email || !senha) {
-  console.error('uso: node --env-file=.env.local scripts/resetar-senha-dev.mjs <email> <senha>')
+  console.error('uso: node --env-file=.env.local scripts/banco/resetar-senha-dev.mjs <email> <senha>')
   process.exit(1)
 }
 if (!URL_SUPABASE || !SERVICE_ROLE) {

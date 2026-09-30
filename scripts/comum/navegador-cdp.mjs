@@ -2,7 +2,7 @@
  * Driver CDP mínimo: Chrome headless dirigido pelo WebSocket nativo do Node 24.
  *
  * Existe pra a camada 7 (navegador) não trazer dependência nova. Playwright
- * resolveria, mas o projeto já usa o Chrome local em `scripts/docs-pdf.sh`, e o
+ * resolveria, mas o projeto já usa o Chrome local em `scripts/docs/docs-pdf.sh`, e o
  * Node 24 tem WebSocket embutido — então falar CDP direto custa este arquivo e
  * zero pacote.
  *

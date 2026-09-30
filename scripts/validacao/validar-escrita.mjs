@@ -2,7 +2,7 @@
  * Camada 6 (escrita): exercita as Server Actions de Propostas de ponta a ponta,
  * contra gc-dev, autenticado como usuário real.
  *
- *   BASE_URL=http://127.0.0.1:3111 node --env-file=.env.local scripts/validar-escrita.mjs
+ *   BASE_URL=http://127.0.0.1:3111 node --env-file=.env.local scripts/validacao/validar-escrita.mjs
  *
  * Por que existe: até 2026-09-05 nenhuma escrita tinha rodado. As camadas
  * runtime e dados provam leitura — a tela abre, a query volta —, e todo o
@@ -30,9 +30,9 @@ import { join } from 'node:path'
 
 import { createClient } from '@supabase/supabase-js'
 
-import { exigirGcDev } from './gc-dev-guard.mjs'
-import { sessaoDePerfil } from './sessao-dev.mjs'
-import { limparAuditoriaDoRoteiro } from './auditoria-limpeza.mjs'
+import { exigirGcDev } from '../comum/gc-dev-guard.mjs'
+import { sessaoDePerfil } from '../comum/sessao-dev.mjs'
+import { limparAuditoriaDoRoteiro } from '../comum/auditoria-limpeza.mjs'
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3111'
 const URL_SUPABASE = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -2294,7 +2294,7 @@ try {
       // Um item novo (10 un) no contrato ativo da obra isolada, com a execução
       // criada pela ação em lote. As regras do helper (statusDaEtapa e a
       // tradução dos CHECKs) vêm do próprio src/lib, e não de cópia aqui.
-      const { statusDaEtapa, mensagemDeErroExecucao } = await import('../src/lib/execucao.ts')
+      const { statusDaEtapa, mensagemDeErroExecucao } = await import('../../src/lib/execucao.ts')
       const i6 = c1.ok ? await itemExe(c1.id, 6, 10) : { ok: false }
       const i7 = c1.ok ? await itemExe(c1.id, 7, 100) : { ok: false }
       await chamar('criarExecucoesFaltantes', [obraLivre.id], { rota: '/execucao', cookie: cookieProd })
@@ -2537,7 +2537,7 @@ try {
         // de medição em PDF, sobre a execução e6 da obra isolada.
         // ============================================================
         {
-          const { montarRelatorioDeMedicao } = await import('../src/lib/medicao.ts')
+          const { montarRelatorioDeMedicao } = await import('../../src/lib/medicao.ts')
           const hoje = new Date().toISOString().slice(0, 10)
           const hist = async () =>
             (await supabase.from('execucao_medicoes').select('qtd_anterior, qtd_nova, data, criado_por').eq('execucao_id', e6.id).order('created_at')).data ?? []
@@ -2602,11 +2602,11 @@ try {
         // ============================================================
         {
           const { default: ExcelJS } = await import('exceljs')
-          const { filtrarExecucoes, hojeISO } = await import('../src/lib/execucao.ts')
-          const { montarRelatorioDeMedicao } = await import('../src/lib/medicao.ts')
+          const { filtrarExecucoes, hojeISO } = await import('../../src/lib/execucao.ts')
+          const { montarRelatorioDeMedicao } = await import('../../src/lib/medicao.ts')
           const { data: ctSeed } = await supabase.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
           const { data: ct45 } = await supabase.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC-45').maybeSingle()
-          checar('8.5: o seed tem o SEED-CT-EXEC e o SEED-CT-EXEC-45 (bash scripts/aplicar-seed.sh supabase/seed_execucao.sql)', Boolean(ctSeed && ct45))
+          checar('8.5: o seed tem o SEED-CT-EXEC e o SEED-CT-EXEC-45 (bash scripts/banco/aplicar-seed.sh supabase/seed_execucao.sql)', Boolean(ctSeed && ct45))
           if (ctSeed && ct45) {
             const baixar = async (cookie, qs) => {
               const res = await fetch(`${BASE}/api/export/execucao?${qs}`, { headers: { cookie } })

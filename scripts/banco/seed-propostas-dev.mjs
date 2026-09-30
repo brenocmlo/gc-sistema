@@ -4,7 +4,7 @@
  * `?vencidas=1` roda mas volta zero linha, e a validação fica sem caminho
  * positivo (pendência 2 do bloco 4.3).
  *
- *   node --env-file=.env.local scripts/seed-propostas-dev.mjs
+ *   node --env-file=.env.local scripts/banco/seed-propostas-dev.mjs
  *
  * Autentica como usuário real, então passa pela RLS igual à aplicação — o que
  * também exercita a policy "Propostas: comercial insere", que nenhuma outra
@@ -15,7 +15,7 @@
  */
 import { createClient } from '@supabase/supabase-js'
 
-import { exigirGcDev } from './gc-dev-guard.mjs'
+import { exigirGcDev } from '../comum/gc-dev-guard.mjs'
 
 const URL_SUPABASE = process.env.NEXT_PUBLIC_SUPABASE_URL
 const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -92,7 +92,7 @@ const linha = {
   pct_fd: 0.2,
   pct_entrega_material: 0.25,
   pct_medicao_instalacao: 0.25,
-  condicoes_pagamento: 'Gerada por scripts/seed-propostas-dev.mjs',
+  condicoes_pagamento: 'Gerada por scripts/banco/seed-propostas-dev.mjs',
   created_by: login.data.user.id,
 }
 

@@ -2,8 +2,8 @@
  * Camada 5 (dados): roda as queries da aplicação contra gc-dev, autenticado
  * como usuário real, portanto sob RLS.
  *
- * Rodar via `bash scripts/validar.sh dados`. Sozinho:
- *   node --env-file=.env.local scripts/validar-dados.mjs
+ * Rodar via `bash scripts/validacao/validar.sh dados`. Sozinho:
+ *   node --env-file=.env.local scripts/validacao/validar-dados.mjs
  *
  * Por que existe: `tsc` e `next build` só comparam a string do select com os
  * types gerados. Coluna que existe no type mas foi renomeada no banco, JOIN
@@ -20,8 +20,8 @@
  */
 import { createClient } from '@supabase/supabase-js'
 
-import { exigirGcDev } from './gc-dev-guard.mjs'
-import { sessaoDePerfil } from './sessao-dev.mjs'
+import { exigirGcDev } from '../comum/gc-dev-guard.mjs'
+import { sessaoDePerfil } from '../comum/sessao-dev.mjs'
 
 const URL_SUPABASE = process.env.NEXT_PUBLIC_SUPABASE_URL
 const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -111,10 +111,10 @@ const CHECKS = [
         (p) => p.status !== 'enviada' || !(p.data_validade < hoje),
       )
       if (errada) return `linha fora do critério: ${JSON.stringify(errada)}`
-      // scripts/seed-propostas-dev.mjs garante pelo menos uma. Zero aqui
+      // scripts/banco/seed-propostas-dev.mjs garante pelo menos uma. Zero aqui
       // significa que o seed sumiu, não que o filtro está certo.
       if ((r.data ?? []).length === 0) {
-        return 'nenhuma proposta vencida — rode scripts/seed-propostas-dev.mjs'
+        return 'nenhuma proposta vencida — rode scripts/banco/seed-propostas-dev.mjs'
       }
       return null
     },
@@ -363,7 +363,7 @@ const CHECKS = [
         .select('id')
         .eq('numero', 'SEED-ITENS-001')
         .maybeSingle()
-      if (!p) return { data: null, error: { message: 'SEED-ITENS-001 ausente — rode bash scripts/aplicar-seed.sh supabase/seed_itens.sql' } }
+      if (!p) return { data: null, error: { message: 'SEED-ITENS-001 ausente — rode bash scripts/banco/aplicar-seed.sh supabase/seed_itens.sql' } }
       return sb
         .from('itens')
         .select('id, numero, quantidade, largura, altura, valor_unit, valor_total, area_m2, unidade')
@@ -433,7 +433,7 @@ const CHECKS = [
         .eq('numero', 'SEED-DIVERGENTE-001')
         .maybeSingle(),
     valida: (r) => {
-      if (!r.data) return 'SEED-DIVERGENTE-001 ausente — rode bash scripts/aplicar-seed.sh supabase/seed_itens.sql'
+      if (!r.data) return 'SEED-DIVERGENTE-001 ausente — rode bash scripts/banco/aplicar-seed.sh supabase/seed_itens.sql'
       const soma = (r.data.itens ?? []).reduce((a, i) => a + Number(i.valor_total ?? 0), 0)
       return Math.abs(Number(r.data.valor_total) - soma) > 0.005
         ? null
@@ -479,7 +479,7 @@ const CHECKS = [
       const erro = linhas.find((e) => e.resultado === 'erro' && e.origem === 'automacao')
       const status = linhas.find((e) => e.acao === 'status')
       if (!erro || !status) {
-        return 'eventos do seed ausentes — rode bash scripts/aplicar-seed.sh supabase/seed_auditoria.sql'
+        return 'eventos do seed ausentes — rode bash scripts/banco/aplicar-seed.sh supabase/seed_auditoria.sql'
       }
       if (status.detalhe?.campos?.status?.para !== 'enviada') {
         return `detalhe do evento de status fora do formato: ${JSON.stringify(status.detalhe)}`
