@@ -955,14 +955,14 @@ const CHECKS = [
     },
   },
   {
-    // Copiada de src/app/(app)/financeiro/notas-fiscais/[id]/page.tsx (9.3).
+    // Copiada de src/app/(app)/financeiro/notas-fiscais/[id]/page.tsx (9.3; os campos dos pagamentos, 10.3).
     nome: 'notas_fiscais: detalhe com obra → cliente, contrato, proposta e pagamentos',
     bloco: '9.3',
     query: (sb) =>
       sb
         .from('notas_fiscais')
         .select(
-          '*, obra:obras(codigo_obra, nome, cliente:clientes(nome)), contrato:contratos(id, numero), proposta:propostas(id, numero), pagamentos(valor)',
+          '*, obra:obras(codigo_obra, nome, cliente:clientes(nome)), contrato:contratos(id, numero), proposta:propostas(id, numero), pagamentos(id, origem, data_pagamento, valor, forma, observacao, anexo, created_at)',
         )
         .eq('numero', 'SEED-NF-001')
         .maybeSingle(),
@@ -973,6 +973,8 @@ const CHECKS = [
       if (nf.contrato?.numero !== 'SEED-CT-001') return `contrato do vínculo: ${JSON.stringify(nf.contrato)}`
       if (nf.proposta !== null) return 'proposta devia vir nula (XOR)'
       if (!nf.obra?.cliente) return 'obra sem cliente no JOIN aninhado'
+      // 10.3: a aba Pagamentos lê as baixas pelo mesmo JOIN.
+      if (!Array.isArray(nf.pagamentos)) return 'pagamentos não veio como array'
       return null
     },
   },
@@ -1011,6 +1013,103 @@ const CHECKS = [
       if (nums.includes('SEED-NF-002')) return 'a SEED-NF-002, vencida, veio no filtro "emitida"'
       if (JSON.stringify(nums) !== JSON.stringify(['SEED-NF-001', 'SEED-NF-006'])) return `esperado SEED-NF-001 e 006, veio ${JSON.stringify(nums)}`
       return null
+    },
+  },
+  {
+    // Copiada de src/app/(app)/financeiro/pagamentos/page.tsx (10.1; anexo e o status da NF, 10.4).
+    nome: 'pagamentos: listagem com JOIN de obra, NF e parcela → acordo (coluna Documento)',
+    bloco: '10.1',
+    exigeSeed: 'supabase/seed_pagamentos.sql',
+    query: (sb) =>
+      sb
+        .from('pagamentos')
+        .select(
+          'id, data_pagamento, obra_id, origem, forma, valor, observacao, nota_id, parcela_acordo_id, anexo, obra:obras(codigo_obra, nome), nota:notas_fiscais(numero, serie, status), parcela:acordo_parcelas(numero_parcela, acordo:acordos_pagamento(descricao))',
+          { count: 'exact' },
+        )
+        .order('data_pagamento', { ascending: false })
+        .order('created_at', { ascending: false })
+        .range(0, 19),
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.some((p) => Array.isArray(p.obra) || Array.isArray(p.nota) || Array.isArray(p.parcela))) {
+        return 'obra, nota ou parcela veio como array, esperado objeto'
+      }
+      // pagamento_vinculo_consistente, visto do JOIN: cada origem com o seu documento.
+      for (const p of linhas) {
+        if (p.origem === 'nf' && (!p.nota || p.parcela)) return `pagamento ${p.id} de NF sem a NF no JOIN (ou com parcela)`
+        if (p.origem === 'nf' && !p.nota.status) return `pagamento ${p.id}: a NF veio sem status (o estorno depende dele)`
+        if (!('anexo' in p)) return 'coluna anexo ausente (a migration 004 renomeou comprovante_url)'
+        if (p.origem === 'acordo' && (!p.parcela?.acordo || p.nota)) return `pagamento ${p.id} de acordo sem parcela → acordo no JOIN`
+        if (p.origem === 'avulso' && (p.nota || p.parcela)) return `pagamento ${p.id} avulso com vínculo`
+      }
+      const origens = new Set(linhas.map((p) => p.origem))
+      if (!['nf', 'acordo', 'avulso'].every((o) => origens.has(o))) return `faltam origens no seed: veio ${[...origens].join(', ')}`
+      return null
+    },
+  },
+  {
+    // Copiada de src/app/(app)/financeiro/pagamentos/opcoes.ts (10.2): o select
+    // de NF do formulário, sem as canceladas, com os pagamentos para o saldo.
+    nome: 'notas_fiscais: opções do pagamento, sem canceladas, com pagamentos para o saldo',
+    bloco: '10.2',
+    exigeSeed: 'supabase/seed_notas_fiscais.sql',
+    query: (sb) =>
+      sb
+        .from('notas_fiscais')
+        .select('id, numero, serie, obra_id, status, valor_total, pagamentos(valor)')
+        .neq('status', 'cancelada')
+        .order('data_emissao', { ascending: false }),
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.some((n) => n.status === 'cancelada')) return 'NF cancelada nas opções de pagamento'
+      if (linhas.some((n) => !Array.isArray(n.pagamentos))) return 'pagamentos não veio como array'
+      const nf3 = linhas.find((n) => n.numero === 'SEED-NF-003')
+      if (nf3) {
+        const pago = nf3.pagamentos.reduce((a, p) => a + Math.round(Number(p.valor) * 100), 0)
+        if (Math.round(Number(nf3.valor_total) * 100) - pago !== 300000) return `saldo da SEED-NF-003 ${(Math.round(Number(nf3.valor_total) * 100) - pago) / 100}, esperado 3000`
+      }
+      return null
+    },
+  },
+  {
+    // Copiada de src/app/(app)/financeiro/pagamentos/opcoes.ts (10.2): parcelas
+    // não canceladas, com os pagamentos (JOIN pagamentos_parcela_fk) para o saldo.
+    nome: 'acordo_parcelas: opções do pagamento com os pagamentos da parcela (saldo)',
+    bloco: '10.2',
+    exigeSeed: 'supabase/seed_pagamentos.sql',
+    query: (sb) =>
+      sb
+        .from('acordo_parcelas')
+        .select('id, acordo_id, numero_parcela, data_vencimento, valor_previsto, status, pagamentos(valor)')
+        .neq('status', 'cancelada')
+        .order('numero_parcela'),
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.some((p) => !Array.isArray(p.pagamentos))) return 'pagamentos não veio como array'
+      const paga = linhas.find((p) => p.numero_parcela === 1 && p.pagamentos.length > 0)
+      if (!paga) return 'a parcela 1 do SEED-AC-001 devia ter o pagamento de 3.000'
+      if (paga.status !== 'paga') return `parcela 1 com status ${paga.status}; o trigger devia ter posto "paga"`
+      return null
+    },
+  },
+  {
+    // Copiada de src/app/(app)/financeiro/pagamentos/opcoes.ts (10.2).
+    nome: 'acordos_pagamento: só os abertos, para o select de acordo',
+    bloco: '10.2',
+    exigeSeed: 'supabase/seed_pagamentos.sql',
+    query: (sb) => sb.from('acordos_pagamento').select('id, descricao, obra_id').eq('status', 'aberto').order('data_abertura', { ascending: false }),
+    valida: (r) => ((r.data ?? []).some((a) => a.descricao === 'SEED-AC-001 Sinal outubro') ? null : 'SEED-AC-001 não veio entre os acordos abertos'),
+  },
+  {
+    // O totalizador da page: a mesma condição da lista, só com o valor.
+    nome: 'pagamentos: totalizador do filtrado (origem avulso) em centavos',
+    bloco: '10.1',
+    exigeSeed: 'supabase/seed_pagamentos.sql',
+    query: (sb) => sb.from('pagamentos').select('valor').eq('origem', 'avulso'),
+    valida: (r) => {
+      const centavos = (r.data ?? []).reduce((a, p) => a + Math.round(Number(p.valor) * 100), 0)
+      return centavos === 185000 ? null : `soma dos avulsos ${centavos / 100}, esperado 1850 (1500 + 350 do seed)`
     },
   },
 ]

@@ -1556,10 +1556,10 @@
       "Sem vínculo",
       "Pagamentos (2)",
       "Arquivos",
-      "Sprint 10",
+      "Total recebido em 2 pagamentos",
       "Editar"
     ],
-    "nota": "bloco 9.3: cabeçalho com selo, valor, recebido (2.000) e a receber; abas Detalhes, Pagamentos (placeholder com os 2 do seed) e Arquivos"
+    "nota": "bloco 9.3: cabeçalho com selo, valor, recebido (2.000) e a receber; abas Detalhes, Pagamentos e Arquivos. 10.3: a aba Pagamentos deixou de ser placeholder e lista os 2 do seed"
   },
   {
     "path": "/financeiro/notas-fiscais/{nfEmitida}",
@@ -1755,5 +1755,322 @@
       "Exportar XLSX"
     ],
     "nota": "9.6: botão de export na listagem"
+  },
+  {
+    "path": "/financeiro/pagamentos",
+    "esperaHtml": [
+      "Data",
+      "Origem",
+      "Documento",
+      "Forma",
+      "Total recebido · Todos os períodos",
+      "NF SEED-NF-003 / 1",
+      "NF SEED-NF-004",
+      "SEED-AC-001 Sinal outubro · parcela 1",
+      "Avulso",
+      "Cartão",
+      "Dinheiro",
+      "Todas as origens",
+      "Todas as formas",
+      "Buscar por obra, número da NF ou observação",
+      "href=\"/financeiro/notas-fiscais/"
+    ],
+    "nota": "10.1: as 6 colunas, as três origens do seed (NF com série e sem, acordo com parcela, avulso), o totalizador e os filtros; a NF vira link para o detalhe"
+  },
+  {
+    "path": "/financeiro/pagamentos",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "NF SEED-NF-003 / 1",
+      "Total recebido"
+    ],
+    "nota": "10.1: financeiro vê a listagem"
+  },
+  {
+    "path": "/financeiro/pagamentos",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "NF SEED-NF-003 / 1",
+      "Total recebido"
+    ],
+    "nota": "10.1: visualizador lê"
+  },
+  {
+    "path": "/financeiro/pagamentos",
+    "perfil": "comercial",
+    "esperaStatus": 307,
+    "nota": "10.1: guard do layout de /financeiro (admin, financeiro, visualizador)"
+  },
+  {
+    "path": "/financeiro/pagamentos",
+    "perfil": "producao",
+    "esperaStatus": 307,
+    "nota": "10.1: produção também fica fora"
+  },
+  {
+    "path": "/financeiro/pagamentos?origem=acordo",
+    "esperaHtml": [
+      "SEED-AC-001 Sinal outubro · parcela 1",
+      "R$ 3.000,00",
+      "em 1 pagamento",
+      "· com filtros"
+    ],
+    "naoEsperaHtml": [
+      "NF SEED-NF-003"
+    ],
+    "nota": "10.1: filtro de origem, com o totalizador do filtrado"
+  },
+  {
+    "path": "/financeiro/pagamentos?origem=avulso",
+    "esperaHtml": [
+      "R$ 1.850,00",
+      "em 2 pagamentos"
+    ],
+    "naoEsperaHtml": [
+      "NF SEED-NF-003",
+      "SEED-AC-001 Sinal outubro · parcela"
+    ],
+    "nota": "10.1: os dois avulsos do seed (1.500 + 350), sem documento"
+  },
+  {
+    "path": "/financeiro/pagamentos?forma=cartao",
+    "esperaHtml": [
+      "R$ 350,00",
+      "em 1 pagamento"
+    ],
+    "naoEsperaHtml": [
+      "NF SEED-NF-003"
+    ],
+    "nota": "10.1: filtro de forma, com cartão (a forma que a migration 004 acrescentou)"
+  },
+  {
+    "path": "/financeiro/pagamentos?busca=SEED-NF-004",
+    "esperaHtml": [
+      "NF SEED-NF-004",
+      "R$ 2.000,00",
+      "em 2 pagamentos"
+    ],
+    "naoEsperaHtml": [
+      "NF SEED-NF-003",
+      "SEED-AC-001 Sinal outubro · parcela"
+    ],
+    "nota": "10.1: busca pelo número da NF (resolvida em ids antes do .or); os dois pagamentos da 004"
+  },
+  {
+    "path": "/financeiro/pagamentos?busca=visita",
+    "esperaHtml": [
+      "R$ 350,00",
+      "em 1 pagamento"
+    ],
+    "naoEsperaHtml": [
+      "NF SEED-NF-003"
+    ],
+    "nota": "10.1: busca pela observação do avulso"
+  },
+  {
+    "path": "/financeiro/pagamentos?busca=zzz-inexistente",
+    "esperaHtml": [
+      "Nenhum pagamento encontrado com esses filtros",
+      "R$ 0,00",
+      "em 0 pagamentos"
+    ],
+    "naoEsperaHtml": [
+      "<table"
+    ],
+    "nota": "10.1: busca sem resultado mostra o totalizador zerado e a mensagem de filtro"
+  },
+  {
+    "path": "/financeiro/pagamentos?page=99",
+    "esperaStatus": 307,
+    "nota": "10.1: página além do fim redireciona para a primeira"
+  },
+  {
+    "path": "/financeiro/notas-fiscais",
+    "esperaHtml": [
+      "aria-label=\"Seções do financeiro\"",
+      "href=\"/financeiro/pagamentos\""
+    ],
+    "nota": "10.1: abas Notas fiscais | Pagamentos no layout de /financeiro"
+  },
+  {
+    "path": "/financeiro/pagamentos/novo",
+    "esperaHtml": [
+      "Registrar pagamento",
+      "Selecione a obra",
+      "name=\"origem\"",
+      "value=\"nf\"",
+      "value=\"acordo\"",
+      "value=\"avulso\"",
+      "Baixa de uma nota fiscal da obra.",
+      "Data do pagamento",
+      "Valor (R$)",
+      "Selecione a forma",
+      "Cartão",
+      "Comprovante"
+    ],
+    "nota": "10.2: o formulário, com o radio das três origens (NF marcada), os campos comuns e a forma com cartão"
+  },
+  {
+    "path": "/financeiro/pagamentos/novo",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "Registrar pagamento",
+      "name=\"origem\""
+    ],
+    "nota": "10.2: financeiro registra"
+  },
+  {
+    "path": "/financeiro/pagamentos/novo",
+    "perfil": "visualizador",
+    "esperaStatus": 307,
+    "nota": "10.2: o layout libera o visualizador para ler; a página de registro o manda de volta à listagem"
+  },
+  {
+    "path": "/financeiro/pagamentos/novo",
+    "perfil": "comercial",
+    "esperaStatus": 307,
+    "nota": "10.2: comercial nem entra em /financeiro"
+  },
+  {
+    "path": "/financeiro/pagamentos",
+    "esperaHtml": [
+      "href=\"/financeiro/pagamentos/novo\"",
+      "Registrar pagamento"
+    ],
+    "nota": "10.2: botão Registrar pagamento na listagem, para o admin"
+  },
+  {
+    "path": "/financeiro/pagamentos",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Total recebido"
+    ],
+    "naoEsperaHtml": [
+      "href=\"/financeiro/pagamentos/novo\""
+    ],
+    "nota": "10.2: o visualizador não vê o botão de registrar"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfPaga}",
+    "esperaHtml": [
+      "aria-label=\"Pagamentos da nota fiscal\"",
+      "R$ 1.200,00",
+      "R$ 800,00",
+      "TED",
+      "Boleto",
+      "Estornar",
+      "aria-label=\"Estornar pagamento de R$",
+      "href=\"/financeiro/pagamentos/novo?nota="
+    ],
+    "nota": "10.3: a aba Pagamentos lista as 2 baixas da SEED-NF-004 com a forma e o estorno (admin), e o cabeçalho tem Registrar pagamento com a NF na URL"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfPaga}",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "href=\"/financeiro/pagamentos/novo?nota=",
+      "R$ 1.200,00"
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Estornar pagamento"
+    ],
+    "nota": "10.3: financeiro registra pagamento, mas não estorna (só admin)"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfPaga}",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "R$ 1.200,00"
+    ],
+    "naoEsperaHtml": [
+      "href=\"/financeiro/pagamentos/novo?nota=",
+      "aria-label=\"Estornar pagamento"
+    ],
+    "nota": "10.3: visualizador vê as baixas, sem registrar nem estornar"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfCancelada}",
+    "esperaHtml": [
+      "Nenhum pagamento registrado."
+    ],
+    "naoEsperaHtml": [
+      "href=\"/financeiro/pagamentos/novo?nota="
+    ],
+    "nota": "10.3: NF cancelada não oferece Registrar pagamento (9.4)"
+  },
+  {
+    "path": "/financeiro/pagamentos/novo?nota={nfEmitida}",
+    "esperaHtml": [
+      "O valor sugerido é o saldo em aberto",
+      "name=\"origem\""
+    ],
+    "nota": "10.3: a baixa rápida pela NF abre o form com a sugestão do saldo (os valores preenchidos são do cliente: o passo 40 do navegador confere)"
+  },
+  {
+    "path": "/financeiro/pagamentos/novo?nota={nfCancelada}",
+    "esperaHtml": [
+      "Registrar pagamento",
+      "O status da nota fiscal ou da parcela é recalculado"
+    ],
+    "naoEsperaHtml": [
+      "O valor sugerido é o saldo em aberto"
+    ],
+    "nota": "10.3: NF cancelada na URL é ignorada: o form abre vazio, sem sugestão"
+  },
+  {
+    "path": "/financeiro/pagamentos",
+    "esperaHtml": [
+      "Comprovante",
+      "Anexar",
+      "aria-label=\"Estornar pagamento de R$"
+    ],
+    "nota": "10.4: coluna Comprovante com Anexar (o seed não tem comprovante) e o estorno na listagem, para o admin"
+  },
+  {
+    "path": "/financeiro/pagamentos",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "Comprovante",
+      "Anexar"
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Estornar pagamento"
+    ],
+    "nota": "10.4: financeiro anexa comprovante, mas não estorna"
+  },
+  {
+    "path": "/financeiro/pagamentos",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Comprovante"
+    ],
+    "naoEsperaHtml": [
+      "Anexar",
+      "aria-label=\"Estornar pagamento"
+    ],
+    "nota": "10.4: visualizador só vê o comprovante, quando houver"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfPaga}",
+    "esperaHtml": [
+      "Comprovante",
+      "Anexar"
+    ],
+    "nota": "10.4: a aba Pagamentos da NF também anexa e mostra o comprovante"
+  },
+  {
+    "path": "/financeiro/pagamentos",
+    "esperaHtml": [
+      "Exportar XLSX"
+    ],
+    "nota": "10.6: botão de export na listagem"
+  },
+  {
+    "path": "/financeiro/pagamentos",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Exportar XLSX"
+    ],
+    "nota": "10.6: o visualizador também exporta (lê a listagem)"
   }
 ]

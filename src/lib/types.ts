@@ -325,9 +325,39 @@ export type NotaFiscalListItem = Pick<
   pagamentos: Pick<Pagamento, 'valor'>[] | null
 }
 
-export type Pagamento = Tables['pagamentos']['Row']
+export type PagamentoOrigem = 'nf' | 'acordo' | 'avulso'
+export type PagamentoForma = 'boleto' | 'ted' | 'pix' | 'dinheiro' | 'cheque' | 'deposito' | 'cartao' | 'outro'
+
+// Como NotaFiscal: o gen tipa origem e forma como `string`, os CHECKs garantem
+// as listas (forma com 'cartao' desde a migration 004).
+export type Pagamento = Omit<Tables['pagamentos']['Row'], 'origem' | 'forma'> & {
+  origem: PagamentoOrigem
+  forma: PagamentoForma | null
+}
 export type PagamentoInsert = Tables['pagamentos']['Insert']
 export type PagamentoUpdate = Tables['pagamentos']['Update']
+
+// Subset da listagem (10.1): a obra, a NF e a parcela do acordo por JOIN, para
+// a coluna Documento. Só um dos dois vínculos vem preenchido
+// (pagamento_vinculo_consistente); no avulso, nenhum.
+export type PagamentoListItem = Pick<
+  Pagamento,
+  | 'id'
+  | 'data_pagamento'
+  | 'obra_id'
+  | 'origem'
+  | 'forma'
+  | 'valor'
+  | 'observacao'
+  | 'nota_id'
+  | 'parcela_acordo_id'
+  | 'anexo'
+> & {
+  obra: Pick<Obra, 'codigo_obra' | 'nome'> | null
+  // status: o estorno de pagamento de NF cancelada é recusado (10.3).
+  nota: Pick<NotaFiscal, 'numero' | 'serie' | 'status'> | null
+  parcela: (Pick<AcordoParcela, 'numero_parcela'> & { acordo: Pick<AcordoPagamento, 'descricao'> | null }) | null
+}
 
 export type AcordoPagamento = Tables['acordos_pagamento']['Row']
 export type AcordoPagamentoInsert = Tables['acordos_pagamento']['Insert']

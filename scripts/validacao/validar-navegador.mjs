@@ -1558,8 +1558,9 @@ try {
         JSON.stringify(abas) === JSON.stringify(['Detalhes', 'Pagamentos', 'Arquivos']) && /Valor total R\$\s?2\.500,50/.test(topo) && /A receber R\$\s?2\.500,50/.test(topo),
         `${JSON.stringify(abas)} · ${topo}`)
       await b.clicar('[role=tab]', { texto: 'Pagamentos' })
-      checar('a aba Pagamentos é o placeholder do Sprint 10',
-        await b.avaliar('Array.from(document.querySelectorAll("[role=tabpanel]")).some((p) => !p.hidden && p.innerText.includes("Sprint 10"))'))
+      // 10.3: a aba deixou de ser placeholder; a NF do passo 34 não tem pagamento.
+      checar('a aba Pagamentos da NF sem baixa diz que não há pagamento registrado',
+        await b.avaliar('Array.from(document.querySelectorAll("[role=tabpanel]")).some((p) => !p.hidden && p.innerText.includes("Nenhum pagamento registrado."))'))
       await b.screenshot(`${SHOTS}/35-nf-detalhe.png`)
 
       await b.clicar('a', { texto: 'Editar' })
@@ -1682,6 +1683,209 @@ try {
         await b.avaliar(`document.querySelectorAll('[data-arquivo-nf] input[type=file]').length === 0 && document.body.innerText.includes('sem envio nem substituição')`))
     } else {
       checar('a NF do passo 34 existe (passo 36)', false)
+    }
+  }
+
+  // 38. Pagamentos (10.1): a aba do Financeiro leva da listagem de NFs à de
+  //     pagamentos, o filtro de origem vai para a URL e o totalizador acompanha
+  //     o filtrado. Só lê: o seed_pagamentos.sql tem as três origens.
+  {
+    await b.ir(`${BASE}/financeiro/notas-fiscais`)
+    await b.esperar('document.querySelector(\'nav[aria-label="Seções do financeiro"] a[href="/financeiro/pagamentos"]\')', { rotulo: 'abas do financeiro', ms: 25000 })
+    await b.clicar('nav[aria-label="Seções do financeiro"] a', { texto: 'Pagamentos' })
+    await b.esperar('location.pathname === "/financeiro/pagamentos" && document.body.innerText.includes("Total recebido")', { rotulo: 'listagem de pagamentos', ms: 25000 })
+    checar('a aba Pagamentos do Financeiro abre a listagem, marcada como a aba atual',
+      (await b.avaliar('document.querySelector(\'nav[aria-label="Seções do financeiro"] a[aria-current="page"]\')?.innerText')) === 'Pagamentos')
+
+    await b.preencher('select[aria-label="Origem"]', 'avulso')
+    await b.esperar('location.search.includes("origem=avulso") && document.body.innerText.includes("em 2 pagamentos")', { rotulo: 'filtro de origem', ms: 15000 })
+    const textoAvulso = await b.texto()
+    checar('filtrar por origem avulso vai para a URL e o totalizador passa a somar só os dois avulsos (R$ 1.850,00)',
+      /1\.850,00/.test(textoAvulso) && !textoAvulso.includes('NF SEED-NF-003'), textoAvulso.slice(0, 300))
+    await b.screenshot(`${SHOTS}/38-pagamentos-listagem.png`)
+  }
+
+  // 39. Registrar pagamento (10.2), como admin: o botão da listagem, o zod do
+  //     cliente, o radio de origem (cada origem mostra só o seu vínculo e limpa
+  //     o das outras), a NF cancelada fora do select, o saldo e o aviso de
+  //     excesso, a observação obrigatória no avulso e o registro pela tela. O
+  //     pagamento leva `${NUMERO}-PG` na observação e sai no fim do passo.
+  {
+    const sb = await clienteSupabase()
+    const { data: nf3 } = await sb.from('notas_fiscais').select('id, obra_id').eq('numero', 'SEED-NF-003').maybeSingle()
+    const { data: nf5 } = await sb.from('notas_fiscais').select('id').eq('numero', 'SEED-NF-005').maybeSingle()
+    const { data: parc2 } = await sb
+      .from('acordo_parcelas')
+      .select('id, acordo_id, acordo:acordos_pagamento!inner(descricao)')
+      .eq('acordo.descricao', 'SEED-AC-001 Sinal outubro')
+      .eq('numero_parcela', 2)
+      .maybeSingle()
+    if (nf3 && nf5 && parc2) {
+      try {
+        await b.ir(`${BASE}/financeiro/pagamentos`)
+        await b.esperar('Array.from(document.querySelectorAll("a")).some((a) => a.innerText.includes("Registrar pagamento"))', { rotulo: 'botão Registrar pagamento', ms: 25000 })
+        await b.clicar('a', { texto: 'Registrar pagamento' })
+        await b.esperar('location.pathname === "/financeiro/pagamentos/novo" && document.querySelector("#valor")', { rotulo: 'form de pagamento', ms: 25000 })
+        checar('o pagamento nasce com a data de hoje e a origem NF marcada',
+          (await b.avaliar('document.querySelector("#data_pagamento").value')) === new Date().toISOString().slice(0, 10) &&
+            (await b.avaliar('document.querySelector(\'input[name="origem"][value="nf"]\').checked')) === true)
+
+        await b.clicar('button[type="submit"]', { texto: 'Registrar pagamento' })
+        await b.esperar('document.body.innerText.includes("Selecione uma obra") && document.body.innerText.includes("Selecione a forma")', { rotulo: 'erros do zod' })
+        checar('envio vazio: obra, valor e forma barrados no cliente, sem sair do form',
+          (await b.texto()).includes('O valor tem de ser maior que zero') && (await b.url()) === '/financeiro/pagamentos/novo')
+
+        await b.preencher('#obra_id', nf3.obra_id)
+        await b.esperar('document.querySelector("#nota_id") && !document.querySelector("#nota_id").disabled', { rotulo: 'select de NF' })
+        const nfsNoSelect = await b.avaliar('Array.from(document.querySelector("#nota_id").options).filter((o) => o.value).map((o) => o.value)')
+        checar('com "NF", o select traz as notas da obra, sem a cancelada (SEED-NF-005)',
+          nfsNoSelect.includes(nf3.id) && !nfsNoSelect.includes(nf5.id), `${nfsNoSelect.length} no select`)
+
+        await b.preencher('#nota_id', nf3.id)
+        await b.esperar('document.body.innerText.includes("Saldo em aberto: R$")', { rotulo: 'saldo da NF' })
+        await b.preencher('#valor', '3500')
+        await b.esperar('document.body.innerText.includes("passa em")', { rotulo: 'aviso de excesso' })
+        const textoAviso = await b.texto()
+        checar('a NF mostra o saldo (R$ 3.000,00 da SEED-NF-003) e o valor acima dele gera aviso, sem bloquear',
+          /Saldo em aberto: R\$\s3\.000,00/.test(textoAviso) && /passa em R\$\s500,00 o saldo da nota fiscal/.test(textoAviso) && textoAviso.includes('pode ser salvo assim mesmo'),
+          textoAviso.slice(0, 400))
+        await b.screenshot(`${SHOTS}/39-pagamento-aviso.png`)
+
+        await b.clicar('input[name="origem"][value="acordo"]')
+        await b.esperar('document.querySelector("#acordo_id") && !document.querySelector("#nota_id")', { rotulo: 'troca para acordo' })
+        await b.preencher('#acordo_id', parc2.acordo_id)
+        await b.esperar('document.querySelector("#parcela_acordo_id") && !document.querySelector("#parcela_acordo_id").disabled', { rotulo: 'select de parcela' })
+        await b.preencher('#parcela_acordo_id', parc2.id)
+        await b.esperar('document.body.innerText.includes("Saldo em aberto: R$ 2.000,00") || document.body.innerText.includes("Saldo em aberto: R$ 2.000,00")', { rotulo: 'saldo da parcela' })
+        await b.clicar('input[name="origem"][value="nf"]')
+        await b.esperar('document.querySelector("#nota_id") && !document.querySelector("#acordo_id")', { rotulo: 'volta para NF' })
+        checar('com "Acordo" aparecem acordo e parcela (com o saldo da parcela); ao voltar para "NF", a nota escolhida antes foi limpa',
+          (await b.avaliar('document.querySelector("#nota_id").value')) === '')
+
+        await b.clicar('input[name="origem"][value="avulso"]')
+        await b.esperar('!document.querySelector("#nota_id") && !document.querySelector("#acordo_id")', { rotulo: 'troca para avulso' })
+        await b.preencher('#valor', '12.34')
+        await b.preencher('#forma', 'pix')
+        await b.clicar('button[type="submit"]', { texto: 'Registrar pagamento' })
+        await b.esperar('document.body.innerText.includes("No avulso, diga do que é o pagamento")', { rotulo: 'observação do avulso' })
+        checar('no avulso, não há vínculo, e sem observação o envio é barrado', true)
+
+        await b.preencher('#observacao', `${NUMERO}-PG navegador: troco da entrega`)
+        await b.clicar('button[type="submit"]', { texto: 'Registrar pagamento' })
+        await b.esperar('location.pathname === "/financeiro/pagamentos"', { rotulo: 'depois de registrar', ms: 25000 })
+        const { data: criado } = await sb.from('pagamentos').select('origem, nota_id, parcela_acordo_id, valor, forma, data_pagamento').like('observacao', `${NUMERO}-PG%`).maybeSingle()
+        checar('corrigido, registra o avulso com o valor e a forma da tela, sem vínculo, e volta à listagem',
+          criado?.origem === 'avulso' && criado?.nota_id === null && criado?.parcela_acordo_id === null && Number(criado?.valor) === 12.34 && criado?.forma === 'pix',
+          JSON.stringify(criado ?? null))
+      } finally {
+        await sb.from('pagamentos').delete().like('observacao', `${NUMERO}-PG%`)
+      }
+    } else {
+      checar('seed: SEED-NF-003, SEED-NF-005 e a parcela 2 do SEED-AC-001 existem (passo 39; seed_pagamentos.sql)', false)
+    }
+  }
+
+  // 40. Baixa rápida e estorno (10.3), como admin, na SEED-NF-003 (paga
+  //     parcialmente, saldo de 3.000): o botão da NF abre o form já com a
+  //     origem, a NF e o saldo; a baixa volta para a NF e aparece na aba
+  //     Pagamentos; o estorno pela aba, com o aviso, tira a linha. O pagamento
+  //     leva `${NUMERO}-PG` e, se sobrar, sai no fim do passo.
+  {
+    const sb = await clienteSupabase()
+    const { data: nf3 } = await sb.from('notas_fiscais').select('id, obra_id, status').eq('numero', 'SEED-NF-003').maybeSingle()
+    if (nf3) {
+      try {
+        await b.ir(`${BASE}/financeiro/notas-fiscais/${nf3.id}`)
+        await b.esperar('Array.from(document.querySelectorAll("a")).some((a) => a.innerText.includes("Registrar pagamento"))', { rotulo: 'botão da baixa', ms: 25000 })
+        await b.clicar('a', { texto: 'Registrar pagamento' })
+        await b.esperar(`location.pathname === "/financeiro/pagamentos/novo" && location.search.includes(${JSON.stringify(nf3.id)}) && document.querySelector("#nota_id")?.value === ${JSON.stringify(nf3.id)}`, { rotulo: 'form da baixa', ms: 25000 })
+        const pre = await b.avaliar('({ obra: document.querySelector("#obra_id").value, nf: document.querySelector(\'input[name="origem"][value="nf"]\').checked, valor: document.querySelector("#valor").value })')
+        checar('o botão da NF abre o form com a obra, a origem NF, esta nota e o saldo (3000) como valor',
+          pre.obra === nf3.obra_id && pre.nf === true && Number(pre.valor) === 3000, JSON.stringify(pre))
+
+        await b.preencher('#valor', '250')
+        await b.preencher('#forma', 'pix')
+        await b.preencher('#observacao', `${NUMERO}-PG baixa rápida`)
+        await b.clicar('button[type="submit"]', { texto: 'Registrar pagamento' })
+        await b.esperar(`location.pathname === ${JSON.stringify(`/financeiro/notas-fiscais/${nf3.id}`)}`, { rotulo: 'volta para a NF', ms: 25000 })
+        await b.clicar('[role=tab]', { texto: 'Pagamentos' })
+        await b.esperar('document.querySelector(\'[aria-label^="Estornar pagamento de R$"][aria-label*="250,00"]\')', { rotulo: 'baixa na aba', ms: 15000 })
+        checar('depois da baixa, a tela volta para a NF e a aba Pagamentos lista o pagamento novo', true)
+
+        await b.clicar('[aria-label^="Estornar pagamento de R$"][aria-label*="250,00"]')
+        await b.esperar('document.querySelector("[role=dialog]")?.innerText.includes("recalculado")', { rotulo: 'diálogo de estorno' })
+        const dialogo = await b.avaliar('document.querySelector("[role=dialog]").innerText')
+        checar('o diálogo de estorno avisa que o status da nota fiscal é recalculado', /status da nota fiscal é recalculado/.test(dialogo), dialogo.slice(0, 300))
+        await b.screenshot(`${SHOTS}/40-estorno-dialogo.png`)
+        await b.clicar('[role=dialog] button', { texto: 'Estornar' })
+        await b.esperar('!document.querySelector(\'[aria-label^="Estornar pagamento de R$"][aria-label*="250,00"]\')', { rotulo: 'linha estornada', ms: 15000 })
+        const { data: resto } = await sb.from('pagamentos').select('id').like('observacao', `${NUMERO}-PG%`)
+        const { data: nf3Depois } = await sb.from('notas_fiscais').select('status').eq('id', nf3.id).single()
+        checar('confirmado, o estorno tira a linha da aba e do banco, e a NF segue paga parcialmente (os 2.000 do seed)',
+          (resto ?? []).length === 0 && nf3Depois?.status === nf3.status, `${(resto ?? []).length} no banco · ${nf3Depois?.status}`)
+      } finally {
+        await sb.from('pagamentos').delete().like('observacao', `${NUMERO}-PG%`)
+      }
+    } else {
+      checar('seed: SEED-NF-003 existe (passo 40)', false)
+    }
+  }
+
+  // 41. Comprovante e estorno pela listagem (10.4), como admin, sobre um
+  //     avulso de teste de hoje (fica no topo): um .pdf que é PNG é recusado
+  //     no cliente; a imagem sobe pelo seletor e a linha passa a oferecer Ver
+  //     e Substituir; o estorno pela listagem tira a linha e o arquivo.
+  {
+    const sb = await clienteSupabase()
+    const { data: nf3 } = await sb.from('notas_fiscais').select('obra_id, empresa_id').eq('numero', 'SEED-NF-003').maybeSingle()
+    let pgId = null
+    let pasta = null
+    try {
+      const { data: pgCp, error: ePg } = nf3
+        ? await sb.from('pagamentos').insert({
+            empresa_id: nf3.empresa_id, obra_id: nf3.obra_id, origem: 'avulso', valor: 43.21, forma: 'pix',
+            data_pagamento: new Date().toISOString().slice(0, 10), observacao: `${NUMERO}-PG comprovante`,
+          }).select('id').single()
+        : { data: null, error: { message: 'sem a SEED-NF-003' } }
+      if (ePg) throw new Error(`pagamento de teste do passo 41: ${ePg.message}`)
+      pgId = pgCp.id
+      pasta = `${nf3.empresa_id}/${nf3.obra_id}/pagamentos/${pgId}`
+      const cel = `[data-comprovante="${pgId}"]`
+
+      await b.ir(`${BASE}/financeiro/pagamentos`)
+      await b.esperar(`document.querySelector('${cel}')`, { rotulo: 'linha do pagamento de teste', ms: 25000 })
+      const falso = `${SHOTS}/png-renomeado.pdf`
+      writeFileSync(falso, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'))
+      await b.anexarArquivo(`${cel} input[type="file"]`, falso)
+      await b.esperar('document.body.innerText.includes("não bate com a extensão")', { rotulo: 'recusa pelo conteúdo', ms: 10000 })
+      const { data: semAnexo } = await sb.from('pagamentos').select('anexo').eq('id', pgId).single()
+      checar('uma imagem renomeada para .pdf é recusada no cliente pelo conteúdo, sem subir', semAnexo?.anexo === null)
+
+      const foto = `${SHOTS}/comprovante-do-run.png`
+      writeFileSync(foto, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'))
+      await b.anexarArquivo(`${cel} input[type="file"]`, foto)
+      await b.esperar(`Array.from(document.querySelectorAll('${cel} button')).some((x) => x.innerText.includes('Substituir'))`, { rotulo: 'comprovante anexado', ms: 20000 })
+      const { data: comAnexo } = await sb.from('pagamentos').select('anexo').eq('id', pgId).single()
+      const temVer = await b.avaliar(`Array.from(document.querySelectorAll('${cel} button')).some((x) => x.innerText.includes('Ver'))`)
+      checar('a imagem sobe pelo seletor da listagem: o anexo fica na pasta do pagamento, e a linha oferece Ver e Substituir',
+        (comAnexo?.anexo ?? '').startsWith(`${pasta}/`) && comAnexo.anexo.endsWith('_comprovante.png') && temVer, comAnexo?.anexo ?? 'sem anexo')
+      await b.screenshot(`${SHOTS}/41-pagamento-comprovante.png`)
+
+      await b.clicar(`[aria-label^="Estornar pagamento de R$"][aria-label*="43,21"]`)
+      await b.esperar('document.querySelector("[role=dialog]")?.innerText.includes("sai do total recebido")', { rotulo: 'diálogo de estorno do avulso' })
+      await b.clicar('[role=dialog] button', { texto: 'Estornar' })
+      await b.esperar(`!document.querySelector('${cel}')`, { rotulo: 'linha estornada', ms: 15000 })
+      const { data: depois } = await sb.from('pagamentos').select('id').eq('id', pgId).maybeSingle()
+      const { data: noBucket } = await sb.storage.from('anexos').list(pasta)
+      checar('o estorno pela listagem (aviso do avulso) tira a linha, o pagamento e o comprovante do bucket',
+        !depois && (noBucket ?? []).length === 0, `${depois ? 'pagamento ficou' : 'ok'} · ${(noBucket ?? []).length} no bucket`)
+      pgId = null
+    } finally {
+      if (pasta) {
+        const { data: resto } = await sb.storage.from('anexos').list(pasta)
+        if ((resto ?? []).length) await sb.storage.from('anexos').remove(resto.map((o) => `${pasta}/${o.name}`))
+      }
+      if (pgId) await sb.from('pagamentos').delete().eq('id', pgId)
     }
   }
 

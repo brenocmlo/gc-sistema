@@ -107,6 +107,20 @@ no celular fica a cargo do Breno.
 | 9.5 NF: upload de XML e PDF | `9.5-status-entrega.md` — validado no fechamento (9.6) |
 | 9.6 NF: export XLSX, seed e testes (fechamento) | `9.6-status-entrega.md` — rodada de fechamento |
 
+## Sprint 10 — Financeiro: Pagamentos · `sprint-10/`
+
+Aberta em 2026-09-30, **fechada em 2026-09-30** com as sete camadas do plano passando numa
+rodada só. O teste no celular fica a cargo do Breno.
+
+| Bloco | Documento |
+|---|---|
+| 10.1 Pagamentos: types, helpers e listagem | `10.1-status-entrega.md` — validado no fechamento (10.6) |
+| 10.2 Pagamentos: formulário de registro | `10.2-status-entrega.md` — validado no fechamento (10.6) |
+| 10.3 Pagamentos: baixa rápida a partir da NF e da parcela | `10.3-status-entrega.md` — validado no fechamento (10.6); estorno adiantado do 10.4 |
+| 10.4 Pagamentos: comprovante e estorno | `10.4-status-entrega.md` — validado no fechamento (10.6) |
+| 10.5 Validar a cascata de status via trigger | `10.5-status-entrega.md` — verificado em gc-dev (18/18), sem divergência, sem migration |
+| 10.6 Pagamentos: export, seed e testes (fechamento) | `10.6-status-entrega.md` — rodada de fechamento; corrigiu os filtros da listagem (10.1) |
+
 ## Sprint 13 — Administração, qualidade e segurança · `sprint-13/`
 
 Um bloco **adiantado** em 2026-09-23, a pedido do Breno: a tela de logs e auditoria.

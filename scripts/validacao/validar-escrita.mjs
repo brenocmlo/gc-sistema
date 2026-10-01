@@ -129,6 +129,12 @@ const NECESSARIAS = [
   'updateNotaFiscal',
   'cancelarNotaFiscal',
   'excluirNotaFiscal',
+  // Pagamentos (10.2 a 10.4)
+  'createPagamento',
+  'estornarPagamento',
+  'prepararEnvioComprovante',
+  'registrarComprovante',
+  'urlComprovante',
   // Arquivos da NF (9.5)
   'prepararEnvioArquivoNf',
   'registrarArquivoNf',
@@ -289,6 +295,10 @@ const obrasTesteIngestao = []
 let obraTesteExecucao = null
 /** NFs de teste do 9.x: saem no finally pelo número `${NUMERO}-NF*`. */
 let nfsDeTeste = false
+/** Pagamentos de teste do 10.x: saem no finally pela observação `${NUMERO}-PG*`. */
+let pagamentosDeTeste = false
+/** Comprovantes de teste do 10.4 no bucket `anexos`: removidos no finally (o estorno já tira, se chegar lá). */
+const comprovantesDeTeste = []
 /** Fase 7 da automação: PDF de teste no bucket e documento do envio pela tela — apagados no finally. */
 let envioTesteCaminho = null
 let envioTesteDocId = null
@@ -3437,7 +3447,262 @@ try {
     }
   }
 
+  // ============================================================
+  // Sprint 10 — pagamentos: registro (10.2) nas três origens e as combinações
+  // que pagamento_vinculo_consistente recusa, pela action e direto no banco.
+  // Sobre o seed: a SEED-NF-001 (emitida, 3.000) e a parcela 2 do SEED-AC-001
+  // (pendente, 2.000). Todo pagamento leva `${NUMERO}-PG` na observação e sai
+  // no finally; o trigger devolve a NF e a parcela ao status de antes.
+  // ============================================================
+  {
+    pagamentosDeTeste = true
+    const ROTA_PG = { rota: '/financeiro/pagamentos/novo' }
+    const hoje10 = new Date().toISOString().slice(0, 10)
+    const { data: nf1 } = await supabase.from('notas_fiscais').select('id, obra_id, empresa_id, status').eq('numero', 'SEED-NF-001').maybeSingle()
+    const { data: nf5 } = await supabase.from('notas_fiscais').select('id, obra_id').eq('numero', 'SEED-NF-005').maybeSingle()
+    const { data: parc2 } = await supabase
+      .from('acordo_parcelas')
+      .select('id, obra_id, status, acordo:acordos_pagamento!inner(descricao)')
+      .eq('acordo.descricao', 'SEED-AC-001 Sinal outubro')
+      .eq('numero_parcela', 2)
+      .maybeSingle()
+    const { data: outraObra } = nf1
+      ? await supabase.from('obras').select('id').neq('id', nf1.obra_id).limit(1).maybeSingle()
+      : { data: null }
+    checar('10.2: o seed tem a SEED-NF-001 emitida, a SEED-NF-005 cancelada e a parcela 2 do SEED-AC-001 pendente (seed_pagamentos.sql)',
+      nf1?.status === 'emitida' && Boolean(nf5) && parc2?.status === 'pendente', JSON.stringify({ nf1: nf1?.status, parc2: parc2?.status }))
+    if (nf1 && nf5 && parc2) {
+      const pg = (x = {}) => ({
+        obra_id: nf1.obra_id, origem: 'nf', nota_id: nf1.id, parcela_acordo_id: null, data_pagamento: hoje10,
+        valor: 1000, forma: 'pix', observacao: `${NUMERO}-PG`, ...x,
+      })
+      const lerPg = async (id) => (await supabase.from('pagamentos').select('*').eq('id', id).maybeSingle()).data
+      const statusNf1 = async () => (await supabase.from('notas_fiscais').select('status').eq('id', nf1.id).single()).data?.status
+      const statusParc2 = async () => (await supabase.from('acordo_parcelas').select('status').eq('id', parc2.id).single()).data?.status
+      const contarPg = async () => (await supabase.from('pagamentos').select('id', { count: 'exact', head: true }).like('observacao', `${NUMERO}-PG%`)).count
+
+      // 10.6 — export XLSX com os filtros da tela, antes de qualquer pagamento
+      // de teste (os totais são os do seed_pagamentos.sql), e por perfil.
+      {
+        const { default: ExcelJS } = await import('exceljs')
+        const baixarPg = async (cookie, qs) => {
+          const res = await fetch(`${BASE}/api/export/pagamentos?${qs}`, { headers: { cookie } })
+          if (res.status !== 200) return { status: res.status }
+          const wb = new ExcelJS.Workbook()
+          await wb.xlsx.load(Buffer.from(await res.arrayBuffer()))
+          const celulas = []
+          wb.worksheets[0].eachRow((row) => celulas.push(row.values.slice(1)))
+          const plano = celulas.flat().map((v) => String(v ?? ''))
+          const total = Number((plano.find((v) => v.startsWith('Total de registros:')) ?? '').replace(/\D/g, ''))
+          const filtros = plano.find((v) => v.startsWith('Filtros:')) ?? ''
+          const iCab = celulas.findIndex((r) => r[0] === 'Data' && r[1] === 'Obra')
+          const cab = celulas[iCab] ?? []
+          const linhas = celulas.slice(iCab + 1).filter((r) => r[0] && r[0] !== 'TOTAL')
+          // A linha TOTAL é uma fórmula SUM (excel-export.ts), sem resultado
+          // calculado: confere a fórmula cobrindo as linhas, e soma as linhas.
+          const iValor = cab.indexOf('Valor')
+          const formula = celulas.find((r) => r[0] === 'TOTAL')?.[iValor]?.formula ?? ''
+          const faixa = /^SUM\(([A-Z]+)(\d+):\1(\d+)\)$/.exec(formula)
+          const cobre = Boolean(faixa) && Number(faixa[3]) - Number(faixa[2]) + 1 === linhas.length
+          const centavos = linhas.reduce((a, r) => a + Math.round(Number(r[iValor]) * 100), 0)
+          return { status: 200, total, filtros, cab, linhas, formula, somaTotal: cobre ? centavos / 100 : null }
+        }
+        const av = await baixarPg(admin.cookie, 'origem=avulso')
+        const iDoc = av.cab?.indexOf('Documento') ?? -1
+        const iVal = av.cab?.indexOf('Valor') ?? -1
+        checar('10.6: o export com origem=avulso traz os 2 avulsos do seed, sem documento, com a soma de 1.850 na linha de total e o filtro no cabeçalho',
+          av.status === 200 && av.total === 2 && av.linhas.every((r) => r[iDoc] === '—') && av.somaTotal === 1850 && /origem=Avulso/.test(av.filtros),
+          JSON.stringify({ status: av.status, total: av.total, soma: av.somaTotal, docs: av.linhas?.map((r) => r[iDoc]), filtros: av.filtros }))
+        const ac = await baixarPg(admin.cookie, 'origem=acordo')
+        checar('10.6: no export de acordo, o documento é o acordo com a parcela, e o valor, 3.000',
+          ac.status === 200 && ac.total === 1 && ac.linhas[0]?.[iDoc] === 'SEED-AC-001 Sinal outubro · parcela 1' && Number(ac.linhas[0]?.[iVal]) === 3000,
+          JSON.stringify(ac.linhas?.[0] ?? ac.status))
+        const nf4 = await baixarPg(admin.cookie, 'busca=SEED-NF-004')
+        checar('10.6: a busca pelo número da NF vale no export (os 2 pagamentos da SEED-NF-004, 2.000)',
+          nf4.status === 200 && nf4.total === 2 && nf4.linhas.every((r) => r[iDoc] === 'NF SEED-NF-004') && nf4.somaTotal === 2000,
+          JSON.stringify({ total: nf4.total, soma: nf4.somaTotal, docs: nf4.linhas?.map((r) => r[iDoc]) }))
+        const perfisExp = {}
+        for (const perfil of ['financeiro', 'visualizador', 'comercial', 'producao']) {
+          perfisExp[perfil] = (await baixarPg(cookieDeSessao((await sessaoDePerfil(perfil)).session), 'origem=avulso')).status
+        }
+        checar('10.6: financeiro e visualizador exportam (200); comercial e produção não (403)',
+          perfisExp.financeiro === 200 && perfisExp.visualizador === 200 && perfisExp.comercial === 403 && perfisExp.producao === 403,
+          JSON.stringify(perfisExp))
+      }
+
+      const c1 = await chamar('createPagamento', [pg()], ROTA_PG)
+      const l1 = c1.ok ? await lerPg(c1.id) : null
+      checar('10.2: admin registra pagamento de NF: nota preenchida, parcela nula, autor, e a NF passa a paga parcialmente (trigger)',
+        c1.ok === true && l1?.origem === 'nf' && l1?.nota_id === nf1.id && l1?.parcela_acordo_id === null && l1?.created_by === admin.userId &&
+          Number(l1?.valor) === 1000 && (await statusNf1()) === 'paga_parcialmente',
+        c1.error ?? JSON.stringify(l1))
+
+      const cookieFin10 = cookieDeSessao((await sessaoDePerfil('financeiro')).session)
+      const c2 = await chamar('createPagamento', [pg({ origem: 'acordo', nota_id: null, parcela_acordo_id: parc2.id, valor: 500, forma: 'cartao' })], { ...ROTA_PG, cookie: cookieFin10 })
+      const l2 = c2.ok ? await lerPg(c2.id) : null
+      checar('10.2: financeiro registra pagamento de acordo, em cartão: parcela preenchida, nota nula, e a parcela passa a paga parcialmente',
+        c2.ok === true && l2?.parcela_acordo_id === parc2.id && l2?.nota_id === null && l2?.forma === 'cartao' && (await statusParc2()) === 'paga_parcialmente',
+        c2.error ?? JSON.stringify(l2))
+
+      const c3 = await chamar('createPagamento', [pg({ origem: 'avulso', nota_id: null, valor: 75.5, forma: 'dinheiro', observacao: `${NUMERO}-PG avulso: taxa de entrega` })], ROTA_PG)
+      const l3 = c3.ok ? await lerPg(c3.id) : null
+      const semObs = await chamar('createPagamento', [pg({ origem: 'avulso', nota_id: null, observacao: null })], ROTA_PG)
+      checar('10.2: avulso sem vínculo é aceito com observação, e recusado sem ela',
+        c3.ok === true && l3?.nota_id === null && l3?.parcela_acordo_id === null && Number(l3?.valor) === 75.5 &&
+          !semObs.ok && /diga do que é/.test(semObs.error ?? ''),
+        `${c3.error ?? 'ok'} · sem observação: ${semObs.ok ? 'PASSOU' : semObs.error}`)
+
+      // pagamento_vinculo_consistente: as combinações inválidas, pela action e direto no banco.
+      const antes = await contarPg()
+      const invalidas = [
+        ['NF com a parcela junto', pg({ parcela_acordo_id: parc2.id })],
+        ['NF sem a nota', pg({ nota_id: null })],
+        ['acordo com a nota no lugar da parcela', pg({ origem: 'acordo' })],
+        ['avulso com nota', pg({ origem: 'avulso', observacao: `${NUMERO}-PG avulso com nota` })],
+      ]
+      const passaram = []
+      for (const [rotulo, payload] of invalidas) {
+        const r = await chamar('createPagamento', [payload], ROTA_PG)
+        if (r.ok) passaram.push(`action: ${rotulo}`)
+        const { error } = await supabase.from('pagamentos').insert({
+          empresa_id: nf1.empresa_id, obra_id: payload.obra_id, origem: payload.origem, nota_id: payload.nota_id,
+          parcela_acordo_id: payload.parcela_acordo_id, valor: 10, forma: 'pix', observacao: `${NUMERO}-PG banco`,
+        })
+        if (!/pagamento_vinculo_consistente/.test(error?.message ?? '')) passaram.push(`banco: ${rotulo} (${error?.message ?? 'aceitou'})`)
+      }
+      checar('10.2: as 4 combinações inválidas são recusadas pela action e pelo banco (pagamento_vinculo_consistente), sem gravar',
+        passaram.length === 0 && (await contarPg()) === antes, passaram.join(' | '))
+
+      const recusas = [
+        ['NF cancelada (SEED-NF-005)', pg({ obra_id: nf5.obra_id, nota_id: nf5.id }), /cancelada não recebe/],
+        ['NF de outra obra', pg({ obra_id: outraObra?.id ?? '00000000-0000-4000-8000-000000000000' }), /mesma obra|Obra inválida/],
+        ['valor zero', pg({ valor: 0 }), /maior que zero/],
+        ['3 casas decimais', pg({ valor: 10.005 }), /2 casas/],
+        ['forma fora da lista', pg({ forma: 'credito' }), /Forma/],
+        ['origem fora da lista', pg({ origem: 'parcela' }), /Origem/],
+      ]
+      const erradas = []
+      for (const [rotulo, payload, msg] of recusas) {
+        const r = await chamar('createPagamento', [payload], ROTA_PG)
+        if (r.ok || !msg.test(r.error ?? '')) erradas.push(`${rotulo}: ${r.ok ? 'PASSOU' : r.error}`)
+      }
+      checar('10.2: recusa NF cancelada, NF de outra obra, valor zero, 3 casas, forma e origem fora da lista',
+        erradas.length === 0 && (await contarPg()) === antes, erradas.join(' | '))
+
+      const perfis = {}
+      for (const perfil of ['comercial', 'visualizador', 'producao', 'medicao']) {
+        const r = await chamar('createPagamento', [pg()], { ...ROTA_PG, cookie: cookieDeSessao((await sessaoDePerfil(perfil)).session) })
+        perfis[perfil] = r.ok ? 'PASSOU' : /permissão/i.test(r.error ?? '') ? 'recusado' : r.error
+      }
+      checar('10.2: comercial, visualizador, produção e medição não registram pagamento (recusados pela checagem de perfil)',
+        Object.values(perfis).every((v) => v === 'recusado'), JSON.stringify(perfis))
+
+      // 10.3 — estorno (excluir o pagamento), sobre os pagamentos c1 (NF) e c2 (acordo).
+      if (c1.ok && c2.ok) {
+        const ROTA_NF1 = { rota: `/financeiro/notas-fiscais/${nf1.id}` }
+        const existe = async (id) => Boolean((await supabase.from('pagamentos').select('id').eq('id', id).maybeSingle()).data)
+        const naoAdmin = {}
+        for (const perfil of ['financeiro', 'visualizador']) {
+          const r = await chamar('estornarPagamento', [c1.id], { ...ROTA_NF1, cookie: cookieDeSessao((await sessaoDePerfil(perfil)).session) })
+          naoAdmin[perfil] = r.ok ? 'PASSOU' : r.error
+        }
+        checar('10.3: financeiro e visualizador não estornam (só o admin), e o pagamento continua',
+          Object.values(naoAdmin).every((e) => /Só o admin/.test(e)) && (await existe(c1.id)), JSON.stringify(naoAdmin))
+
+        const e1 = await chamar('estornarPagamento', [c1.id], ROTA_NF1)
+        checar('10.3: admin estorna o pagamento de NF: a linha sai e a SEED-NF-001 volta a emitida (trigger)',
+          e1.ok === true && !(await existe(c1.id)) && (await statusNf1()) === 'emitida', e1.error ?? (await statusNf1()))
+
+        const e2 = await chamar('estornarPagamento', [c2.id], ROTA_NF1)
+        checar('10.3: admin estorna o pagamento de acordo: a parcela 2 volta a pendente',
+          e2.ok === true && !(await existe(c2.id)) && (await statusParc2()) === 'pendente', e2.error ?? (await statusParc2()))
+
+        const eNada = await chamar('estornarPagamento', ['00000000-0000-4000-8000-000000000000'], ROTA_NF1)
+        checar('10.3: estornar pagamento inexistente é recusado', !eNada.ok && /não encontrado/.test(eNada.error ?? ''), JSON.stringify(eNada))
+
+        // NF que recebeu pagamento e depois foi cancelada: o pagamento fica como histórico (9.4).
+        nfsDeTeste = true
+        const nfPg = await chamar('createNotaFiscal', [{
+          obra_id: nf1.obra_id, numero: `${NUMERO}-NF-PG`, serie: null, chave_nfe: null, contrato_id: null, proposta_id: null,
+          tipo: 'outro', data_emissao: hoje10, data_vencimento: null, valor_total: 300, observacao: null,
+        }], { rota: '/financeiro/notas-fiscais/novo' })
+        const pgHist = nfPg.ok ? await chamar('createPagamento', [pg({ nota_id: nfPg.id, valor: 100 })], ROTA_PG) : { ok: false, error: nfPg.error }
+        const canc = pgHist.ok ? await chamar('cancelarNotaFiscal', [nfPg.id, 'Cancelada pela validação do estorno'], { rota: `/financeiro/notas-fiscais/${nfPg.id}` }) : pgHist
+        const eHist = canc.ok ? await chamar('estornarPagamento', [pgHist.id], { rota: `/financeiro/notas-fiscais/${nfPg.id}` }) : canc
+        checar('10.3: o pagamento de NF cancelada não é estornado (fica como histórico), e continua lá',
+          canc.ok === true && !eHist.ok && /histórico/.test(eHist.error ?? '') && (await existe(pgHist.id)),
+          `${canc.ok ? 'cancelou' : canc.error} · ${eHist.ok ? 'ESTORNOU' : eHist.error}`)
+      }
+
+      // 10.4 — comprovante, sobre o avulso c3: enviar, ver, substituir; e o
+      // estorno levando o arquivo junto.
+      if (c3.ok) {
+        const ROTA_CP = { rota: '/financeiro/pagamentos' }
+        const pastaCp = `${nf1.empresa_id}/${nf1.obra_id}/pagamentos/${c3.id}/`
+        const pdfCp = new Blob(['%PDF-1.4\n% comprovante de teste\n%%EOF\n'], { type: 'application/pdf' })
+        const pngCp = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])], { type: 'image/png' })
+        const anon = () => createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+        const noBucket = async () => ((await supabase.storage.from('anexos').list(pastaCp.slice(0, -1))).data ?? []).map((o) => `${pastaCp}${o.name}`)
+        const subirCp = async (nome, blob, cookie = admin.cookie) => {
+          const prep = await chamar('prepararEnvioComprovante', [c3.id, nome], { ...ROTA_CP, cookie })
+          if (!prep.ok) return { etapa: 'preparar', ...prep }
+          comprovantesDeTeste.push(prep.path)
+          const { error } = await anon().storage.from('anexos').uploadToSignedUrl(prep.path, prep.token, blob, { contentType: blob.type })
+          if (error) return { ok: false, etapa: 'upload', error: error.message }
+          const reg = await chamar('registrarComprovante', [c3.id, prep.path], { ...ROTA_CP, cookie })
+          return { ...reg, path: prep.path }
+        }
+
+        // Antes do primeiro envio, o avulso não tem comprovante: não há URL.
+        const semComprovante = await chamar('urlComprovante', [c3.id], ROTA_CP)
+        const env = await subirCp('comprovante-pix.pdf', pdfCp, cookieFin10)
+        const depoisEnvio = await lerPg(c3.id)
+        checar('10.4: financeiro anexa o comprovante pela URL assinada; o anexo guarda o caminho {empresa}/{obra}/pagamentos/{pagamento}/<ts>_comprovante.pdf',
+          env.ok === true && depoisEnvio?.anexo === env.path && new RegExp(`^${pastaCp}\\d+_comprovante\\.pdf$`).test(env.path ?? ''),
+          `${env.etapa ?? ''} ${env.error ?? ''} ${depoisEnvio?.anexo ?? ''}`)
+
+        const ver = await chamar('urlComprovante', [c3.id], { ...ROTA_CP, cookie: cookieDeSessao((await sessaoDePerfil('visualizador')).session) })
+        const baixado = ver.ok ? await (await fetch(ver.url)).text() : ''
+        checar('10.4: o visualizador recebe a URL assinada do comprovante, e ela baixa o PDF enviado',
+          ver.ok === true && baixado.startsWith('%PDF'), ver.error ?? baixado.slice(0, 20))
+
+        const sub = await subirCp('print-do-pix.png', pngCp)
+        const depoisSub = await lerPg(c3.id)
+        const arquivos = await noBucket()
+        checar('10.4: admin substitui por uma imagem: o anexo aponta para o arquivo novo e o antigo sai do bucket',
+          sub.ok === true && depoisSub?.anexo === sub.path && sub.path !== env.path && arquivos.length === 1 && arquivos[0] === sub.path,
+          `${sub.error ?? ''} · no bucket: ${JSON.stringify(arquivos)}`)
+
+        const recusasCp = {}
+        for (const perfil of ['visualizador', 'comercial']) {
+          const r = await chamar('prepararEnvioComprovante', [c3.id, 'x.pdf'], { ...ROTA_CP, cookie: cookieDeSessao((await sessaoDePerfil(perfil)).session) })
+          recusasCp[perfil] = r.ok ? 'PASSOU' : r.error
+        }
+        const docx = await chamar('prepararEnvioComprovante', [c3.id, 'planilha.docx'], ROTA_CP)
+        const forjado = await chamar('registrarComprovante', [c3.id, `${nf1.empresa_id}/${nf1.obra_id}/pagamentos/outro-pagamento/1_comprovante.pdf`], ROTA_CP)
+        const semArquivo = await chamar('registrarComprovante', [c3.id, `${pastaCp}1_comprovante.pdf`], ROTA_CP)
+        checar('10.4: visualizador e comercial não enviam; .docx, caminho de outro pagamento e arquivo que não subiu são recusados; pagamento sem comprovante não tem URL',
+          Object.values(recusasCp).every((e) => /permissão/.test(e)) && !docx.ok && /PDF ou uma imagem/.test(docx.error ?? '') &&
+            !forjado.ok && /inválido/.test(forjado.error ?? '') && !semArquivo.ok && /não encontrado/.test(semArquivo.error ?? '') &&
+            !semComprovante.ok && /não tem comprovante/.test(semComprovante.error ?? ''),
+          JSON.stringify({ recusasCp, docx: docx.error, forjado: forjado.error, semArquivo: semArquivo.error, semComprovante: semComprovante.error }))
+
+        const est = await chamar('estornarPagamento', [c3.id], ROTA_CP)
+        checar('10.4: estornar o pagamento tira também o comprovante do bucket',
+          est.ok === true && (await noBucket()).length === 0, est.error ?? JSON.stringify(await noBucket()))
+      }
+    }
+  }
+
 } finally {
+  // Sprint 10: pagamentos de teste primeiro (a FK de pagamentos para a NF é
+  // restrita). O trigger recalcula o status da NF e da parcela do seed.
+  if (comprovantesDeTeste.length) await supabase.storage.from('anexos').remove(comprovantesDeTeste)
+  if (pagamentosDeTeste) {
+    const { error: epg } = await supabase.from('pagamentos').delete().like('observacao', `${NUMERO}-PG%`)
+    const { data: nf1Depois } = await supabase.from('notas_fiscais').select('status').eq('numero', 'SEED-NF-001').maybeSingle()
+    checar('10.x: pagamentos de teste apagados, e a SEED-NF-001 volta a emitida', !epg && nf1Depois?.status === 'emitida', epg?.message ?? nf1Depois?.status)
+  }
   // Sprint 9: NFs de teste (sem pagamento; a FK de pagamentos é restrita).
   if (nfsDeTeste) {
     const { error: enf } = await supabase.from('notas_fiscais').delete().like('numero', `${NUMERO}-NF%`)

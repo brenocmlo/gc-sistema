@@ -1,6 +1,6 @@
 'use client'
 
-import { Ban, Pencil, Trash2 } from 'lucide-react'
+import { Ban, HandCoins, Pencil, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -71,6 +71,17 @@ export default function DetailHeader({
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <SituacaoBadge situacao={situacao} />
+          {/* Baixa rápida (10.3): o formulário de pagamento já com a origem NF,
+              esta nota e o saldo como valor. Cancelada não recebe (9.4). */}
+          {podeEscrever && status !== 'cancelada' && (
+            <Link
+              href={`/financeiro/pagamentos/novo?nota=${id}`}
+              className="inline-flex items-center gap-2 bg-gray-900 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-gray-800 transition-colors"
+            >
+              <HandCoins size={14} />
+              Registrar pagamento
+            </Link>
+          )}
           {podeEscrever &&
             (canEdit ? (
               <Link

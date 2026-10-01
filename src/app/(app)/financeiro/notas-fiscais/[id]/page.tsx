@@ -7,9 +7,13 @@ import Tabs from '@/components/Tabs'
 import { hojeISO } from '@/lib/execucao'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { isNfEditavel, recebidoDaNf, situacaoDaNf, TIPO_NF_LABELS } from '@/lib/notas-fiscais'
+import { motivoParaNaoEstornar, rotuloForma } from '@/lib/pagamentos'
 import { getCurrentProfile } from '@/lib/supabase/profile'
 import { createClient } from '@/lib/supabase/server'
-import type { NotaFiscal } from '@/lib/types'
+import type { NotaFiscal, Pagamento, Perfil } from '@/lib/types'
+
+import ComprovanteCell from '../../pagamentos/comprovante-cell'
+import EstornarButton from '../../pagamentos/estornar-button'
 
 import ArquivosTab from './arquivos-tab'
 import DetailHeader from './detail-header'
@@ -20,7 +24,7 @@ type Join = {
   obra: { codigo_obra: string; nome: string; cliente: { nome: string } | null } | null
   contrato: { id: string; numero: string } | null
   proposta: { id: string; numero: string } | null
-  pagamentos: { valor: number }[] | null
+  pagamentos: Pick<Pagamento, 'id' | 'origem' | 'data_pagamento' | 'valor' | 'forma' | 'observacao' | 'anexo' | 'created_at'>[] | null
 }
 
 export default async function NotaFiscalDetalhePage({ params }: PageProps) {
@@ -31,7 +35,7 @@ export default async function NotaFiscalDetalhePage({ params }: PageProps) {
   const { data } = await supabase
     .from('notas_fiscais')
     .select(
-      '*, obra:obras(codigo_obra, nome, cliente:clientes(nome)), contrato:contratos(id, numero), proposta:propostas(id, numero), pagamentos(valor)',
+      '*, obra:obras(codigo_obra, nome, cliente:clientes(nome)), contrato:contratos(id, numero), proposta:propostas(id, numero), pagamentos(id, origem, data_pagamento, valor, forma, observacao, anexo, created_at)',
     )
     .eq('id', params.id)
     .maybeSingle()
@@ -68,7 +72,14 @@ export default async function NotaFiscalDetalhePage({ params }: PageProps) {
           {
             value: 'pagamentos',
             label: `Pagamentos${(pagamentos ?? []).length > 0 ? ` (${(pagamentos ?? []).length})` : ''}`,
-            content: <PagamentosTab quantidade={(pagamentos ?? []).length} recebido={recebido} />,
+            content: (
+              <PagamentosTab
+                pagamentos={pagamentos ?? []}
+                recebido={recebido}
+                perfil={profile.perfil}
+                notaStatus={nf.status}
+              />
+            ),
           },
           {
             value: 'arquivos',
@@ -154,15 +165,83 @@ function DetailsTab({
   )
 }
 
-function PagamentosTab({ quantidade, recebido }: { quantidade: number; recebido: number }) {
+/** Aba Pagamentos (10.3): as baixas da NF, da mais recente, com o estorno. */
+function PagamentosTab({
+  pagamentos,
+  recebido,
+  perfil,
+  notaStatus,
+}: {
+  pagamentos: NonNullable<Join['pagamentos']>
+  recebido: number
+  perfil: Perfil
+  notaStatus: NotaFiscal['status']
+}) {
+  if (pagamentos.length === 0) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
+        Nenhum pagamento registrado.
+      </div>
+    )
+  }
+  const ordenados = [...pagamentos].sort(
+    (a, b) => b.data_pagamento.localeCompare(a.data_pagamento) || (b.created_at ?? '').localeCompare(a.created_at ?? ''),
+  )
+  const bloqueio = motivoParaNaoEstornar(perfil, notaStatus)
+  // Estornar só aparece para o admin; fora das regras, vem desabilitado com o porquê.
+  const mostraEstorno = perfil === 'admin'
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500 space-y-1">
-      <p>O lançamento e a lista de pagamentos chegam no Sprint 10.</p>
-      <p>
-        {quantidade > 0
-          ? `Hoje a nota tem ${quantidade} ${quantidade === 1 ? 'pagamento' : 'pagamentos'}, somando ${formatCurrency(recebido)}.`
-          : 'Nenhum pagamento registrado.'}
-      </p>
+    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm" aria-label="Pagamentos da nota fiscal">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="px-4 py-3 text-left font-medium text-gray-700">Data</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-700">Forma</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-700">Valor</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-700">Observação</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-700">Comprovante</th>
+              {mostraEstorno && <th className="px-4 py-3" aria-label="Ações" />}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {ordenados.map((p) => (
+              <tr key={p.id}>
+                <td className="px-4 py-3 tabular-nums">{formatDate(p.data_pagamento)}</td>
+                <td className="px-4 py-3">{rotuloForma(p.forma)}</td>
+                <td className="px-4 py-3 tabular-nums">{formatCurrency(p.valor)}</td>
+                <td className="px-4 py-3 text-gray-600">{p.observacao ?? '—'}</td>
+                <td className="px-4 py-3">
+                  <ComprovanteCell
+                    pagamentoId={p.id}
+                    temComprovante={Boolean(p.anexo)}
+                    podeEnviar={perfil === 'admin' || perfil === 'financeiro'}
+                  />
+                </td>
+                {mostraEstorno && (
+                  <td className="px-4 py-3 text-right">
+                    <EstornarButton
+                      pagamentoId={p.id}
+                      origem={p.origem}
+                      descricao={`${formatCurrency(p.valor)} de ${formatDate(p.data_pagamento)}`}
+                      bloqueio={bloqueio}
+                    />
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="bg-gray-50 border-t border-gray-200">
+            <tr>
+              <td className="px-4 py-3 font-medium text-gray-700" colSpan={2}>
+                {`Total recebido em ${pagamentos.length} ${pagamentos.length === 1 ? 'pagamento' : 'pagamentos'}`}
+              </td>
+              <td className="px-4 py-3 font-semibold text-gray-900 tabular-nums">{formatCurrency(recebido)}</td>
+              <td colSpan={mostraEstorno ? 3 : 2} />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   )
 }

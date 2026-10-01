@@ -9,7 +9,8 @@
  *
  * Os roteiros nomeiam o que criam com `VALIDA-*` (escrita, runtime) e
  * `RUN-<hhmmss>` (navegador); seed usa `SEED-*` e dado real não usa nenhum dos
- * dois. O validar.sh roda isto antes das camadas que usam o banco e para se
+ * dois (em pagamentos, que não têm número, a marca vai na observação). O
+ * validar.sh roda isto antes das camadas que usam o banco e para se
  * achar alguma coisa.
  *
  * Uso:
@@ -34,6 +35,8 @@ const PADROES = ['VALIDA-%', 'RUN-%']
 
 // Ordem de exclusão: quem aponta vem antes de quem é apontado.
 const TABELAS = [
+  // Pagamento não tem número: o roteiro marca a observação (`${NUMERO}-PG`).
+  { tabela: 'pagamentos', coluna: 'observacao' },
   { tabela: 'notas_fiscais', coluna: 'numero' },
   { tabela: 'contratos', coluna: 'numero' },
   { tabela: 'propostas', coluna: 'numero' },
