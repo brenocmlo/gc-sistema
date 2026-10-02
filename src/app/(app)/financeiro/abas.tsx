@@ -4,11 +4,12 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 // Uma aba por listagem do Financeiro. O menu tem um item só (Financeiro, que
-// abre nas notas fiscais); daqui se chega aos pagamentos (10.1) e, na sprint
-// 11, aos acordos. A aba fica ativa em toda a subárvore (/novo, /[id]).
+// abre nas notas fiscais); daqui se chega aos pagamentos (10.1) e aos acordos
+// (11.1). A aba fica ativa em toda a subárvore (/novo, /[id]).
 const ABAS = [
   { href: '/financeiro/notas-fiscais', label: 'Notas fiscais' },
   { href: '/financeiro/pagamentos', label: 'Pagamentos' },
+  { href: '/financeiro/acordos', label: 'Acordos' },
 ] as const
 
 export default function FinanceiroAbas() {

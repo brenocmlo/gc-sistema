@@ -323,6 +323,18 @@ const { data: orcamentoPrimeiro } = await supabase
 const { data: nfsSeed } = await supabase.from('notas_fiscais').select('id, numero').in('numero', ['SEED-NF-001', 'SEED-NF-004', 'SEED-NF-005'])
 const nfSeed = (numero) => (nfsSeed ?? []).find((n) => n.numero === numero)?.id ?? null
 
+// {acordoAberto} / {acordoQuitado} / {acordoCancelado} → os acordos do
+// supabase/seed_acordos.sql (11.3): o 004 (aberto, com atrasada e cancelada),
+// o 002 (quitado pelos triggers) e o 003 (cancelado).
+const ACORDOS_SEED = {
+  acordoAberto: 'SEED-AC-004 Troca emergencial',
+  acordoQuitado: 'SEED-AC-002 Adiantamento de vidros',
+  acordoCancelado: 'SEED-AC-003 Aditivo da cobertura',
+  acordoConvertido: 'SEED-AC-005 Sinal convertido',
+}
+const { data: acordosSeed } = await supabase.from('acordos_pagamento').select('id, descricao').in('descricao', Object.values(ACORDOS_SEED))
+const acordoSeed = (chave) => (acordosSeed ?? []).find((a) => a.descricao === ACORDOS_SEED[chave])?.id ?? null
+
 let falhas = 0
 
 for (const rota of rotas) {
@@ -413,6 +425,13 @@ for (const rota of rotas) {
     continue
   }
 
+  const faltaAcordo = (rota.path.match(/\{(acordo(?:Aberto|Quitado|Cancelado|Convertido))\}/g) ?? []).some((m) => !acordoSeed(m.slice(1, -1)))
+  if (faltaAcordo) {
+    falhas += 1
+    console.log(`  FALHA ${rota.path} — sem os acordos do seed; rode bash scripts/banco/aplicar-seed.sh supabase/seed_acordos.sql`)
+    continue
+  }
+
   if (/\{nf(Emitida|Paga|Cancelada)\}/.test(rota.path) && !(nfSeed('SEED-NF-001') && nfSeed('SEED-NF-004') && nfSeed('SEED-NF-005'))) {
     falhas += 1
     console.log(`  FALHA ${rota.path} — sem as NFs do seed; rode bash scripts/banco/aplicar-seed.sh supabase/seed_notas_fiscais.sql`)
@@ -442,6 +461,10 @@ for (const rota of rotas) {
     .replace('{nfEmitida}', nfSeed('SEED-NF-001') ?? '')
     .replace('{nfPaga}', nfSeed('SEED-NF-004') ?? '')
     .replace('{nfCancelada}', nfSeed('SEED-NF-005') ?? '')
+    .replace('{acordoAberto}', acordoSeed('acordoAberto') ?? '')
+    .replace('{acordoQuitado}', acordoSeed('acordoQuitado') ?? '')
+    .replace('{acordoCancelado}', acordoSeed('acordoCancelado') ?? '')
+    .replace('{acordoConvertido}', acordoSeed('acordoConvertido') ?? '')
   const cookieDaRota = cookiesPorPerfil[perfil ?? 'admin']
   const problemas = []
 

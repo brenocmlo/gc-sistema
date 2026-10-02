@@ -7,15 +7,16 @@ Data: 2026-09-04. Vale a partir do bloco 4.3 (aplicado retroativamente a ele).
 **Nenhuma sprint fecha antes de `bash scripts/validacao/validar.sh` passar, e o que o
 plano não cobre entra como pendência escrita no documento do bloco.**
 
-### Quando roda (desde 2026-09-23, a pedido do Breno)
+### Quando roda (desde 2026-10-01, a pedido do Breno)
 
-O plano e os testes (`npm run validar`, `npm test`, camada isolada) rodam **só
-no fechamento da sprint** ou **quando o Breno pedir**. Bloco no meio da sprint
-não roda nada: o código fica no working tree, os scripts do plano são
-estendidos junto com ele, e o documento do bloco diz "validação: não rodou —
-fica para o fechamento da sprint". Bloco assim é "implementado, validação
-pendente", nunca "validado". Até 2026-09-23 a regra era rodar ao fim de cada
-bloco; os documentos do 4.3 ao 6.3 foram escritos sob ela.
+O plano roda **ao fim de cada bloco `m.n`**, e o bloco só sai como validado se a
+rodada dele passar. O fechamento da sprint é a rodada do último bloco. Fora disso,
+roda quando o Breno pedir.
+
+Histórico: até 2026-09-23 já se rodava por bloco (os documentos do 4.3 ao 6.3).
+De 2026-09-23 a 2026-10-01, só no fechamento da sprint. A regra voltou porque o
+fechamento da sprint 11 acumulou cinco blocos sem rodar e precisou de sete rodadas
+para achar os erros do plano escritos bloco a bloco (`docs/sprint-11/11.5-status-entrega.md`).
 
 São **sete camadas**, da mais barata à mais cara: estático, unitário, build,
 runtime, dados, escrita e navegador.

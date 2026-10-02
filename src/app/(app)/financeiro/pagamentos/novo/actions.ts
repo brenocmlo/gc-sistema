@@ -30,9 +30,10 @@ export async function createPagamento(input: PagamentoPayload): Promise<CreatePa
   const valido = validarPayloadPagamento(input)
   if (!valido.ok) return { ok: false, error: valido.error }
 
-  // A NF cancelada o banco recusa (pagamento_nf_cancelada, 9.4). A parcela não
-  // tem trigger assim: a cancelada, ou de acordo que não está aberto, é
-  // recusada aqui.
+  // A NF e a parcela canceladas o banco recusa (pagamento_nf_cancelada, 9.4;
+  // pagamento_parcela_cancelada, migration 035). Aqui, antes, para dar a
+  // mensagem sem ir ao banco, e para o acordo que não está mais aberto, que o
+  // banco não olha.
   if (input.origem === 'acordo' && input.parcela_acordo_id) {
     const { data: parcela } = await supabase
       .from('acordo_parcelas')

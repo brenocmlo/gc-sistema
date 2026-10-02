@@ -135,6 +135,17 @@ const NECESSARIAS = [
   'prepararEnvioComprovante',
   'registrarComprovante',
   'urlComprovante',
+  // Acordos (11.2 e 11.3)
+  'createAcordo',
+  'adicionarParcela',
+  'editarParcela',
+  'cancelarParcela',
+  'uploadAnexoAcordo',
+  'deleteAnexoAcordo',
+  // Conversão em NF (11.4) e encerramento (11.5)
+  'converterAcordoEmNf',
+  'quitarAcordo',
+  'cancelarAcordo',
   // Arquivos da NF (9.5)
   'prepararEnvioArquivoNf',
   'registrarArquivoNf',
@@ -297,6 +308,8 @@ let obraTesteExecucao = null
 let nfsDeTeste = false
 /** Pagamentos de teste do 10.x: saem no finally pela observação `${NUMERO}-PG*`. */
 let pagamentosDeTeste = false
+/** Acordos de teste do 11.x: saem no finally pela descrição `${NUMERO}-AC*` (as parcelas em cascata). */
+let acordosDeTeste = false
 /** Comprovantes de teste do 10.4 no bucket `anexos`: removidos no finally (o estorno já tira, se chegar lá). */
 const comprovantesDeTeste = []
 /** Fase 7 da automação: PDF de teste no bucket e documento do envio pela tela — apagados no finally. */
@@ -3060,6 +3073,45 @@ try {
       const { data: dIng } = await supabase.from('documentos_processamento').select('status, proposta_criada_id, obra_id').eq('id', docId).single()
       checar('documento vinculado: APROVADO, proposta_criada_id e obra preenchidos', dIng?.status === 'APROVADO' && dIng?.proposta_criada_id === propostaIngestaoId && dIng?.obra_id === obraIng.id, JSON.stringify(dIng))
 
+      // Anexo pela rota (01/10): o documento de teste aponta para um arquivo
+      // que não existe no bucket — a proposta fica, e a falha volta em anexoErro.
+      checar('PDF que não está no bucket não desfaz a proposta: anexo null e anexoErro preenchido', feliz.json?.anexo === null && typeof feliz.json?.anexoErro === 'string', JSON.stringify({ anexo: feliz.json?.anexo, anexoErro: feliz.json?.anexoErro }))
+
+      // Com o PDF de verdade no bucket, como o bot deixa: vira anexo da proposta.
+      const origemAnx = `${obraIng.empresa_id}/sistema/${Date.now()}_validacao-anexo.pdf`
+      const pdfAnx = new Blob(['%PDF-1.4\n% validacao do anexo pela rota\n%%EOF\n'], { type: 'application/pdf' })
+      const { error: eUpAnx } = await supabase.storage.from('documentos-processamento').upload(origemAnx, pdfAnx, { contentType: 'application/pdf' })
+      const { data: assinadaAnx } = await supabase.storage.from('documentos-processamento').createSignedUrl(origemAnx, 600)
+      const { data: docAnx, error: eDocAnx } = await supabase
+        .from('documentos_processamento')
+        .insert({ empresa_id: obraIng.empresa_id, tipo_documento: 'PROPOSTA', arquivo_url: assinadaAnx?.signedUrl ?? 'validacao://sem-url', status: 'PENDENTE', canal: 'TELEGRAM', canal_chat_id: 'validacao' })
+        .select('id')
+        .single()
+      checar('PDF de teste do anexo no bucket e documento apontando para ele', !eUpAnx && !eDocAnx && Boolean(assinadaAnx?.signedUrl), JSON.stringify({ eUpAnx, eDocAnx }))
+      if (docAnx) documentosIngestao.push(docAnx.id)
+      const comAnexo = docAnx ? await ingerir({ ...corpo, documentoId: docAnx.id, numero: `${NUMERO_ING}-ANX` }) : null
+      const propAnx = comAnexo?.json?.propostaId ?? null
+      try {
+        const { data: pAnx } = propAnx ? await supabase.from('propostas').select('anexos').eq('id', propAnx).single() : { data: null }
+        const entrada = Array.isArray(pAnx?.anexos) ? pAnx.anexos[0] : null
+        checar(
+          'rota anexa o PDF recebido na proposta: entrada no jsonb com nome original, no caminho {empresa}/propostas/{id}/',
+          comAnexo?.status === 201 && comAnexo.json?.anexoErro === null && entrada?.path === comAnexo.json?.anexo &&
+            entrada?.nome === 'validacao-anexo.pdf' && entrada?.uploaded_by === AUTOR &&
+            String(entrada?.path ?? '').startsWith(`${obraIng.empresa_id}/propostas/${propAnx}/`),
+          JSON.stringify({ comAnexo, entrada }),
+        )
+        const { data: baixado, error: eBaixado } = entrada ? await supabase.storage.from('anexos').download(entrada.path) : { data: null, error: 'sem entrada' }
+        checar('o arquivo do anexo existe no bucket anexos com o mesmo tamanho', !eBaixado && baixado?.size === entrada?.tamanho, JSON.stringify({ eBaixado, tamanho: baixado?.size }))
+        if (entrada?.path) await supabase.storage.from('anexos').remove([entrada.path])
+      } finally {
+        if (propAnx) {
+          const r = await chamar('deleteProposta', [propAnx], { rota: `/propostas/${propAnx}` })
+          checar('proposta do teste de anexo apagada', r.ok === true, r.error)
+        }
+        await supabase.storage.from('documentos-processamento').remove([origemAnx])
+      }
+
       const repetida = await ingerir(corpo)
       checar('segunda chamada com o mesmo documentoId devolve 200 e o mesmo id', repetida.status === 200 && repetida.json?.jaExistia === true && repetida.json?.propostaId === propostaIngestaoId, JSON.stringify(repetida))
       const { count: depois } = await supabase.from('propostas').select('id', { count: 'exact', head: true }).eq('numero', NUMERO_ING)
@@ -3513,7 +3565,8 @@ try {
         checar('10.6: o export com origem=avulso traz os 2 avulsos do seed, sem documento, com a soma de 1.850 na linha de total e o filtro no cabeçalho',
           av.status === 200 && av.total === 2 && av.linhas.every((r) => r[iDoc] === '—') && av.somaTotal === 1850 && /origem=Avulso/.test(av.filtros),
           JSON.stringify({ status: av.status, total: av.total, soma: av.somaTotal, docs: av.linhas?.map((r) => r[iDoc]), filtros: av.filtros }))
-        const ac = await baixarPg(admin.cookie, 'origem=acordo')
+        // Na obra do SEED-CT-EXEC: o seed_acordos.sql (sprint 11) tem pagamentos de acordo em outra obra.
+        const ac = await baixarPg(admin.cookie, `origem=acordo&obra=${nf1.obra_id}`)
         checar('10.6: no export de acordo, o documento é o acordo com a parcela, e o valor, 3.000',
           ac.status === 200 && ac.total === 1 && ac.linhas[0]?.[iDoc] === 'SEED-AC-001 Sinal outubro · parcela 1' && Number(ac.linhas[0]?.[iVal]) === 3000,
           JSON.stringify(ac.linhas?.[0] ?? ac.status))
@@ -3588,6 +3641,29 @@ try {
       }
       checar('10.2: recusa NF cancelada, NF de outra obra, valor zero, 3 casas, forma e origem fora da lista',
         erradas.length === 0 && (await contarPg()) === antes, erradas.join(' | '))
+
+      // Migration 035: parcela cancelada (a 3 do SEED-AC-004, seed_acordos.sql)
+      // recusada pela action e, agora, também direto no banco.
+      {
+        const { data: parcCanc } = await supabase
+          .from('acordo_parcelas')
+          .select('id, obra_id, empresa_id, status, acordo:acordos_pagamento!inner(descricao)')
+          .eq('acordo.descricao', 'SEED-AC-004 Troca emergencial')
+          .eq('numero_parcela', 3)
+          .maybeSingle()
+        if (parcCanc?.status === 'cancelada') {
+          const pelaAction = await chamar('createPagamento', [pg({ obra_id: parcCanc.obra_id, origem: 'acordo', nota_id: null, parcela_acordo_id: parcCanc.id })], ROTA_PG)
+          const { error: peloBanco } = await supabase.from('pagamentos').insert({
+            empresa_id: parcCanc.empresa_id, obra_id: parcCanc.obra_id, origem: 'acordo', parcela_acordo_id: parcCanc.id,
+            valor: 10, forma: 'pix', observacao: `${NUMERO}-PG parcela cancelada`,
+          })
+          checar('10.2/035: pagamento em parcela cancelada é recusado pela action e pelo banco (pagamento_parcela_cancelada), sem gravar',
+            !pelaAction.ok && /Parcela cancelada/.test(pelaAction.error ?? '') && /pagamento_parcela_cancelada/.test(peloBanco?.message ?? '') && (await contarPg()) === antes,
+            `${pelaAction.ok ? 'ACTION ACEITOU' : pelaAction.error} · ${peloBanco?.message ?? 'BANCO ACEITOU'}`)
+        } else {
+          checar('10.2/035: o seed tem a parcela 3 do SEED-AC-004 cancelada (seed_acordos.sql)', false, JSON.stringify(parcCanc))
+        }
+      }
 
       const perfis = {}
       for (const perfil of ['comercial', 'visualizador', 'producao', 'medicao']) {
@@ -3673,6 +3749,15 @@ try {
           sub.ok === true && depoisSub?.anexo === sub.path && sub.path !== env.path && arquivos.length === 1 && arquivos[0] === sub.path,
           `${sub.error ?? ''} · no bucket: ${JSON.stringify(arquivos)}`)
 
+        // Migration 035: o financeiro substitui o comprovante que o ADMIN subiu
+        // (não é o dono nem admin); a policy da pasta pagamentos/ deixa apagar o antigo.
+        const subFin = await subirCp('comprovante-final.pdf', pdfCp, cookieFin10)
+        const depoisSubFin = await lerPg(c3.id)
+        const arquivosFin = await noBucket()
+        checar('10.4/035: financeiro substitui o comprovante do admin, e o do admin sai do bucket (sem sobra)',
+          subFin.ok === true && depoisSubFin?.anexo === subFin.path && arquivosFin.length === 1 && arquivosFin[0] === subFin.path,
+          `${subFin.error ?? ''} · no bucket: ${JSON.stringify(arquivosFin)}`)
+
         const recusasCp = {}
         for (const perfil of ['visualizador', 'comercial']) {
           const r = await chamar('prepararEnvioComprovante', [c3.id, 'x.pdf'], { ...ROTA_CP, cookie: cookieDeSessao((await sessaoDePerfil(perfil)).session) })
@@ -3694,6 +3779,303 @@ try {
     }
   }
 
+  // ============================================================
+  // Sprint 11 — acordos: criação com as parcelas numa transação (11.2, RPC
+  // criar_acordo_com_parcelas da migration 036). Os acordos levam
+  // `${NUMERO}-AC` na descrição e saem no finally (as parcelas em cascata).
+  // ============================================================
+  {
+    acordosDeTeste = true
+    const ROTA_AC = { rota: '/financeiro/acordos/novo' }
+    const { data: ctAc } = await supabase.from('contratos').select('id, obra_id, empresa_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    const { data: prAc } = ctAc ? await supabase.from('propostas').select('id').eq('obra_id', ctAc.obra_id).limit(1).maybeSingle() : { data: null }
+    const { data: ctOutraObra } = ctAc ? await supabase.from('contratos').select('id').neq('obra_id', ctAc.obra_id).limit(1).maybeSingle() : { data: null }
+    checar('11.2: a obra do SEED-CT-EXEC tem contrato e proposta para o vínculo', Boolean(ctAc && prAc))
+    if (ctAc && prAc) {
+      const hoje11 = new Date().toISOString().slice(0, 10)
+      const ac = (x = {}) => ({
+        obra_id: ctAc.obra_id, descricao: `${NUMERO}-AC`, motivo: 'sinal', periodo_ref: 'Teste/2026', data_abertura: hoje11,
+        contrato_id: null, proposta_id: null, observacao: null,
+        parcelas: [
+          { data_vencimento: '2026-11-10', valor_previsto: 333.33, observacao: null },
+          { data_vencimento: '2026-12-10', valor_previsto: 333.33, observacao: null },
+          { data_vencimento: '2027-01-10', valor_previsto: 333.34, observacao: 'a última leva a sobra' },
+        ],
+        ...x,
+      })
+      const lerAc = async (id) => (await supabase.from('acordos_pagamento')
+        .select('status, created_by, contrato_id, proposta_id, motivo, obra_id, parcelas:acordo_parcelas(id, numero_parcela, data_vencimento, valor_previsto, status, obra_id, observacao)')
+        .eq('id', id).maybeSingle()).data
+      const contarAc = async () => (await supabase.from('acordos_pagamento').select('id', { count: 'exact', head: true }).like('descricao', `${NUMERO}-AC%`)).count
+
+      const c1 = await chamar('createAcordo', [ac({ contrato_id: ctAc.id })], ROTA_AC)
+      const l1 = c1.ok ? await lerAc(c1.id) : null
+      const ps = (l1?.parcelas ?? []).sort((a, b) => a.numero_parcela - b.numero_parcela)
+      checar('11.2: admin cria o acordo com contrato e 3 parcelas numa operação: aberto, com autor, parcelas 1-2-3 na obra do acordo, somando 1.000,00',
+        c1.ok === true && l1?.status === 'aberto' && l1?.created_by === admin.userId && l1?.contrato_id === ctAc.id && l1?.proposta_id === null &&
+          JSON.stringify(ps.map((p) => p.numero_parcela)) === '[1,2,3]' && ps.every((p) => p.status === 'pendente' && p.obra_id === ctAc.obra_id) &&
+          ps.reduce((a, p) => a + Math.round(Number(p.valor_previsto) * 100), 0) === 100000 && ps[2]?.observacao === 'a última leva a sobra',
+        c1.error ?? JSON.stringify(l1))
+
+      const cookieFin11 = cookieDeSessao((await sessaoDePerfil('financeiro')).session)
+      const c2 = await chamar('createAcordo', [ac({ descricao: `${NUMERO}-AC-2`, proposta_id: prAc.id, motivo: null, periodo_ref: null, parcelas: [{ data_vencimento: '2026-11-01', valor_previsto: 50, observacao: null }] })], { ...ROTA_AC, cookie: cookieFin11 })
+      const l2 = c2.ok ? await lerAc(c2.id) : null
+      checar('11.2: financeiro cria o acordo com proposta, sem motivo e com uma parcela só',
+        c2.ok === true && l2?.proposta_id === prAc.id && l2?.contrato_id === null && l2?.motivo === null && (l2?.parcelas ?? []).length === 1,
+        c2.error ?? JSON.stringify(l2))
+
+      // O XOR e a atomicidade: pela action e direto na RPC.
+      const antes = await contarAc()
+      const xorAction = await chamar('createAcordo', [ac({ descricao: `${NUMERO}-AC-XOR`, contrato_id: ctAc.id, proposta_id: prAc.id })], ROTA_AC)
+      const xorRpc = await supabase.rpc('criar_acordo_com_parcelas', {
+        p_obra_id: ctAc.obra_id, p_descricao: `${NUMERO}-AC-XOR2`, p_contrato_id: ctAc.id, p_proposta_id: prAc.id,
+        p_parcelas: [{ data_vencimento: '2026-11-01', valor_previsto: 10 }],
+      })
+      const atomica = await supabase.rpc('criar_acordo_com_parcelas', {
+        p_obra_id: ctAc.obra_id, p_descricao: `${NUMERO}-AC-ATOM`,
+        p_parcelas: [{ data_vencimento: '2026-11-01', valor_previsto: 10 }, { data_vencimento: '2026-12-01', valor_previsto: 0 }],
+      })
+      checar('11.2: contrato e proposta juntos são recusados pela action e pela RPC (acordo_vinculo_xor); parcela inválida desfaz o acordo inteiro (transação); nada gravado',
+        !xorAction.ok && /nunca dos dois/.test(xorAction.error ?? '') && /acordo_vinculo_xor/.test(xorRpc.error?.message ?? '') &&
+          /valor_previsto/.test(atomica.error?.message ?? '') && (await contarAc()) === antes,
+        `${xorAction.error ?? 'ACTION ACEITOU'} · ${xorRpc.error?.message ?? 'RPC ACEITOU'} · ${atomica.error?.message ?? 'ATÔMICA ACEITOU'}`)
+
+      const recusas = [
+        ['sem parcela', ac({ descricao: `${NUMERO}-AC-3`, parcelas: [] }), /ao menos uma parcela/],
+        ['parcela com valor zero', ac({ descricao: `${NUMERO}-AC-4`, parcelas: [{ data_vencimento: '2026-11-01', valor_previsto: 0, observacao: null }] }), /maior que zero/],
+        ['parcela com 3 casas', ac({ descricao: `${NUMERO}-AC-5`, parcelas: [{ data_vencimento: '2026-11-01', valor_previsto: 10.005, observacao: null }] }), /2 casas/],
+        ['descrição curta', ac({ descricao: 'ab' }), /Descreva/],
+        ['motivo fora da lista', ac({ descricao: `${NUMERO}-AC-6`, motivo: 'outros' }), /Motivo/],
+        ['contrato de outra obra', ac({ descricao: `${NUMERO}-AC-7`, contrato_id: ctOutraObra?.id ?? '00000000-0000-4000-8000-000000000000' }), /mesma obra/],
+      ]
+      const erradas = []
+      for (const [rotulo, payload, msg] of recusas) {
+        const r = await chamar('createAcordo', [payload], ROTA_AC)
+        if (r.ok || !msg.test(r.error ?? '')) erradas.push(`${rotulo}: ${r.ok ? 'PASSOU' : r.error}`)
+      }
+      checar('11.2: recusa acordo sem parcela, parcela zero ou com 3 casas, descrição curta, motivo fora da lista e contrato de outra obra',
+        erradas.length === 0 && (await contarAc()) === antes, erradas.join(' | '))
+
+      const perfis = {}
+      for (const perfil of ['comercial', 'visualizador', 'producao', 'medicao']) {
+        const r = await chamar('createAcordo', [ac({ descricao: `${NUMERO}-AC-P-${perfil}` })], { ...ROTA_AC, cookie: cookieDeSessao((await sessaoDePerfil(perfil)).session) })
+        perfis[perfil] = r.ok ? 'PASSOU' : /permissão/i.test(r.error ?? '') ? 'recusado' : r.error
+      }
+      checar('11.2: comercial, visualizador, produção e medição não criam acordo (recusados pela checagem de perfil)',
+        Object.values(perfis).every((v) => v === 'recusado'), JSON.stringify(perfis))
+
+      // 11.3 — as parcelas uma a uma e os anexos, sobre o acordo c1 (3 parcelas pendentes).
+      if (c1.ok) {
+        const ROTA_DET = { rota: `/financeiro/acordos/${c1.id}` }
+        const parcelasDe = async () => ((await lerAc(c1.id))?.parcelas ?? []).sort((a, b) => a.numero_parcela - b.numero_parcela)
+        const statusAc = async () => (await supabase.from('acordos_pagamento').select('status, data_encerramento').eq('id', c1.id).single()).data
+        const [p1, p2, p3] = await parcelasDe()
+
+        const add = await chamar('adicionarParcela', [c1.id, { data_vencimento: '2027-02-10', valor_previsto: 200, observacao: 'combinada depois' }], ROTA_DET)
+        const depoisAdd = await parcelasDe()
+        checar('11.3: adicionar parcela põe a 4 no fim, pendente, na obra do acordo',
+          add.ok === true && depoisAdd.length === 4 && depoisAdd[3].numero_parcela === 4 && depoisAdd[3].status === 'pendente' && Number(depoisAdd[3].valor_previsto) === 200 && depoisAdd[3].obra_id === ctAc.obra_id,
+          add.error ?? JSON.stringify(depoisAdd.map((p) => [p.numero_parcela, p.status])))
+
+        const ed = await chamar('editarParcela', [c1.id, p1.id, { data_vencimento: '2026-11-15', valor_previsto: 300, observacao: null }], ROTA_DET)
+        const p1Depois = (await parcelasDe())[0]
+        checar('11.3: editar a parcela troca vencimento e valor',
+          ed.ok === true && p1Depois.data_vencimento === '2026-11-15' && Number(p1Depois.valor_previsto) === 300, ed.error ?? JSON.stringify(p1Depois))
+
+        // Pagamento parcial na parcela 2 (marca ${NUMERO}-PG, sai no finally): não pode cancelar, nem baixar o valor abaixo do pago.
+        const pgP2 = await chamar('createPagamento', [{ obra_id: ctAc.obra_id, origem: 'acordo', nota_id: null, parcela_acordo_id: p2.id, data_pagamento: hoje11, valor: 100, forma: 'pix', observacao: `${NUMERO}-PG parcela 2` }], { rota: '/financeiro/pagamentos/novo' })
+        const cancP2 = await chamar('cancelarParcela', [c1.id, p2.id], ROTA_DET)
+        const abaixo = await chamar('editarParcela', [c1.id, p2.id, { data_vencimento: p2.data_vencimento, valor_previsto: 99.99, observacao: null }], ROTA_DET)
+        checar('11.3: a parcela com pagamento não é cancelada (estorne antes) e não baixa o valor abaixo do pago',
+          pgP2.ok === true && !cancP2.ok && /estorne/.test(cancP2.error ?? '') && !abaixo.ok && /abaixo do que já foi pago/.test(abaixo.error ?? ''),
+          `${pgP2.error ?? 'pagou'} · ${cancP2.error ?? 'CANCELOU'} · ${abaixo.error ?? 'BAIXOU'}`)
+
+        const canc = await chamar('cancelarParcela', [c1.id, p3.id], ROTA_DET)
+        const p3Depois = (await parcelasDe())[2]
+        const editCanc = await chamar('editarParcela', [c1.id, p3.id, { data_vencimento: '2027-01-10', valor_previsto: 10, observacao: null }], ROTA_DET)
+        checar('11.3: cancelar a parcela sem pagamento; depois, ela não é editada',
+          canc.ok === true && p3Depois.status === 'cancelada' && !editCanc.ok && /não é editável|não encontrada/.test(editCanc.error ?? ''),
+          `${canc.error ?? 'cancelou'} · ${p3Depois?.status} · ${editCanc.error ?? 'EDITOU'}`)
+
+        const outroAcordo = (await supabase.from('acordo_parcelas').select('id').neq('acordo_id', c1.id).limit(1).maybeSingle()).data
+        const perfisParc = {}
+        for (const perfil of ['visualizador', 'comercial']) {
+          const r = await chamar('adicionarParcela', [c1.id, { data_vencimento: '2027-03-10', valor_previsto: 10, observacao: null }], { ...ROTA_DET, cookie: cookieDeSessao((await sessaoDePerfil(perfil)).session) })
+          perfisParc[perfil] = r.ok ? 'PASSOU' : r.error
+        }
+        const alheia = outroAcordo ? await chamar('editarParcela', [c1.id, outroAcordo.id, { data_vencimento: '2027-03-10', valor_previsto: 10, observacao: null }], ROTA_DET) : { ok: false, error: 'não encontrada' }
+        const finAdd = await chamar('adicionarParcela', [c1.id, { data_vencimento: '2027-03-10', valor_previsto: 50, observacao: null }], { ...ROTA_DET, cookie: cookieFin11 })
+        checar('11.3: visualizador e comercial não mexem nas parcelas; parcela de outro acordo é recusada; financeiro adiciona',
+          Object.values(perfisParc).every((e) => /admin e financeiro|Não autenticado|não encontrado/.test(e)) && !alheia.ok && /não encontrada/.test(alheia.error ?? '') && finAdd.ok === true,
+          JSON.stringify({ perfisParc, alheia: alheia.error, finAdd: finAdd.error ?? 'ok' }))
+
+        // Quitar: pagar as válidas que faltam → acordo quitado (trigger); acordo quitado não muda de parcela.
+        const abertas = (await parcelasDe()).filter((p) => p.status !== 'cancelada')
+        for (const p of abertas) {
+          const pago = p.numero_parcela === 2 ? 100 : 0
+          const falta = Math.round(Number(p.valor_previsto) * 100) - pago * 100
+          if (falta > 0) await chamar('createPagamento', [{ obra_id: ctAc.obra_id, origem: 'acordo', nota_id: null, parcela_acordo_id: p.id, data_pagamento: hoje11, valor: falta / 100, forma: 'ted', observacao: `${NUMERO}-PG quitar ${p.numero_parcela}` }], { rota: '/financeiro/pagamentos/novo' })
+        }
+        const st = await statusAc()
+        const depoisQuitado = await chamar('adicionarParcela', [c1.id, { data_vencimento: '2027-04-10', valor_previsto: 10, observacao: null }], ROTA_DET)
+        checar('11.3: pagas as parcelas válidas, o acordo vai a quitado pelo trigger, com data de encerramento, e não aceita parcela nova',
+          st?.status === 'quitado' && Boolean(st?.data_encerramento) && !depoisQuitado.ok && /quitado/.test(depoisQuitado.error ?? ''),
+          `${JSON.stringify(st)} · ${depoisQuitado.error ?? 'ADICIONOU'}`)
+
+        // Anexos do acordo (bucket anexos, {empresa}/acordos/{id}/...); o upload vai como FormData.
+        const arquivoAc = new File(['%PDF-1.4\n% acordo assinado\n%%EOF\n'], 'acordo-assinado.pdf', { type: 'application/pdf' })
+        const up = await chamarComArquivo('uploadAnexoAcordo', c1.id, arquivoAc)
+        const anexosDepois = (await supabase.from('acordos_pagamento').select('anexos').eq('id', c1.id).single()).data?.anexos ?? []
+        const caminho = anexosDepois[0]?.path ?? ''
+        const visRemove = caminho ? await chamar('deleteAnexoAcordo', [c1.id, caminho], { ...ROTA_DET, cookie: cookieDeSessao((await sessaoDePerfil('visualizador')).session) }) : { ok: false }
+        const rem = caminho ? await chamar('deleteAnexoAcordo', [c1.id, caminho], ROTA_DET) : { ok: false, error: 'sem anexo' }
+        const anexosFim = (await supabase.from('acordos_pagamento').select('anexos').eq('id', c1.id).single()).data?.anexos ?? []
+        checar('11.3: anexo do acordo sobe na pasta {empresa}/acordos/{id}/, o visualizador não exclui, e o admin exclui',
+          up.ok === true && anexosDepois.length === 1 && caminho.startsWith(`${ctAc.empresa_id}/acordos/${c1.id}/`) && !visRemove.ok && rem.ok === true && anexosFim.length === 0,
+          JSON.stringify({ up: up.error ?? 'ok', caminho, vis: visRemove.error ?? 'EXCLUIU', rem: rem.error ?? 'ok', fim: anexosFim.length }))
+      }
+
+      // 11.4 — conversão em NF (regra 7), sobre o acordo c2 (financeiro, proposta, 1 parcela de 50):
+      // 20 pagos antes; a NF de saldo, de 30. As views antes e depois.
+      if (c2.ok) {
+        nfsDeTeste = true
+        const ROTA_C2 = { rota: `/financeiro/acordos/${c2.id}` }
+        const [parcC2] = (await lerAc(c2.id))?.parcelas ?? []
+        const pgC2 = await chamar('createPagamento', [{ obra_id: ctAc.obra_id, origem: 'acordo', nota_id: null, parcela_acordo_id: parcC2.id, data_pagamento: hoje11, valor: 20, forma: 'pix', observacao: `${NUMERO}-PG antes da conversão` }], { rota: '/financeiro/pagamentos/novo' })
+        const receitas = async () => (await supabase.from('receitas_obra')
+          .select('total_a_receber, total_recebido, total_acordos_convertidos_arquivado, saldo_pendente').eq('obra_id', ctAc.obra_id).single()).data
+        const antesConv = await receitas()
+        const conv = (x = {}) => ({ numero: `${NUMERO}-NF-CONV`, serie: '1', chave_nfe: null, tipo: 'sinal', data_emissao: hoje11, data_vencimento: null, valor_total: 30, observacao: null, ...x })
+
+        const recusasConv = {
+          visualizador: await chamar('converterAcordoEmNf', [c2.id, conv()], { ...ROTA_C2, cookie: cookieDeSessao((await sessaoDePerfil('visualizador')).session) }),
+          valorZero: await chamar('converterAcordoEmNf', [c2.id, conv({ valor_total: 0 })], ROTA_C2),
+          numeroRepetido: await chamar('converterAcordoEmNf', [c2.id, conv({ numero: 'SEED-NF-001', serie: '1' })], ROTA_C2),
+          quitado: await chamar('converterAcordoEmNf', [c1.id, conv()], { rota: `/financeiro/acordos/${c1.id}` }),
+        }
+        const aindaAberto = (await supabase.from('acordos_pagamento').select('status').eq('id', c2.id).single()).data?.status
+        checar('11.4: o visualizador não converte; NF com valor zero ou número repetido é recusada; o acordo quitado não converte; o acordo segue aberto',
+          pgC2.ok === true && /admin e financeiro/.test(recusasConv.visualizador.error ?? '') && /maior que zero/.test(recusasConv.valorZero.error ?? '') &&
+            /número e série/.test(recusasConv.numeroRepetido.error ?? '') && /quitado não é convertido/.test(recusasConv.quitado.error ?? '') && aindaAberto === 'aberto',
+          JSON.stringify(Object.fromEntries(Object.entries(recusasConv).map(([k, v]) => [k, v.ok ? 'PASSOU' : v.error]))))
+
+        const convertido = await chamar('converterAcordoEmNf', [c2.id, conv()], { ...ROTA_C2, cookie: cookieFin11 })
+        const acDepois = (await supabase.from('acordos_pagamento').select('status, nf_convertida_id, data_encerramento').eq('id', c2.id).single()).data
+        const nfConv = convertido.ok ? (await supabase.from('notas_fiscais').select('status, valor_total, proposta_id, contrato_id, obra_id').eq('id', convertido.nfId).single()).data : null
+        checar('11.4: financeiro converte: a NF de saldo nasce emitida com a obra e a proposta do acordo, e o acordo vira convertido, com a NF e a data',
+          convertido.ok === true && acDepois?.status === 'convertido_nf' && acDepois?.nf_convertida_id === convertido.nfId && Boolean(acDepois?.data_encerramento) &&
+            nfConv?.status === 'emitida' && Number(nfConv?.valor_total) === 30 && nfConv?.proposta_id === prAc.id && nfConv?.contrato_id === null && nfConv?.obra_id === ctAc.obra_id,
+          convertido.error ?? JSON.stringify({ acDepois, nfConv }))
+
+        const depoisConv = await receitas()
+        const dif = (k) => Math.round(Number(depoisConv?.[k]) * 100) - Math.round(Number(antesConv?.[k]) * 100)
+        checar('11.4: na view receitas_obra, o a receber troca a parcela (50) pela NF (30), os 20 pagos saem do recebido e vão para o arquivado, e o saldo da obra não muda',
+          dif('total_a_receber') === -2000 && dif('total_recebido') === -2000 && dif('total_acordos_convertidos_arquivado') === 2000 && dif('saldo_pendente') === 0,
+          JSON.stringify({ antes: antesConv, depois: depoisConv }))
+
+        const deNovo = await chamar('converterAcordoEmNf', [c2.id, conv({ numero: `${NUMERO}-NF-CONV2` })], ROTA_C2)
+        const baixaAction = await chamar('createPagamento', [{ obra_id: ctAc.obra_id, origem: 'acordo', nota_id: null, parcela_acordo_id: parcC2.id, data_pagamento: hoje11, valor: 5, forma: 'pix', observacao: `${NUMERO}-PG depois da conversão` }], { rota: '/financeiro/pagamentos/novo' })
+        const { error: baixaBanco } = await supabase.from('pagamentos').insert({
+          empresa_id: ctAc.empresa_id, obra_id: ctAc.obra_id, origem: 'acordo', parcela_acordo_id: parcC2.id, valor: 5, forma: 'pix', observacao: `${NUMERO}-PG banco depois da conversão`,
+        })
+        checar('11.4: o acordo convertido não converte de novo e não recebe baixa, nem pela action nem direto no banco (pagamento_acordo_fechado)',
+          !deNovo.ok && /convertido em NF não é convertido/.test(deNovo.error ?? '') && !baixaAction.ok && /não está aberto/.test(baixaAction.error ?? '') && /pagamento_acordo_fechado/.test(baixaBanco?.message ?? ''),
+          `${deNovo.error ?? 'CONVERTEU'} · ${baixaAction.error ?? 'ACTION ACEITOU'} · ${baixaBanco?.message ?? 'BANCO ACEITOU'}`)
+      }
+
+      // 11.5 — encerrar à mão: três acordos novos (2 parcelas de 100 cada).
+      {
+        const duas = [
+          { data_vencimento: '2026-11-10', valor_previsto: 100, observacao: null },
+          { data_vencimento: '2026-12-10', valor_previsto: 100, observacao: null },
+        ]
+        const criar = async (sufixo) => chamar('createAcordo', [ac({ descricao: `${NUMERO}-AC-${sufixo}`, parcelas: duas })], ROTA_AC)
+        const pagar = async (acId, n, valor) => {
+          const p = ((await lerAc(acId))?.parcelas ?? []).find((x) => x.numero_parcela === n)
+          return chamar('createPagamento', [{ obra_id: ctAc.obra_id, origem: 'acordo', nota_id: null, parcela_acordo_id: p.id, data_pagamento: hoje11, valor, forma: 'pix', observacao: `${NUMERO}-PG encerrar ${n}` }], { rota: '/financeiro/pagamentos/novo' })
+        }
+        const ler = async (id) => (await supabase.from('acordos_pagamento').select('status, data_encerramento, observacao, parcelas:acordo_parcelas(numero_parcela, status)').eq('id', id).single()).data
+        const qu = await criar('QUIT')
+        const pa = await criar('PARC')
+        const ca = await criar('CANC')
+        if (qu.ok && pa.ok && ca.ok) {
+          await pagar(qu.id, 1, 100)
+          await pagar(pa.id, 1, 40)
+          const visQuitar = await chamar('quitarAcordo', [qu.id], { rota: `/financeiro/acordos/${qu.id}`, cookie: cookieDeSessao((await sessaoDePerfil('visualizador')).session) })
+          const quitou = await chamar('quitarAcordo', [qu.id], { rota: `/financeiro/acordos/${qu.id}` })
+          const lq = await ler(qu.id)
+          const ps = (lq?.parcelas ?? []).sort((x, y) => x.numero_parcela - y.numero_parcela).map((x) => x.status)
+          checar('11.5: encerrar como quitado cancela a parcela pendente e o trigger quita o acordo, com a data; o visualizador não encerra',
+            !visQuitar.ok && /admin e financeiro/.test(visQuitar.error ?? '') && quitou.ok === true && lq?.status === 'quitado' && Boolean(lq?.data_encerramento) &&
+              JSON.stringify(ps) === JSON.stringify(['paga', 'cancelada']),
+            `${visQuitar.error ?? 'VIS ENCERROU'} · ${quitou.error ?? 'ok'} · ${JSON.stringify(lq)}`)
+
+          const quitarParcial = await chamar('quitarAcordo', [pa.id], { rota: `/financeiro/acordos/${pa.id}` })
+          const quitarSemPagamento = await chamar('quitarAcordo', [ca.id], { rota: `/financeiro/acordos/${ca.id}` })
+          const cancelarQuitado = await chamar('cancelarAcordo', [qu.id, 'cliente desistiu'], { rota: `/financeiro/acordos/${qu.id}` })
+          const motivoCurto = await chamar('cancelarAcordo', [ca.id, 'ok'], { rota: `/financeiro/acordos/${ca.id}` })
+          checar('11.5: recusa quitar com parcela paga parcialmente ou sem nada pago, cancelar o já quitado, e cancelar sem motivo',
+            /paga parcialmente/.test(quitarParcial.error ?? '') && /cancele o acordo/.test(quitarSemPagamento.error ?? '') &&
+              /já está encerrado/.test(cancelarQuitado.error ?? '') && /Diga por que/.test(motivoCurto.error ?? ''),
+            JSON.stringify({ quitarParcial: quitarParcial.error, quitarSemPagamento: quitarSemPagamento.error, cancelarQuitado: cancelarQuitado.error, motivoCurto: motivoCurto.error }))
+
+          // Cancelar com pagamento (pendência do 11.5): o PARC tem a 1 paga em
+          // 40 de 100 e a 2 pendente. Encerra pelo recebido: a 1 desce a 40 e
+          // fica paga, a 2 é cancelada, o acordo fica quitado, e na obra o
+          // recebido não muda enquanto o a receber e o saldo caem 160.
+          const receitas = async () => (await supabase.from('receitas_obra').select('total_recebido, total_a_receber, saldo_pendente').eq('obra_id', ctAc.obra_id).single()).data
+          const centavos = (v) => Math.round(Number(v) * 100)
+          const antesRec = await receitas()
+          const visCancelar = await chamar('cancelarAcordo', [pa.id, 'cliente desistiu depois do sinal'], { rota: `/financeiro/acordos/${pa.id}`, cookie: cookieDeSessao((await sessaoDePerfil('visualizador')).session) })
+          const cancelouPago = await chamar('cancelarAcordo', [pa.id, 'cliente desistiu depois do sinal'], { rota: `/financeiro/acordos/${pa.id}` })
+          const lp = await ler(pa.id)
+          const parcPa = ((await supabase.from('acordo_parcelas').select('numero_parcela, status, valor_previsto').eq('acordo_id', pa.id)).data ?? []).sort((x, y) => x.numero_parcela - y.numero_parcela)
+          const depoisRec = await receitas()
+          checar('11.5: cancelar o acordo com pagamento encerra pelo recebido: a parcela paga em parte desce a 40 e fica paga, a pendente é cancelada, o acordo fica quitado com o motivo, e na obra o recebido fica e o a receber e o saldo caem 160; o visualizador não cancela',
+            !visCancelar.ok && /admin e financeiro/.test(visCancelar.error ?? '') && cancelouPago.ok === true && lp?.status === 'quitado' && Boolean(lp?.data_encerramento) &&
+              /Cancelado em \d{2}\/\d{2}\/\d{4}, encerrado pelo recebido \(R\$ 40,00\): cliente desistiu depois do sinal$/.test(lp?.observacao ?? '') &&
+              JSON.stringify(parcPa.map((x) => [x.numero_parcela, x.status, centavos(x.valor_previsto)])) === JSON.stringify([[1, 'paga', 4000], [2, 'cancelada', 10000]]) &&
+              centavos(depoisRec?.total_recebido) === centavos(antesRec?.total_recebido) &&
+              centavos(antesRec?.total_a_receber) - centavos(depoisRec?.total_a_receber) === 16000 &&
+              centavos(antesRec?.saldo_pendente) - centavos(depoisRec?.saldo_pendente) === 16000,
+            `${visCancelar.error ?? 'VIS CANCELOU'} · ${cancelouPago.error ?? 'ok'} · ${JSON.stringify({ lp, parcPa, antesRec, depoisRec })}`)
+
+          const antesCanc = (await supabase.from('receitas_obra').select('total_acordos').eq('obra_id', ctAc.obra_id).single()).data
+          const cancelou = await chamar('cancelarAcordo', [ca.id, '  cliente desistiu da obra  '], { rota: `/financeiro/acordos/${ca.id}`, cookie: cookieFin11 })
+          const lc = await ler(ca.id)
+          const depoisCanc = (await supabase.from('receitas_obra').select('total_acordos').eq('obra_id', ctAc.obra_id).single()).data
+          const deNovoCanc = await chamar('cancelarAcordo', [ca.id, 'cliente desistiu'], { rota: `/financeiro/acordos/${ca.id}` })
+          checar('11.5: financeiro cancela o acordo sem pagamento: cancelado, com a data e o motivo na observação, parcelas canceladas, e o total de acordos da obra cai 200; não cancela de novo',
+            cancelou.ok === true && lc?.status === 'cancelado' && Boolean(lc?.data_encerramento) && /Cancelado em \d{2}\/\d{2}\/\d{4}: cliente desistiu da obra$/.test(lc?.observacao ?? '') &&
+              (lc?.parcelas ?? []).every((x) => x.status === 'cancelada') &&
+              Math.round(Number(antesCanc?.total_acordos) * 100) - Math.round(Number(depoisCanc?.total_acordos) * 100) === 20000 &&
+              !deNovoCanc.ok,
+            `${cancelou.error ?? 'ok'} · ${JSON.stringify(lc)} · ${JSON.stringify([antesCanc, depoisCanc])} · ${deNovoCanc.error ?? 'CANCELOU DE NOVO'}`)
+        } else {
+          checar('11.5: os três acordos de teste foram criados', false, JSON.stringify([qu.error, pa.error, ca.error]))
+        }
+      }
+
+      // 11.5 — o export: os valores do convertido do seed (recebido arquivado, sem saldo) e a NF.
+      {
+        const { default: ExcelJS } = await import('exceljs')
+        const res = await fetch(`${BASE}/api/export/acordos?busca=SEED-AC-005`, { headers: { cookie: admin.cookie } })
+        const wb = new ExcelJS.Workbook()
+        if (res.status === 200) await wb.xlsx.load(Buffer.from(await res.arrayBuffer()))
+        const celulas = []
+        wb.worksheets[0]?.eachRow((row) => celulas.push(row.values.slice(1)))
+        const iCab = celulas.findIndex((r) => r[0] === 'Descrição' && r[1] === 'Obra')
+        const cab = celulas[iCab] ?? []
+        const linha = celulas.slice(iCab + 1).find((r) => r[0] === 'SEED-AC-005 Sinal convertido') ?? []
+        const col = (nome) => linha[cab.indexOf(nome)]
+        checar('11.5: no export, o convertido do seed sai com o total de 3.000, o recebido arquivado de 1.500, saldo zero e a NF SEED-CONV-001 / 1',
+          res.status === 200 && Number(col('Valor total')) === 3000 && Number(col('Recebido')) === 1500 && Number(col('Saldo')) === 0 &&
+            col('Status') === 'Convertido em NF' && col('NF da conversão') === 'SEED-CONV-001 / 1',
+          JSON.stringify({ status: res.status, linha }))
+      }
+    }
+  }
+
 } finally {
   // Sprint 10: pagamentos de teste primeiro (a FK de pagamentos para a NF é
   // restrita). O trigger recalcula o status da NF e da parcela do seed.
@@ -3702,6 +4084,12 @@ try {
     const { error: epg } = await supabase.from('pagamentos').delete().like('observacao', `${NUMERO}-PG%`)
     const { data: nf1Depois } = await supabase.from('notas_fiscais').select('status').eq('numero', 'SEED-NF-001').maybeSingle()
     checar('10.x: pagamentos de teste apagados, e a SEED-NF-001 volta a emitida', !epg && nf1Depois?.status === 'emitida', epg?.message ?? nf1Depois?.status)
+  }
+  // Sprint 11: acordos de teste, depois dos pagamentos (a FK do pagamento
+  // para a parcela é restrita); as parcelas saem em cascata.
+  if (acordosDeTeste) {
+    const { error: eac } = await supabase.from('acordos_pagamento').delete().like('descricao', `${NUMERO}-AC%`)
+    checar('11.x: acordos de teste apagados', !eac, eac?.message)
   }
   // Sprint 9: NFs de teste (sem pagamento; a FK de pagamentos é restrita).
   if (nfsDeTeste) {

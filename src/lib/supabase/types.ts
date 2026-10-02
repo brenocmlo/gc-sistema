@@ -2594,6 +2594,34 @@ export type Database = {
           valor_total: number
         }[]
       }
+      converter_acordo_em_nf: {
+        Args: {
+          p_acordo_id: string
+          p_chave_nfe?: string
+          p_data_emissao?: string
+          p_data_vencimento?: string
+          p_numero: string
+          p_observacao?: string
+          p_serie?: string
+          p_tipo: string
+          p_valor_total: number
+        }
+        Returns: string
+      }
+      criar_acordo_com_parcelas: {
+        Args: {
+          p_contrato_id?: string
+          p_data_abertura?: string
+          p_descricao: string
+          p_motivo?: string
+          p_obra_id: string
+          p_observacao?: string
+          p_parcelas: Json
+          p_periodo_ref?: string
+          p_proposta_id?: string
+        }
+        Returns: string
+      }
       current_empresa_id: { Args: never; Returns: string }
       current_perfil: { Args: never; Returns: string }
       gerar_contrato_de_proposta: {

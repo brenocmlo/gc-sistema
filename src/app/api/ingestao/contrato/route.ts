@@ -14,6 +14,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+import { anexarPdfDoDocumento } from '@/lib/anexo-do-documento'
 import { mensagemDeErroContrato } from '@/lib/contratos'
 import { montarIngestaoContrato, tokenConfere, type PayloadIngestaoContrato } from '@/lib/ingestao'
 import { identificarObra } from '@/lib/obra-do-documento'
@@ -75,7 +76,7 @@ export async function POST(req: Request) {
 
   const { data: doc, error: erroDoc } = await supabase
     .from('documentos_processamento')
-    .select('id, empresa_id, contrato_criado_id')
+    .select('id, empresa_id, contrato_criado_id, arquivo_url')
     .eq('id', documentoId)
     .maybeSingle()
   if (erroDoc) return resposta(500, { ok: false, error: erroDoc.message })
@@ -164,5 +165,24 @@ export async function POST(req: Request) {
     avisos.push(`contrato criado, mas o documento não foi vinculado: ${erroVinculo.message}`)
   }
 
-  return resposta(201, { ok: true, contratoId: criado.id, itens: itens.length, propostaOrigemId, obraId: contrato.obra_id, obraIdentificadaComo, avisos })
+  // O PDF recebido vai para a aba Anexos do contrato; falha vira anexoErro.
+  const anexado = await anexarPdfDoDocumento(supabase, {
+    empresaId: contrato.empresa_id,
+    entidade: 'contratos',
+    entidadeId: criado.id,
+    arquivoUrl: doc.arquivo_url,
+    autor,
+  })
+
+  return resposta(201, {
+    ok: true,
+    contratoId: criado.id,
+    itens: itens.length,
+    propostaOrigemId,
+    obraId: contrato.obra_id,
+    obraIdentificadaComo,
+    avisos,
+    anexo: anexado.ok ? anexado.anexo.path : null,
+    anexoErro: anexado.ok ? null : anexado.error,
+  })
 }

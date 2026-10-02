@@ -136,6 +136,8 @@ export function validarPayloadPagamento(
 export function mensagemDeErroPagamento(raw: string): string {
   if (raw.includes('pagamento_vinculo_consistente')) return 'A origem e o vínculo não combinam: NF leva a nota, acordo leva a parcela, avulso não leva nenhum'
   if (raw.includes('pagamento_nf_cancelada')) return 'Nota fiscal cancelada não recebe pagamento'
+  if (raw.includes('pagamento_parcela_cancelada')) return 'Parcela cancelada não recebe pagamento'
+  if (raw.includes('pagamento_acordo_fechado')) return 'Acordo convertido em nota fiscal ou cancelado não recebe baixa'
   if (raw.includes('pagamentos_nota_fk')) return 'A nota fiscal tem de ser da mesma obra do pagamento'
   if (raw.includes('pagamentos_parcela_fk')) return 'A parcela tem de ser da mesma obra do pagamento'
   if (raw.includes('pagamentos_obra_fk')) return 'Obra inválida para esta empresa'
@@ -198,8 +200,8 @@ export function inicioDaBaixa(
         parcela_acordo_id: parcela.id,
         ...(parcela.saldo > 0 ? { valor: parcela.saldo } : {}),
       },
-      // A tela da parcela é da sprint 11; até lá, volta para a listagem.
-      voltarPara: '/financeiro/pagamentos',
+      // A parcela mora no detalhe do acordo (11.3): a baixa volta para ele.
+      voltarPara: `/financeiro/acordos/${acordo.id}`,
     }
   }
   return { inicio: {}, voltarPara: '/financeiro/pagamentos' }

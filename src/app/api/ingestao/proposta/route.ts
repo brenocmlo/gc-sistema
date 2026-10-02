@@ -11,6 +11,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+import { anexarPdfDoDocumento } from '@/lib/anexo-do-documento'
 import { montarIngestao, tokenConfere, type PayloadIngestao } from '@/lib/ingestao'
 import { mensagemDeErroProposta } from '@/lib/propostas'
 import { identificarObra } from '@/lib/obra-do-documento'
@@ -74,7 +75,7 @@ export async function POST(req: Request) {
   // chamada é repetição (o n8n reexecuta) e devolve o mesmo id.
   const { data: doc, error: erroDoc } = await supabase
     .from('documentos_processamento')
-    .select('id, empresa_id, proposta_criada_id')
+    .select('id, empresa_id, proposta_criada_id, arquivo_url')
     .eq('id', documentoId)
     .maybeSingle()
   if (erroDoc) return resposta(500, { ok: false, error: erroDoc.message })
@@ -129,5 +130,24 @@ export async function POST(req: Request) {
     avisos.push(`proposta criada, mas o documento não foi vinculado: ${erroVinculo.message}`)
   }
 
-  return resposta(201, { ok: true, propostaId: criada.id, itens: itens.length, obraId: proposta.obra_id, obraIdentificadaComo, avisos })
+  // O PDF recebido vai para a aba Anexos da proposta. Falha não desfaz a
+  // proposta: volta em anexoErro e o n8n avisa o grupo.
+  const anexado = await anexarPdfDoDocumento(supabase, {
+    empresaId: proposta.empresa_id,
+    entidade: 'propostas',
+    entidadeId: criada.id,
+    arquivoUrl: doc.arquivo_url,
+    autor,
+  })
+
+  return resposta(201, {
+    ok: true,
+    propostaId: criada.id,
+    itens: itens.length,
+    obraId: proposta.obra_id,
+    obraIdentificadaComo,
+    avisos,
+    anexo: anexado.ok ? anexado.anexo.path : null,
+    anexoErro: anexado.ok ? null : anexado.error,
+  })
 }

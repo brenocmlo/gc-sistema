@@ -299,3 +299,81 @@ pedir).
    mostra só a admin e comercial, de propósito.
 5. Conferência visual no celular: **não feita**.
 
+
+### 9.1 Primeiro teste real — 01/10
+
+- **Token:** o `INGESTAO_TOKEN` da Vercel não conferia com o da Credential do n8n, e a rota
+  devolvia 401. O Breno trocou o token nos três lugares (Vercel, n8n e `.env.local`); depois
+  disso a rota aceitou.
+- **Obra não identificada:** o documento `53c5f7c8` (EB-25-08-0044 · ESTAÇÃO FASHION -
+  FACHADA) foi para revisão. É o comportamento esperado pela decisão 27: a obra não existe no
+  gc-dev, que só tem três obras de teste.
+- **Bug corrigido no n8n — etapa sobrescrita.**
+  - **Sintoma:** o documento `11e492b9` ficou com a etapa "lendo pela reserva" estando em
+    revisão.
+  - **Causa:** no `executionOrder: v1`, o ramo de cima do canvas roda primeiro. O
+    "Etapa - Reserva Groq" estava embaixo, por isso só rodava depois do caminho inteiro do
+    Groq e regravava a etapa.
+  - **Correção:** o nó subiu no canvas. Os PATCH de etapa ganharam trava na URL:
+    `etapa=eq.LEITURA` no da reserva e `etapa=in.(LEITURA,LEITURA_RESERVA)` no de gravação.
+    Assim, nunca sobrescrevem uma etapa posterior, qualquer que seja a ordem de execução.
+  - Publicado, com 0 erros no `n8n_validate_workflow`.
+
+## 10. O PDF vira anexo pela rota, não pelo n8n — 01/10
+
+**Implementado, validação pendente** (`npm run validar` não rodou).
+
+### O que mudou
+
+- **`src/lib/anexo-do-documento.ts` (novo):**
+  - `anexarPdfDoDocumento` copia o PDF do bucket `documentos-processamento` para `anexos`, em
+    `{empresa}/{propostas|contratos}/{id}/{ts}_{nome}` (`buildStoragePath`, o formato que a
+    RLS do Storage e a aba Anexos esperam).
+  - Acrescenta a entrada no jsonb `anexos`, com o profile de serviço como autor. Não duplica
+    numa reexecução.
+  - Se não conseguir registrar a entrada, apaga o arquivo para ele não ficar órfão.
+  - Tem duas funções puras com teste: `nomeOriginalDoArquivo` e `juntarAnexo`.
+- **Rotas `/api/ingestao/proposta` e `/contrato`:**
+  - Anexam o PDF logo depois de vincular o documento.
+  - A resposta ganhou `anexo` (o caminho do anexo, ou null) e `anexoErro`.
+  - Falha no anexo **não desfaz** o registro. Volta como `anexoErro`, que o n8n coloca no aviso
+    ao grupo e no `etapa_detalhe` (o painel de andamento mostra).
+- **n8n `Processar Documento` (publicado, 40 nós, 0 erros de validação):**
+  - Novo IF **"Anexo pela rota?"** depois de "Documento aprovado". Se a resposta da rota tem o
+    campo `anexo`, a rota já anexou, e o fluxo vai direto para os avisos. Se não tem, é a rota
+    antiga, e o fluxo segue pelos 4 nós de anexo de antes.
+  - Funciona com a rota antiga e com a nova, então a ordem entre o deploy da Vercel e o n8n não
+    importa: nunca anexa duas vezes nem deixa de anexar.
+  - "Documento aprovado" grava `PDF não anexado: …` em `etapa_detalhe` quando a rota devolve
+    `anexoErro`.
+  - "Montar avisos" lê o resultado do anexo da resposta da rota.
+
+### Números
+
+| Verificação | Resultado |
+|---|---|
+| `node --test src/lib/anexo-do-documento.test.ts` | **3/3** |
+| `tsc --noEmit` / `next lint` | limpos |
+| `n8n_validate_workflow` | 0 erros, 40 nós |
+
+### Plano estendido, nada rodou
+
+`validar-escrita.mjs` ganhou **4 passos** no bloco da rota de proposta:
+
+1. Documento cujo PDF não está no bucket: a proposta fica, com `anexo` null e `anexoErro`
+   preenchido.
+2. Com um PDF real no bucket: a rota cria a entrada no jsonb com o nome original, o autor de
+   serviço e o caminho `{empresa}/propostas/{id}/`.
+3. O arquivo existe em `anexos` com o mesmo tamanho.
+4. Limpeza da proposta, do anexo e do PDF de origem.
+
+### Pendências nominais
+
+1. **`npm run validar` não rodou.**
+2. **Não publicado:** a rota nova precisa de commit e merge. Até lá, a Vercel roda a rota
+   antiga, e o n8n anexa pelo caminho de antes.
+3. **Depois do deploy e de um envio real com sucesso:** apagar do n8n os 5 nós do caminho
+   antigo ("Preparar anexo", "Supabase - Subir anexo", "Supabase - Registrar anexo",
+   "Anexo falhou", "Etapa - Anexo falhou") e o IF.
+4. **Rota de contrato:** o anexo pela rota só é exercitado na de proposta; a de contrato usa o
+   mesmo helper.

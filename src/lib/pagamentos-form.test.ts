@@ -94,6 +94,8 @@ test('validarPayloadPagamento recusa as combinações que a constraint recusa, e
 test('mensagemDeErroPagamento traduz as constraints, e o resto passa', () => {
   assert.match(mensagemDeErroPagamento('new row violates check constraint "pagamento_vinculo_consistente"'), /não combinam/)
   assert.match(mensagemDeErroPagamento('pagamento_nf_cancelada: ...'), /cancelada/)
+  assert.match(mensagemDeErroPagamento('pagamento_parcela_cancelada'), /Parcela cancelada/, 'o trigger da migration 035')
+  assert.match(mensagemDeErroPagamento('pagamento_acordo_fechado'), /convertido em nota fiscal/, 'o trigger da migration 037')
   assert.match(mensagemDeErroPagamento('insert or update on table "pagamentos" violates foreign key constraint "pagamentos_nota_fk"'), /mesma obra/)
   assert.equal(mensagemDeErroPagamento('outra coisa'), 'outra coisa')
 })
@@ -119,9 +121,10 @@ test('inicioDaBaixa: a NF ou a parcela preenchem origem, vínculo, obra e o sald
     voltarPara: `/financeiro/notas-fiscais/${NF}`,
   })
   assert.equal(inicioDaBaixa({ nota: 'nf-quitada' }, opcoes).inicio?.valor, undefined, 'saldo zero não sugere valor')
-  assert.deepEqual(inicioDaBaixa({ parcela: PARCELA }, opcoes).inicio, {
-    obra_id: OBRA, origem: 'acordo', acordo_id: ACORDO, parcela_acordo_id: PARCELA, valor: 2000,
-  })
+  assert.deepEqual(inicioDaBaixa({ parcela: PARCELA }, opcoes), {
+    inicio: { obra_id: OBRA, origem: 'acordo', acordo_id: ACORDO, parcela_acordo_id: PARCELA, valor: 2000 },
+    voltarPara: `/financeiro/acordos/${ACORDO}`,
+  }, 'a baixa pela parcela volta para o acordo (11.3)')
   assert.deepEqual(inicioDaBaixa({ nota: 'cancelada-ou-alheia' }, opcoes), { inicio: {}, voltarPara: '/financeiro/pagamentos' })
   assert.deepEqual(inicioDaBaixa({}, opcoes), { inicio: {}, voltarPara: '/financeiro/pagamentos' })
 })

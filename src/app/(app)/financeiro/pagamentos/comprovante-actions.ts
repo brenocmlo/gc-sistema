@@ -53,9 +53,11 @@ export async function prepararEnvioComprovante(
 }
 
 /**
- * Passo 2: depois do upload, aponta `anexo` para o arquivo novo e tenta
- * apagar o anterior. Apagar é do admin ou do dono (policy do bucket): se quem
- * substitui não for nenhum dos dois, o antigo fica no bucket, sem referência.
+ * Passo 2: depois do upload, aponta `anexo` para o arquivo novo e apaga o
+ * anterior. Na pasta `pagamentos/` do bucket, admin e financeiro apagam o
+ * arquivo de qualquer um da empresa (policy da migration 035); antes, só o
+ * dono ou o admin, e o comprovante antigo sobrava quando outro financeiro
+ * substituía.
  */
 export async function registrarComprovante(pagamentoId: string, path: string): Promise<Resultado> {
   const c = await contexto(pagamentoId, PERFIS_QUE_ENVIAM, 'enviar comprovante')
@@ -69,7 +71,11 @@ export async function registrarComprovante(pagamentoId: string, path: string): P
   const anterior = c.pagamento.anexo
   const { error } = await c.supabase.from('pagamentos').update({ anexo: path }).eq('id', pagamentoId)
   if (error) return { ok: false, error: error.message }
-  if (anterior && anterior !== path) await c.supabase.storage.from(BUCKET_COMPROVANTE).remove([anterior])
+  if (anterior && anterior !== path) {
+    // O comprovante novo já está gravado; se a remoção falhar, o antigo só
+    // fica sem referência, e o erro não desfaz a substituição.
+    await c.supabase.storage.from(BUCKET_COMPROVANTE).remove([anterior])
+  }
 
   revalidatePath('/financeiro/pagamentos')
   if (c.pagamento.nota_id) revalidatePath(`/financeiro/notas-fiscais/${c.pagamento.nota_id}`)

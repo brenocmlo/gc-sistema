@@ -1808,7 +1808,7 @@
     "nota": "10.1: produção também fica fora"
   },
   {
-    "path": "/financeiro/pagamentos?origem=acordo",
+    "path": "/financeiro/pagamentos?origem=acordo&obra={obraExecucao}",
     "esperaHtml": [
       "SEED-AC-001 Sinal outubro · parcela 1",
       "R$ 3.000,00",
@@ -1818,7 +1818,7 @@
     "naoEsperaHtml": [
       "NF SEED-NF-003"
     ],
-    "nota": "10.1: filtro de origem, com o totalizador do filtrado"
+    "nota": "10.1: filtro de origem, com o totalizador do filtrado. 11.1: restrita à obra do SEED-CT-EXEC, porque o seed_acordos.sql (sprint 11) lança pagamentos de acordo em outra obra"
   },
   {
     "path": "/financeiro/pagamentos?origem=avulso",
@@ -2072,5 +2072,428 @@
       "Exportar XLSX"
     ],
     "nota": "10.6: o visualizador também exporta (lê a listagem)"
+  },
+  {
+    "path": "/financeiro/acordos",
+    "esperaHtml": [
+      "Descrição",
+      "Motivo",
+      "Período ref.",
+      "Abertura",
+      "Valor total",
+      "Nº parcelas",
+      "SEED-AC-001 Sinal outubro",
+      "SEED-AC-002 Adiantamento de vidros",
+      "SEED-AC-003 Aditivo da cobertura",
+      "SEED-AC-004 Troca emergencial",
+      "Adiantamento de material",
+      "Setembro/2026",
+      "R$ 6.500,00",
+      "R$ 2.400,00",
+      "2 (+1 cancelada)",
+      "1 atrasada",
+      "Todos os motivos",
+      "Buscar por descrição, período ou obra",
+      "href=\"/financeiro/acordos/"
+    ],
+    "nota": "11.1: as 8 colunas, os quatro acordos do seed (aberto, quitado, cancelado), o valor total sem as canceladas, o nº de parcelas com as canceladas à parte, a atrasada em runtime e os filtros"
+  },
+  {
+    "path": "/financeiro/acordos",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "SEED-AC-004 Troca emergencial"
+    ],
+    "nota": "11.1: financeiro vê a listagem"
+  },
+  {
+    "path": "/financeiro/acordos",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "SEED-AC-004 Troca emergencial"
+    ],
+    "nota": "11.1: visualizador lê"
+  },
+  {
+    "path": "/financeiro/acordos",
+    "perfil": "comercial",
+    "esperaStatus": 307,
+    "nota": "11.1: guard do layout de /financeiro"
+  },
+  {
+    "path": "/financeiro/acordos",
+    "perfil": "producao",
+    "esperaStatus": 307,
+    "nota": "11.1: produção também fica fora"
+  },
+  {
+    "path": "/financeiro/acordos?status=quitado",
+    "esperaHtml": [
+      "SEED-AC-002 Adiantamento de vidros"
+    ],
+    "naoEsperaHtml": [
+      "SEED-AC-004 Troca emergencial",
+      "SEED-AC-001 Sinal outubro"
+    ],
+    "nota": "11.1: filtro de status (o quitado pelos triggers)"
+  },
+  {
+    "path": "/financeiro/acordos?status=cancelado",
+    "esperaHtml": [
+      "SEED-AC-003 Aditivo da cobertura",
+      "0 (+1 cancelada)"
+    ],
+    "naoEsperaHtml": [
+      "SEED-AC-002 Adiantamento de vidros"
+    ],
+    "nota": "11.1: o cancelado, com a parcela cancelada fora da contagem"
+  },
+  {
+    "path": "/financeiro/acordos?motivo=emergencial",
+    "esperaHtml": [
+      "SEED-AC-004 Troca emergencial",
+      "1 atrasada"
+    ],
+    "naoEsperaHtml": [
+      "SEED-AC-001 Sinal outubro"
+    ],
+    "nota": "11.1: filtro de motivo; a parcela 1 do 004, vencida sem pagamento, aparece como atrasada"
+  },
+  {
+    "path": "/financeiro/acordos?busca=Outubro/2026",
+    "esperaHtml": [
+      "SEED-AC-004 Troca emergencial",
+      "SEED-AC-001 Sinal outubro"
+    ],
+    "naoEsperaHtml": [
+      "SEED-AC-002 Adiantamento de vidros"
+    ],
+    "nota": "11.1: busca pelo período de referência"
+  },
+  {
+    "path": "/financeiro/acordos?busca=zzz-inexistente",
+    "esperaHtml": [
+      "Nenhum acordo encontrado com esses filtros"
+    ],
+    "naoEsperaHtml": [
+      "<table"
+    ],
+    "nota": "11.1: busca sem resultado"
+  },
+  {
+    "path": "/financeiro/acordos?page=99",
+    "esperaStatus": 307,
+    "nota": "11.1: página além do fim redireciona"
+  },
+  {
+    "path": "/financeiro/notas-fiscais",
+    "esperaHtml": [
+      "href=\"/financeiro/acordos\""
+    ],
+    "nota": "11.1: aba Acordos no layout de /financeiro"
+  },
+  {
+    "path": "/financeiro/acordos/novo",
+    "esperaHtml": [
+      "Novo acordo de pagamento",
+      "Selecione a obra",
+      "Descrição",
+      "Sem motivo",
+      "Adiantamento de material",
+      "Período de referência",
+      "name=\"vinculo\"",
+      "Valor total (R$)",
+      "Nº de parcelas",
+      "1º vencimento",
+      "Quinzenal (15 dias)",
+      "Gerar parcelas",
+      "Adicionar parcela",
+      "Criar acordo"
+    ],
+    "nota": "11.2: o formulário, com o vínculo XOR opcional e o gerador de parcelas"
+  },
+  {
+    "path": "/financeiro/acordos/novo",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "Gerar parcelas",
+      "Criar acordo"
+    ],
+    "nota": "11.2: financeiro cria"
+  },
+  {
+    "path": "/financeiro/acordos/novo",
+    "perfil": "visualizador",
+    "esperaStatus": 307,
+    "nota": "11.2: o visualizador lê a listagem, mas a página de criação o manda de volta"
+  },
+  {
+    "path": "/financeiro/acordos/novo",
+    "perfil": "comercial",
+    "esperaStatus": 307,
+    "nota": "11.2: comercial nem entra em /financeiro"
+  },
+  {
+    "path": "/financeiro/acordos",
+    "esperaHtml": [
+      "href=\"/financeiro/acordos/novo\"",
+      "Novo acordo"
+    ],
+    "nota": "11.2: botão Novo acordo na listagem, para o admin"
+  },
+  {
+    "path": "/financeiro/acordos",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "SEED-AC-004 Troca emergencial"
+    ],
+    "naoEsperaHtml": [
+      "href=\"/financeiro/acordos/novo\""
+    ],
+    "nota": "11.2: o visualizador não vê o botão de criar"
+  },
+  {
+    "path": "/financeiro/acordos/{acordoAberto}",
+    "esperaHtml": [
+      "SEED-AC-004 Troca emergencial",
+      "Valor total",
+      "Recebido",
+      "Saldo",
+      "R$ 2.400,00",
+      "1 parcela atrasada",
+      "Parcelas (3)",
+      "Detalhes",
+      "Anexos",
+      "Atrasada",
+      "Pendente",
+      "Cancelada",
+      "href=\"/financeiro/pagamentos/novo?parcela=",
+      "Adicionar parcela",
+      "Emergencial",
+      "Outubro/2026",
+      "Auto Posto Verde"
+    ],
+    "nota": "11.3: cabeçalho com total, recebido e saldo; a tabela de parcelas com a atrasada em runtime e a cancelada; a baixa por parcela (o form com origem acordo); adicionar parcela; os detalhes"
+  },
+  {
+    "path": "/financeiro/acordos/{acordoAberto}",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "href=\"/financeiro/pagamentos/novo?parcela=",
+      "Adicionar parcela"
+    ],
+    "nota": "11.3: financeiro dá baixa e mexe nas parcelas"
+  },
+  {
+    "path": "/financeiro/acordos/{acordoAberto}",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Parcelas (3)",
+      "Atrasada"
+    ],
+    "naoEsperaHtml": [
+      "href=\"/financeiro/pagamentos/novo?parcela=",
+      "Adicionar parcela"
+    ],
+    "nota": "11.3: visualizador acompanha, sem baixa e sem mexer"
+  },
+  {
+    "path": "/financeiro/acordos/{acordoQuitado}",
+    "esperaHtml": [
+      "Quitado",
+      "R$ 6.500,00",
+      "Saldo",
+      "Paga",
+      "Contrato SEED-CT-EXEC-45",
+      "Acordo quitado não muda de parcela"
+    ],
+    "naoEsperaHtml": [
+      "href=\"/financeiro/pagamentos/novo?parcela=",
+      "Adicionar parcela"
+    ],
+    "nota": "11.3: o quitado mostra o recebido igual ao total, o vínculo, e não deixa dar baixa nem mexer"
+  },
+  {
+    "path": "/financeiro/acordos/{acordoCancelado}",
+    "esperaHtml": [
+      "Cancelado",
+      "Acordo cancelado não muda de parcela"
+    ],
+    "naoEsperaHtml": [
+      "Adicionar parcela"
+    ],
+    "nota": "11.3: o cancelado, com o saldo em traço"
+  },
+  {
+    "path": "/financeiro/acordos/{acordoAberto}",
+    "perfil": "comercial",
+    "esperaStatus": 307,
+    "nota": "11.3: guard do layout de /financeiro"
+  },
+  {
+    "path": "/financeiro/acordos/00000000-0000-4000-8000-000000000000",
+    "esperaStatus": 404,
+    "nota": "11.3: acordo inexistente"
+  },
+  {
+    "path": "/financeiro/acordos/{acordoConvertido}",
+    "esperaHtml": [
+      "SEED-AC-005 Sinal convertido",
+      "Convertido em NF",
+      "Convertido na ",
+      "NF SEED-CONV-001 / 1",
+      "href=\"/financeiro/notas-fiscais/",
+      "estão arquivados: não contam no recebido da obra",
+      "Acordo convertido em NF não muda de parcela"
+    ],
+    "naoEsperaHtml": [
+      "href=\"/financeiro/pagamentos/novo?parcela=",
+      "Adicionar parcela",
+      "Converter em NF</button>"
+    ],
+    "nota": "11.4: o convertido mostra a NF de saldo com link, o aviso dos pagamentos arquivados, e não deixa dar baixa, mexer nem converter de novo"
+  },
+  {
+    "path": "/financeiro/acordos/{acordoAberto}",
+    "esperaHtml": [
+      "Converter em NF"
+    ],
+    "nota": "11.4: o aberto com saldo oferece a conversão (admin)"
+  },
+  {
+    "path": "/financeiro/acordos/{acordoAberto}",
+    "perfil": "visualizador",
+    "naoEsperaHtml": [
+      "Converter em NF"
+    ],
+    "esperaHtml": [
+      "Parcelas (3)"
+    ],
+    "nota": "11.4: visualizador não converte"
+  },
+  {
+    "path": "/financeiro/acordos/{acordoQuitado}",
+    "naoEsperaHtml": [
+      "Converter em NF"
+    ],
+    "esperaHtml": [
+      "Quitado"
+    ],
+    "nota": "11.4: quitado não tem saldo: não converte"
+  },
+  {
+    "path": "/financeiro/acordos?status=convertido_nf",
+    "esperaHtml": [
+      "SEED-AC-005 Sinal convertido",
+      "Convertido em NF"
+    ],
+    "naoEsperaHtml": [
+      "SEED-AC-004 Troca emergencial"
+    ],
+    "nota": "11.4: filtro do status convertido"
+  },
+  {
+    "path": "/api/export/acordos",
+    "esperaContentType": "spreadsheetml",
+    "esperaXlsx": {
+      "colunas": [
+        "Descrição",
+        "Obra",
+        "Motivo",
+        "Período ref.",
+        "Abertura",
+        "Encerramento",
+        "Valor total",
+        "Recebido",
+        "Saldo",
+        "Nº parcelas",
+        "Atrasadas",
+        "Status",
+        "NF da conversão"
+      ],
+      "minLinhas": 5,
+      "contem": [
+        "SEED-AC-002 Adiantamento de vidros",
+        "SEED-AC-005 Sinal convertido",
+        "SEED-CONV-001 / 1",
+        "Quitado",
+        "Convertido em NF",
+        "Cancelado",
+        "Adiantamento de material"
+      ]
+    },
+    "nota": "11.5: as 13 colunas, os acordos do seed nos quatro status e a NF da conversão"
+  },
+  {
+    "path": "/api/export/acordos?status=convertido_nf",
+    "esperaContentType": "spreadsheetml",
+    "esperaXlsx": {
+      "colunas": [
+        "Descrição",
+        "Status"
+      ],
+      "contem": [
+        "SEED-AC-005 Sinal convertido",
+        "status=Convertido em NF"
+      ]
+    },
+    "nota": "11.5: o filtro da tela vale no export, e aparece no cabeçalho"
+  },
+  {
+    "path": "/api/export/acordos",
+    "perfil": "visualizador",
+    "esperaContentType": "spreadsheetml",
+    "esperaXlsx": {
+      "colunas": [
+        "Descrição",
+        "Status"
+      ],
+      "minLinhas": 5
+    },
+    "nota": "11.5: o visualizador exporta (lê a listagem)"
+  },
+  {
+    "path": "/api/export/acordos",
+    "perfil": "comercial",
+    "esperaStatus": 403,
+    "nota": "11.5: a rota repete a regra do layout de /financeiro"
+  },
+  {
+    "path": "/financeiro/acordos",
+    "esperaHtml": [
+      "Exportar XLSX"
+    ],
+    "nota": "11.5: botão de export na listagem"
+  },
+  {
+    "path": "/financeiro/acordos/{acordoAberto}",
+    "esperaHtml": [
+      "Encerrar como quitado",
+      "Cancelar acordo"
+    ],
+    "nota": "11.5: o aberto oferece encerrar à mão (o 004 não tem parcela paga: o quitar vem desabilitado com o porquê, o cancelar não)"
+  },
+  {
+    "path": "/financeiro/acordos/{acordoAberto}",
+    "perfil": "visualizador",
+    "naoEsperaHtml": [
+      "Encerrar como quitado",
+      "Cancelar acordo"
+    ],
+    "esperaHtml": [
+      "Parcelas (3)"
+    ],
+    "nota": "11.5: visualizador não encerra"
+  },
+  {
+    "path": "/financeiro/acordos/{acordoQuitado}",
+    "naoEsperaHtml": [
+      "Encerrar como quitado",
+      "Cancelar acordo"
+    ],
+    "esperaHtml": [
+      "Quitado"
+    ],
+    "nota": "11.5: o encerrado não oferece encerrar de novo"
   }
 ]

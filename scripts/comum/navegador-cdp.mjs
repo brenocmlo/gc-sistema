@@ -29,18 +29,18 @@ export async function conectar({ porta = 9222 } = {}) {
     }
   }
 
-  const enviar = (method, params = {}, sessionId) =>
+  const enviar = (method, params = {}, sessionId, ms = 30000) =>
     new Promise((ok, erro) => {
       const id = ++seq
       pendentes.set(id, { ok, erro })
       ws.send(JSON.stringify({ id, method, params, sessionId }))
-      setTimeout(() => pendentes.has(id) && (pendentes.delete(id), erro(new Error(`timeout: ${method}`))), 30000)
+      setTimeout(() => pendentes.has(id) && (pendentes.delete(id), erro(new Error(`timeout: ${method}`))), ms)
     })
 
   const { targetId } = await enviar('Target.createTarget', { url: 'about:blank' })
   const { sessionId } = await enviar('Target.attachToTarget', { targetId, flatten: true })
 
-  const cmd = (method, params) => enviar(method, params, sessionId)
+  const cmd = (method, params, ms) => enviar(method, params, sessionId, ms)
   await cmd('Page.enable'); await cmd('Runtime.enable'); await cmd('Log.enable')
   await cmd('Network.enable'); await cmd('DOM.enable')
 
@@ -65,7 +65,8 @@ export async function conectar({ porta = 9222 } = {}) {
     /** Põe um cookie no Chrome, para trocar de perfil sem passar pelo login. */
     definirCookie: (nome, valor, url) => cmd('Network.setCookie', { name: nome, value: valor, url }),
     async ir(url) {
-      await cmd('Page.navigate', { url })
+      // No next dev, a primeira visita a uma rota espera a compilação dela.
+      await cmd('Page.navigate', { url }, 90000)
       await this.esperar('document.readyState === "complete"')
     },
     async esperar(exprBooleana, { rotulo = exprBooleana, ms = 15000 } = {}) {

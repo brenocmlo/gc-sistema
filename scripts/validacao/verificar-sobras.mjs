@@ -41,6 +41,8 @@ const TABELAS = [
   { tabela: 'contratos', coluna: 'numero' },
   { tabela: 'propostas', coluna: 'numero' },
   { tabela: 'orcamentos', coluna: 'numero' },
+  // Acordo: a marca vai na descrição; as parcelas saem em cascata.
+  { tabela: 'acordos_pagamento', coluna: 'descricao' },
   { tabela: 'obras', coluna: 'codigo_obra' },
 ]
 

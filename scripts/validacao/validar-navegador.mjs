@@ -1125,7 +1125,14 @@ try {
       checar('ordem por atraso: previsão vencida, zerada, entrega pela metade e concluída, nessa ordem',
         posicoes.every((p) => p >= 0) && posicoes.every((p, i) => i === 0 || p > posicoes[i - 1]), JSON.stringify(ordem))
 
-      await b.preencher('input[aria-label="Buscar itens"]', 'pivotante')
+      // Página aberta por URL: o que se digita antes da hidratação não chega
+      // ao estado da busca. Repreenche até o debounce (300 ms) levar à URL.
+      for (let tentativa = 0; tentativa < 20; tentativa++) {
+        await b.preencher('input[aria-label="Buscar itens"]', '')
+        await b.preencher('input[aria-label="Buscar itens"]', 'pivotante')
+        await new Promise((r) => setTimeout(r, 800))
+        if (await b.avaliar('location.search.includes("busca=pivotante")')) break
+      }
       await b.esperar('location.search.includes("busca=pivotante")', { rotulo: 'busca com debounce na URL', ms: 10000 })
       await b.esperar('document.querySelectorAll("table tbody tr").length === 1', { rotulo: 'uma linha na busca' })
       checar('a busca pela descrição chega à URL (debounce) e deixa uma linha', true)
@@ -1886,6 +1893,265 @@ try {
         if ((resto ?? []).length) await sb.storage.from('anexos').remove(resto.map((o) => `${pasta}/${o.name}`))
       }
       if (pgId) await sb.from('pagamentos').delete().eq('id', pgId)
+    }
+  }
+
+  // 42. Acordos (11.1): a aba do Financeiro leva à listagem de acordos, e o
+  //     filtro de status fica na rota dos acordos (o bug do 10.1 levava os
+  //     filtros copiados para outra listagem). Só lê: o seed_acordos.sql.
+  {
+    await b.ir(`${BASE}/financeiro/notas-fiscais`)
+    await b.esperar('document.querySelector(\'nav[aria-label="Seções do financeiro"] a[href="/financeiro/acordos"]\')', { rotulo: 'aba Acordos', ms: 25000 })
+    await b.clicar('nav[aria-label="Seções do financeiro"] a', { texto: 'Acordos' })
+    await b.esperar('location.pathname === "/financeiro/acordos" && document.body.innerText.includes("SEED-AC-004 Troca emergencial")', { rotulo: 'listagem de acordos', ms: 25000 })
+    checar('a aba Acordos abre a listagem, com a atrasada do SEED-AC-004 marcada',
+      (await b.texto()).includes('1 atrasada'))
+
+    await b.preencher('select[aria-label="Status"]', 'quitado')
+    await b.esperar('location.pathname === "/financeiro/acordos" && location.search.includes("status=quitado") && !document.body.innerText.includes("SEED-AC-004 Troca emergencial")', { rotulo: 'filtro de status dos acordos', ms: 15000 })
+    checar('o filtro de status fica em /financeiro/acordos e traz só o quitado', (await b.texto()).includes('SEED-AC-002 Adiantamento de vidros'))
+    await b.screenshot(`${SHOTS}/42-acordos-listagem.png`)
+  }
+
+  // 43. Novo acordo (11.2), como admin: o zod do cliente, o gerador (1.000,00
+  //     em 3 mensais: a última leva o centavo), a prévia editável (o total
+  //     acusa a diferença), adicionar e remover parcela, e a criação, com as
+  //     parcelas no banco. O acordo leva `${NUMERO}-AC` e sai no fim do passo.
+  {
+    const sb = await clienteSupabase()
+    const { data: ctAc } = await sb.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    if (ctAc) {
+      try {
+        await b.ir(`${BASE}/financeiro/acordos`)
+        await b.esperar('Array.from(document.querySelectorAll("a")).some((a) => a.innerText.includes("Novo acordo"))', { rotulo: 'botão Novo acordo', ms: 25000 })
+        await b.clicar('a', { texto: 'Novo acordo' })
+        await b.esperar('location.pathname === "/financeiro/acordos/novo" && document.querySelector("#ger_total")', { rotulo: 'form de acordo', ms: 25000 })
+
+        await b.clicar('button[type="submit"]', { texto: 'Criar acordo' })
+        await b.esperar('document.body.innerText.includes("Selecione uma obra") && document.body.innerText.includes("Descreva o acordo")', { rotulo: 'erros do zod' })
+        checar('envio vazio: obra, descrição e parcelas barrados no cliente, sem sair do form',
+          (await b.texto()).includes('Gere ou adicione ao menos uma parcela') && (await b.url()) === '/financeiro/acordos/novo')
+
+        await b.preencher('#obra_id', ctAc.obra_id)
+        await b.preencher('#descricao', `${NUMERO}-AC navegador`)
+        await b.preencher('#ger_total', '1000')
+        await b.preencher('#ger_qtd', '3')
+        await b.preencher('#ger_venc', '2027-01-31')
+        await b.clicar('button', { texto: 'Gerar parcelas' })
+        await b.esperar('document.querySelectorAll("[data-parcela]").length === 3', { rotulo: 'parcelas geradas' })
+        const geradas = await b.avaliar('Array.from(document.querySelectorAll("[data-parcela]")).map((tr) => Array.from(tr.querySelectorAll("input")).slice(0, 2).map((i) => i.value).join(" "))')
+        checar('o gerador faz 3 parcelas mensais de 1.000,00: a última leva o centavo, e fevereiro cai no último dia',
+          JSON.stringify(geradas) === JSON.stringify(['2027-01-31 333.33', '2027-02-28 333.33', '2027-03-31 333.34']), JSON.stringify(geradas))
+
+        await b.preencher('input[aria-label="Valor da parcela 2"]', '400')
+        await b.esperar('document.body.innerText.includes("passa do valor total informado")', { rotulo: 'diferença no total' })
+        checar('editar uma parcela na prévia muda o total, que acusa a diferença para o valor informado', /passa do valor total informado em R\$\s66,67/.test(await b.texto()))
+        await b.screenshot(`${SHOTS}/43-acordo-parcelas.png`)
+        await b.preencher('input[aria-label="Valor da parcela 2"]', '333.33')
+
+        await b.clicar('button', { texto: 'Adicionar parcela' })
+        await b.esperar('document.querySelectorAll("[data-parcela]").length === 4', { rotulo: 'parcela adicionada' })
+        const quarta = await b.avaliar('document.querySelector(\'input[aria-label="Vencimento da parcela 4"]\').value')
+        await b.clicar('button[aria-label="Remover a parcela 4"]')
+        await b.esperar('document.querySelectorAll("[data-parcela]").length === 3', { rotulo: 'parcela removida' })
+        checar('adicionar parcela põe a próxima um mês depois da última (2027-04-30), e remover tira a linha', quarta === '2027-04-30', quarta)
+
+        await b.clicar('button[type="submit"]', { texto: 'Criar acordo' })
+        await b.esperar('/^\\/financeiro\\/acordos\\/[0-9a-f-]{36}$/.test(location.pathname)', { rotulo: 'depois de criar, o acordo', ms: 25000 })
+        const { data: criado } = await sb.from('acordos_pagamento')
+          .select('status, parcelas:acordo_parcelas(numero_parcela, data_vencimento, valor_previsto)')
+          .eq('descricao', `${NUMERO}-AC navegador`).maybeSingle()
+        const ps = (criado?.parcelas ?? []).sort((a, b) => a.numero_parcela - b.numero_parcela).map((p) => `${p.numero_parcela} ${p.data_vencimento} ${Number(p.valor_previsto)}`)
+        checar('corrigido, cria o acordo aberto com as 3 parcelas da tela e abre o acordo (11.3)',
+          criado?.status === 'aberto' && JSON.stringify(ps) === JSON.stringify(['1 2027-01-31 333.33', '2 2027-02-28 333.33', '3 2027-03-31 333.34']),
+          JSON.stringify(criado ?? null))
+      } finally {
+        await sb.from('acordos_pagamento').delete().like('descricao', `${NUMERO}-AC%`)
+      }
+    } else {
+      checar('seed: SEED-CT-EXEC existe (passo 43)', false)
+    }
+  }
+
+  // 44. Detalhe do acordo (11.3), como admin, sobre um acordo próprio (RPC):
+  //     a parcela vencida aparece atrasada, em vermelho; adicionar, editar e
+  //     cancelar parcela pelos diálogos; a baixa pela parcela abre o form com a
+  //     origem acordo e volta para o acordo, com a parcela paga. Pagamento e
+  //     acordo levam `${NUMERO}-PG`/`${NUMERO}-AC` e saem no fim do passo.
+  {
+    const sb = await clienteSupabase()
+    const { data: ctDet } = await sb.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    const ontem = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
+    const { data: acId, error: eAc } = ctDet
+      ? await sb.rpc('criar_acordo_com_parcelas', {
+          p_obra_id: ctDet.obra_id, p_descricao: `${NUMERO}-AC detalhe`, p_motivo: 'emergencial',
+          p_parcelas: [{ data_vencimento: ontem, valor_previsto: 500 }, { data_vencimento: '2027-06-10', valor_previsto: 500 }],
+        })
+      : { data: null, error: { message: 'sem o SEED-CT-EXEC' } }
+    try {
+      if (eAc) throw new Error(`acordo de teste do passo 44: ${eAc.message}`)
+      const topo = async () => b.avaliar('document.querySelector(\'[aria-label="Valores do acordo"]\').innerText.replace(/\\s+/g, " ")')
+      await b.ir(`${BASE}/financeiro/acordos/${acId}`)
+      await b.esperar('document.querySelector("[data-parcela-acordo=\'1\']")', { rotulo: 'detalhe do acordo', ms: 25000 })
+      const atrasadaVermelha = await b.avaliar('Array.from(document.querySelector("[data-parcela-acordo=\'1\']").querySelectorAll("span")).some((s) => s.innerText === "Atrasada" && s.className.includes("bg-red"))')
+      checar('a parcela vencida ontem aparece "Atrasada", em vermelho, e o cabeçalho mostra total 1.000,00 e 1 parcela atrasada',
+        atrasadaVermelha && /Valor total R\$\s1\.000,00/.test(await topo()) && (await b.texto()).includes('1 parcela atrasada'), await topo())
+
+      await b.clicar('button', { texto: 'Adicionar parcela' })
+      await b.esperar('document.querySelector("#parcela_valor")', { rotulo: 'diálogo de parcela nova' })
+      await b.preencher('#parcela_vencimento', '2027-07-10')
+      await b.preencher('#parcela_valor', '250')
+      await b.clicar('[role=dialog] button', { texto: 'Salvar parcela' })
+      await b.esperar('document.querySelector("[data-parcela-acordo=\'3\']") && !document.querySelector("[role=dialog]")', { rotulo: 'parcela 3', ms: 15000 })
+      await b.clicar('button[aria-label="Editar a parcela 3"]')
+      await b.esperar('document.querySelector("#parcela_valor")?.value === "250"', { rotulo: 'diálogo de edição' })
+      await b.preencher('#parcela_valor', '300')
+      await b.clicar('[role=dialog] button', { texto: 'Salvar parcela' })
+      await b.esperar('!document.querySelector("[role=dialog]") && /Valor total\\s+R\\$\\s1\\.300,00/.test(document.querySelector(\'[aria-label="Valores do acordo"]\').innerText)', { rotulo: 'total depois de editar', ms: 15000 })
+      checar('adicionar a parcela 3 (250) e editá-la para 300 muda o total para 1.300,00', true)
+
+      await b.clicar('button[aria-label="Cancelar a parcela 3"]')
+      await b.esperar('document.querySelector("[role=dialog]")?.innerText.includes("sai do valor total")', { rotulo: 'diálogo de cancelamento' })
+      await b.clicar('[role=dialog] button', { texto: 'Cancelar parcela' })
+      await b.esperar('document.querySelector("[data-parcela-acordo=\'3\']")?.innerText.includes("Cancelada")', { rotulo: 'parcela cancelada', ms: 15000 })
+      checar('cancelar a parcela 3 pelo diálogo: ela fica "Cancelada" e o total volta a 1.000,00', /Valor total R\$\s1\.000,00/.test(await topo()), await topo())
+      await b.screenshot(`${SHOTS}/44-acordo-detalhe.png`)
+
+      // O clique logo depois do cancelamento pode cair no router.refresh dele,
+      // que engole a navegação do Link: clica de novo se a URL não mudou.
+      for (let tentativa = 0; tentativa < 3; tentativa++) {
+        if (await b.avaliar('location.pathname === "/financeiro/pagamentos/novo"')) break
+        await b.clicar('a[aria-label="Registrar pagamento da parcela 1"]')
+        try {
+          await b.esperar('location.pathname === "/financeiro/pagamentos/novo"', { rotulo: 'navegação para a baixa', ms: 8000 })
+          break
+        } catch { /* tenta de novo */ }
+      }
+      await b.esperar('location.pathname === "/financeiro/pagamentos/novo" && document.querySelector("#parcela_acordo_id")?.value !== ""', { rotulo: 'form da baixa da parcela', ms: 25000 })
+      const pre = await b.avaliar('({ acordo: document.querySelector(\'input[name="origem"][value="acordo"]\').checked, valor: document.querySelector("#valor").value })')
+      checar('a baixa pela parcela abre o form com a origem acordo, a parcela e o saldo (500) como valor', pre.acordo === true && Number(pre.valor) === 500, JSON.stringify(pre))
+      await b.preencher('#forma', 'pix')
+      await b.preencher('#observacao', `${NUMERO}-PG baixa da parcela`)
+      await b.clicar('button[type="submit"]', { texto: 'Registrar pagamento' })
+      await b.esperar(`location.pathname === ${JSON.stringify(`/financeiro/acordos/${acId}`)} && document.querySelector("[data-parcela-acordo='1']")?.innerText.includes("Paga")`, { rotulo: 'volta ao acordo com a parcela paga', ms: 25000 })
+      checar('registrada a baixa, volta para o acordo: a parcela 1 está paga, o recebido é 500,00 e não há mais atrasada',
+        /Recebido R\$\s500,00/.test(await topo()) && !(await b.texto()).includes('parcela atrasada'), await topo())
+    } finally {
+      await sb.from('pagamentos').delete().like('observacao', `${NUMERO}-PG%`)
+      await sb.from('acordos_pagamento').delete().like('descricao', `${NUMERO}-AC%`)
+    }
+  }
+
+  // 45. Converter acordo em NF (11.4), como admin, sobre um acordo próprio
+  //     (RPC) com 100 pagos de 1.000: o diálogo avisa o que acontece com os
+  //     pagamentos, sugere o saldo (900) como valor e, convertido, o acordo
+  //     mostra a NF com link e o aviso de arquivados, sem baixa nem conversão.
+  //     Pagamento, acordo e NF levam `${NUMERO}` e saem no fim do passo.
+  {
+    const sb = await clienteSupabase()
+    const { data: ctConv } = await sb.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    const { data: acConv, error: eConv } = ctConv
+      ? await sb.rpc('criar_acordo_com_parcelas', {
+          p_obra_id: ctConv.obra_id, p_descricao: `${NUMERO}-AC conversão`, p_motivo: 'sinal',
+          p_parcelas: [{ data_vencimento: '2027-05-10', valor_previsto: 1000 }],
+        })
+      : { data: null, error: { message: 'sem o SEED-CT-EXEC' } }
+    try {
+      if (eConv) throw new Error(`acordo de teste do passo 45: ${eConv.message}`)
+      const { data: parcConv } = await sb.from('acordo_parcelas').select('id, obra_id, empresa_id').eq('acordo_id', acConv).single()
+      await sb.from('pagamentos').insert({ empresa_id: parcConv.empresa_id, obra_id: parcConv.obra_id, origem: 'acordo', parcela_acordo_id: parcConv.id, valor: 100, forma: 'pix', observacao: `${NUMERO}-PG antes da conversão` })
+
+      await b.ir(`${BASE}/financeiro/acordos/${acConv}`)
+      await b.esperar('Array.from(document.querySelectorAll("button")).some((x) => x.innerText.includes("Converter em NF"))', { rotulo: 'botão Converter em NF', ms: 25000 })
+      await b.clicar('button', { texto: 'Converter em NF' })
+      await b.esperar('document.querySelector("#conv_numero")', { rotulo: 'diálogo de conversão' })
+      const aviso = await b.avaliar('document.querySelector("[role=dialog] [role=note]").innerText')
+      const sugerido = await b.avaliar('({ valor: document.querySelector("#conv_valor").value, tipo: document.querySelector("#conv_tipo").value })')
+      checar('o diálogo avisa: o pagamento já lançado (100,00) fica arquivado, a NF deve valer o saldo, e não dá para desfazer; sugere o saldo (900) e o tipo sinal',
+        /O pagamento já lançado \(R\$ 100,00\) fica arquivado/.test(aviso) && /saldo do acordo \(R\$ 900,00\)/.test(aviso) && aviso.includes('Não dá para desfazer') &&
+          Number(sugerido.valor) === 900 && sugerido.tipo === 'sinal',
+        `${aviso.slice(0, 300)} · ${JSON.stringify(sugerido)}`)
+      await b.screenshot(`${SHOTS}/45-acordo-converter.png`)
+
+      await b.clicar('[role=dialog] button', { texto: 'Converter em NF' })
+      await b.esperar('document.body.innerText.includes("Número obrigatório")', { rotulo: 'número obrigatório' })
+      await b.preencher('#conv_numero', `${NUMERO}-NF-CONV`)
+      await b.preencher('#conv_serie', '1')
+      await b.clicar('[role=dialog] button', { texto: 'Converter em NF' })
+      await b.esperar('!document.querySelector("[role=dialog]") && document.body.innerText.includes("Convertido na")', { rotulo: 'acordo convertido', ms: 20000 })
+      const texto = await b.texto()
+      const { data: acDepois } = await sb.from('acordos_pagamento').select('status, nf:notas_fiscais!acordo_nf_convertida_fk(numero, valor_total, status)').eq('id', acConv).single()
+      checar('sem número, barrado no diálogo; com número, converte: o acordo mostra a NF com link e os pagamentos arquivados, sem baixa nem conversão',
+        acDepois?.status === 'convertido_nf' && acDepois?.nf?.numero === `${NUMERO}-NF-CONV` && Number(acDepois?.nf?.valor_total) === 900 &&
+          texto.includes(`NF ${NUMERO}-NF-CONV / 1`) && texto.includes('estão arquivados') &&
+          !(await b.avaliar('Boolean(document.querySelector(\'a[aria-label^="Registrar pagamento da parcela"]\'))')) &&
+          !(await b.avaliar('Array.from(document.querySelectorAll("button")).some((x) => x.innerText.includes("Converter em NF"))')),
+        JSON.stringify(acDepois))
+    } finally {
+      await sb.from('pagamentos').delete().like('observacao', `${NUMERO}-PG%`)
+      await sb.from('acordos_pagamento').delete().like('descricao', `${NUMERO}-AC%`)
+      await sb.from('notas_fiscais').delete().like('numero', `${NUMERO}-NF-CONV%`)
+    }
+  }
+
+  // 46. Encerrar acordo à mão (11.5), como admin, sobre dois acordos próprios
+  //     (RPC): um com a parcela 1 paga, onde o diálogo de cancelar avisa que
+  //     encerra pelo recebido, e que é encerrado como quitado pelo diálogo
+  //     (a pendente é cancelada); outro sem pagamento, cancelado com motivo
+  //     (sem motivo, barrado). Saem no fim do passo.
+  {
+    const sb = await clienteSupabase()
+    const { data: ctEnc } = await sb.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC').maybeSingle()
+    const novo = (sufixo) => sb.rpc('criar_acordo_com_parcelas', {
+      p_obra_id: ctEnc.obra_id, p_descricao: `${NUMERO}-AC ${sufixo}`,
+      p_parcelas: [{ data_vencimento: '2027-05-10', valor_previsto: 100 }, { data_vencimento: '2027-06-10', valor_previsto: 100 }],
+    })
+    try {
+      if (!ctEnc) throw new Error('sem o SEED-CT-EXEC (passo 46)')
+      const { data: acQ } = await novo('quitar')
+      const { data: acC } = await novo('cancelar')
+      const { data: p1 } = await sb.from('acordo_parcelas').select('id, obra_id, empresa_id').eq('acordo_id', acQ).eq('numero_parcela', 1).single()
+      await sb.from('pagamentos').insert({ empresa_id: p1.empresa_id, obra_id: p1.obra_id, origem: 'acordo', parcela_acordo_id: p1.id, valor: 100, forma: 'pix', observacao: `${NUMERO}-PG quitar` })
+
+      await b.ir(`${BASE}/financeiro/acordos/${acQ}`)
+      await b.esperar('Array.from(document.querySelectorAll("button")).some((x) => x.innerText.includes("Encerrar como quitado") && !x.disabled)', { rotulo: 'botão Encerrar como quitado', ms: 25000 })
+      // Com pagamento, "Cancelar acordo" fica habilitado e o diálogo avisa que
+      // o recebido fica e o acordo encerra quitado. Volta sem confirmar.
+      await b.clicar('button', { texto: 'Cancelar acordo' })
+      await b.esperar('document.querySelector("#cancelar_acordo_motivo")', { rotulo: 'diálogo de cancelar com pagamento' })
+      const avisoPago = await b.avaliar('document.querySelector("[role=dialog] [role=note]").innerText')
+      await b.clicar('[role=dialog] button', { texto: 'Voltar' })
+      await b.esperar('!document.querySelector("[role=dialog]")', { rotulo: 'diálogo fechado' })
+      checar('com pagamento, o diálogo de cancelar avisa que o recebido (100,00) fica na obra e que o acordo encerra quitado',
+        /já recebeu R\$ 100,00, e esse valor continua no recebido da obra/.test(avisoPago) && /encerrado como quitado pelo valor recebido/.test(avisoPago), avisoPago)
+      await b.clicar('button', { texto: 'Encerrar como quitado' })
+      await b.esperar('document.querySelector("[role=dialog]")?.innerText.includes("será cancelada")', { rotulo: 'diálogo de quitar' })
+      const dlg = await b.avaliar('document.querySelector("[role=dialog]").innerText')
+      await b.clicar('[role=dialog] button', { texto: 'Encerrar como quitado' })
+      await b.esperar('!document.querySelector("[role=dialog]") && document.querySelector("[data-parcela-acordo=\'2\']")?.innerText.includes("Cancelada")', { rotulo: 'acordo quitado', ms: 20000 })
+      const { data: lq } = await sb.from('acordos_pagamento').select('status').eq('id', acQ).single()
+      checar('encerrar como quitado pelo diálogo (que avisa a parcela pendente de 100,00 a cancelar): a 2 fica cancelada e o acordo quitado, sem os botões de encerrar',
+        /A parcela pendente \(R\$\s100,00\) será cancelada/.test(dlg) && lq?.status === 'quitado' &&
+          !(await b.avaliar('Array.from(document.querySelectorAll("button")).some((x) => x.innerText.includes("Cancelar acordo"))')),
+        `${dlg.slice(0, 200)} · ${lq?.status}`)
+
+      await b.ir(`${BASE}/financeiro/acordos/${acC}`)
+      await b.esperar('Array.from(document.querySelectorAll("button")).some((x) => x.innerText.includes("Cancelar acordo") && !x.disabled)', { rotulo: 'botão Cancelar acordo', ms: 25000 })
+      const quitarDesabilitado = await b.avaliar('Array.from(document.querySelectorAll("button")).find((x) => x.innerText.includes("Encerrar como quitado"))?.disabled === true')
+      await b.clicar('button', { texto: 'Cancelar acordo' })
+      await b.esperar('document.querySelector("#cancelar_acordo_motivo")', { rotulo: 'diálogo de cancelar' })
+      await b.clicar('[role=dialog] button', { texto: 'Cancelar acordo' })
+      await b.esperar('document.querySelector("[role=dialog]")?.innerText.includes("Diga por que o acordo está sendo cancelado")', { rotulo: 'motivo obrigatório' })
+      await b.preencher('#cancelar_acordo_motivo', 'cliente fechou com outra empresa')
+      await b.clicar('[role=dialog] button', { texto: 'Cancelar acordo' })
+      await b.esperar('!document.querySelector("[role=dialog]") && document.body.innerText.includes("Cancelado")', { rotulo: 'acordo cancelado', ms: 20000 })
+      const { data: lc } = await sb.from('acordos_pagamento').select('status, observacao').eq('id', acC).single()
+      checar('sem pagamento, o quitar vem desabilitado; cancelar exige o motivo e, com ele, o acordo fica cancelado com o motivo na observação',
+        quitarDesabilitado && lc?.status === 'cancelado' && /cliente fechou com outra empresa/.test(lc?.observacao ?? ''), JSON.stringify(lc))
+      await b.screenshot(`${SHOTS}/46-acordo-encerrado.png`)
+    } finally {
+      await sb.from('pagamentos').delete().like('observacao', `${NUMERO}-PG%`)
+      await sb.from('acordos_pagamento').delete().like('descricao', `${NUMERO}-AC%`)
     }
   }
 

@@ -359,13 +359,29 @@ export type PagamentoListItem = Pick<
   parcela: (Pick<AcordoParcela, 'numero_parcela'> & { acordo: Pick<AcordoPagamento, 'descricao'> | null }) | null
 }
 
-export type AcordoPagamento = Tables['acordos_pagamento']['Row']
+export type AcordoMotivo = 'sinal' | 'adiantamento_material' | 'sem_nf_cliente' | 'aditivo_informal' | 'emergencial' | 'outro'
+
+// Como NotaFiscal: o gen tipa status e motivo como `string`, os CHECKs garantem as listas.
+export type AcordoPagamento = Omit<Tables['acordos_pagamento']['Row'], 'status' | 'motivo'> & {
+  status: AcordoStatus
+  motivo: AcordoMotivo | null
+}
 export type AcordoPagamentoInsert = Tables['acordos_pagamento']['Insert']
 export type AcordoPagamentoUpdate = Tables['acordos_pagamento']['Update']
 
-export type AcordoParcela = Tables['acordo_parcelas']['Row']
+export type AcordoParcela = Omit<Tables['acordo_parcelas']['Row'], 'status'> & { status: ParcelaStatus }
 export type AcordoParcelaInsert = Tables['acordo_parcelas']['Insert']
 export type AcordoParcelaUpdate = Tables['acordo_parcelas']['Update']
+
+// Subset da listagem (11.1): a obra por JOIN e as parcelas, para o valor total
+// (soma das previstas), o número de parcelas e as atrasadas.
+export type AcordoListItem = Pick<
+  AcordoPagamento,
+  'id' | 'descricao' | 'obra_id' | 'motivo' | 'periodo_ref' | 'data_abertura' | 'data_encerramento' | 'status'
+> & {
+  obra: Pick<Obra, 'codigo_obra' | 'nome'> | null
+  parcelas: Pick<AcordoParcela, 'valor_previsto' | 'status' | 'data_vencimento'>[] | null
+}
 
 export type Fd = Tables['fd']['Row']
 export type FdInsert = Tables['fd']['Insert']

@@ -121,6 +121,18 @@ rodada só. O teste no celular fica a cargo do Breno.
 | 10.5 Validar a cascata de status via trigger | `10.5-status-entrega.md` — verificado em gc-dev (18/18), sem divergência, sem migration |
 | 10.6 Pagamentos: export, seed e testes (fechamento) | `10.6-status-entrega.md` — rodada de fechamento; corrigiu os filtros da listagem (10.1) |
 
+## Sprint 11 — Financeiro: Acordos e parcelas · `sprint-11/`
+
+Aberta em 2026-09-30 e fechada em 2026-10-01, validada no 11.5. A partir daqui, a validação roda ao fim de cada bloco.
+
+| Bloco | Documento |
+|---|---|
+| 11.1 Acordos: types, helpers e listagem | `11.1-status-entrega.md` — implementado; validado no fechamento da sprint (11.5) |
+| 11.2 Acordos: criação com geração de parcelas | `11.2-status-entrega.md` — implementado; validado no fechamento da sprint (11.5); migration 036 aplicada em gc-dev |
+| 11.3 Acordos: tela de detalhes com parcelas | `11.3-status-entrega.md` — implementado; validado no fechamento da sprint (11.5) |
+| 11.4 Acordos: conversão em nota fiscal | `11.4-status-entrega.md` — implementado; validado no fechamento da sprint (11.5); migration 037 aplicada em gc-dev; prova das views 13/13 |
+| 11.5 Acordos: encerramento, export e testes | `11.5-status-entrega.md` — **fechamento da sprint: as sete camadas passam** (unitário 355, build 58, runtime 251/251, dados 51/51, escrita 474/474, navegador 209/209); cancelar acordo com pagamento encerra pelo recebido; os blocos 11.1 a 11.4 ficam validados por esta rodada |
+
 ## Sprint 13 — Administração, qualidade e segurança · `sprint-13/`
 
 Um bloco **adiantado** em 2026-09-23, a pedido do Breno: a tela de logs e auditoria.
@@ -165,4 +177,5 @@ Trilha separada, com **numeração própria de 1 a 8** na lista do ClickUp — n
 | `plano-validacao.md` | As sete camadas de `npm run validar`, o que cada uma prova e o que **não** prova |
 | `auditoria-cobertura-sprint-4.md` | Os modos de falhar do próprio plano de validação — leia antes de mexer nos scripts |
 | `correcoes-listagens-e-obras.md` | Os três bugs achados ao fechar as lacunas do bloco 4.3 |
+| `exportacoes-xlsx.md` | O padrão visual das planilhas de `/api/export/*` (o gerador compartilhado) e o que mudou no FD |
 | `README.md` | Índice da pasta |

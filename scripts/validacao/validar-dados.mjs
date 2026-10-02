@@ -1102,6 +1102,88 @@ const CHECKS = [
     valida: (r) => ((r.data ?? []).some((a) => a.descricao === 'SEED-AC-001 Sinal outubro') ? null : 'SEED-AC-001 não veio entre os acordos abertos'),
   },
   {
+    // Copiada de src/app/(app)/financeiro/acordos/page.tsx (11.1).
+    nome: 'acordos_pagamento: listagem com JOIN de obra e as parcelas (valor total, nº e atrasadas)',
+    bloco: '11.1',
+    exigeSeed: 'supabase/seed_acordos.sql',
+    query: (sb) =>
+      sb
+        .from('acordos_pagamento')
+        .select(
+          'id, descricao, obra_id, motivo, periodo_ref, data_abertura, data_encerramento, status, obra:obras(codigo_obra, nome), parcelas:acordo_parcelas(valor_previsto, status, data_vencimento)',
+          { count: 'exact' },
+        )
+        .order('data_abertura', { ascending: false })
+        .order('created_at', { ascending: false })
+        .range(0, 19),
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.some((a) => Array.isArray(a.obra))) return 'obra veio como array, esperado objeto'
+      if (linhas.some((a) => !Array.isArray(a.parcelas))) return 'parcelas não veio como array'
+      const status = new Set(linhas.map((a) => a.status))
+      for (const s of ['aberto', 'quitado', 'cancelado']) if (!status.has(s)) return `nenhum acordo ${s} no seed`
+      if (linhas.some((a) => a.parcelas.some((p) => ['parcial', 'atrasada'].includes(p.status)))) return "parcela com status antigo ('parcial'/'atrasada') no banco"
+      const quitado = linhas.find((a) => a.descricao === 'SEED-AC-002 Adiantamento de vidros')
+      if (quitado && (!quitado.data_encerramento || quitado.parcelas.some((p) => p.status !== 'paga'))) return 'SEED-AC-002 quitado sem data de encerramento ou com parcela não paga'
+      return null
+    },
+  },
+  {
+    // Copiada de src/app/(app)/financeiro/acordos/[id]/page.tsx (11.3; a NF da conversão, 11.4).
+    nome: 'acordos_pagamento: detalhe com obra → cliente, vínculo e parcelas → pagamentos',
+    bloco: '11.3',
+    exigeSeed: 'supabase/seed_acordos.sql',
+    query: (sb) =>
+      sb
+        .from('acordos_pagamento')
+        .select(
+          '*, obra:obras(codigo_obra, nome, cliente:clientes(nome)), contrato:contratos(id, numero), proposta:propostas(id, numero), nf:notas_fiscais!acordo_nf_convertida_fk(id, numero, serie), parcelas:acordo_parcelas(id, numero_parcela, data_vencimento, valor_previsto, status, observacao, pagamentos(valor))',
+        )
+        .eq('descricao', 'SEED-AC-002 Adiantamento de vidros')
+        .maybeSingle(),
+    valida: (r) => {
+      const a = r.data
+      if (!a) return 'SEED-AC-002 não veio — rode o seed_acordos.sql'
+      if (Array.isArray(a.obra) || Array.isArray(a.contrato) || Array.isArray(a.proposta)) return 'obra, contrato ou proposta veio como array'
+      if (!a.obra?.cliente) return 'obra sem cliente no JOIN aninhado'
+      if (a.contrato?.numero !== 'SEED-CT-EXEC-45' || a.proposta !== null) return `vínculo: ${JSON.stringify([a.contrato, a.proposta])}`
+      if (!Array.isArray(a.parcelas) || a.parcelas.some((p) => !Array.isArray(p.pagamentos))) return 'parcelas ou pagamentos não vieram como array'
+      const recebido = a.parcelas.reduce((acc, p) => acc + p.pagamentos.reduce((x, pg) => x + Math.round(Number(pg.valor) * 100), 0), 0)
+      if (recebido !== 650000) return `recebido do quitado ${recebido / 100}, esperado 6500`
+      return null
+    },
+  },
+  {
+    // 11.4, regra 7: o acordo convertido (SEED-AC-005) aponta para a NF de
+    // saldo, e o pagamento dele fica arquivado em receitas_obra — fora do
+    // total_recebido. A view é security_invoker: o RLS do admin vale.
+    nome: 'receitas_obra: o pagamento do acordo convertido fica arquivado, fora do recebido',
+    bloco: '11.4',
+    exigeSeed: 'supabase/seed_acordos.sql',
+    query: async (sb) => {
+      const ac = await sb
+        .from('acordos_pagamento')
+        .select('obra_id, status, nf:notas_fiscais!acordo_nf_convertida_fk(numero, status, valor_total)')
+        .eq('descricao', 'SEED-AC-005 Sinal convertido')
+        .maybeSingle()
+      if (ac.error || !ac.data) return ac.error ? ac : { data: [] }
+      const v = await sb
+        .from('receitas_obra')
+        .select('obra_id, total_acordos_convertidos_arquivado, total_recebido, total_a_receber, saldo_pendente')
+        .eq('obra_id', ac.data.obra_id)
+        .maybeSingle()
+      if (v.error) return v
+      return { data: [{ ...ac.data, receitas: v.data }] }
+    },
+    valida: (r) => {
+      const a = r.data?.[0]
+      if (!a) return 'SEED-AC-005 não veio'
+      if (a.status !== 'convertido_nf' || a.nf?.numero !== 'SEED-CONV-001') return `acordo ${a.status}, NF ${JSON.stringify(a.nf)}`
+      if (Number(a.receitas?.total_acordos_convertidos_arquivado) < 1500) return `arquivado ${a.receitas?.total_acordos_convertidos_arquivado}, esperado ao menos 1.500 (o pagamento do SEED-AC-005)`
+      return null
+    },
+  },
+  {
     // O totalizador da page: a mesma condição da lista, só com o valor.
     nome: 'pagamentos: totalizador do filtrado (origem avulso) em centavos',
     bloco: '10.1',

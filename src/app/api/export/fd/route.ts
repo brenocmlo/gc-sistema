@@ -81,6 +81,7 @@ export async function GET(req: NextRequest) {
       data_vencimento: d.data_vencimento as string | null,
       data_pagamento: d.data_pagamento as string | null,
       status_pgto: formatStatusFdLabel(statusPgto),
+      status_chave: statusPgto,
     }
   })
 
@@ -123,12 +124,14 @@ export async function GET(req: NextRequest) {
       {
         header: 'Qtd',
         width: 10,
-        value: (r) => r.quantidade ?? 0,
+        // Sem quantidade, a célula fica vazia: 0 parecia um item de quantidade zero.
+        value: (r) => r.quantidade ?? null,
+        numFmt: '#,##0.###',
       },
       {
         header: 'Preço unit.',
         width: 14,
-        value: (r) => r.preco_unitario ?? 0,
+        value: (r) => r.preco_unitario ?? null,
         numFmt: BRL_FORMAT,
       },
       {
@@ -164,7 +167,14 @@ export async function GET(req: NextRequest) {
         value: (r) => (r.data_pagamento ? new Date(r.data_pagamento) : null),
         numFmt: DATE_FORMAT,
       },
-      { header: 'Status', width: 12, value: (r) => r.status_pgto },
+      {
+        header: 'Status',
+        width: 12,
+        value: (r) => r.status_pgto,
+        align: 'center',
+        // As cores dos selos da tela: pago em verde, vencido em vermelho, pendente em âmbar.
+        destaque: (r) => (r.status_chave === 'pago' ? 'positivo' : r.status_chave === 'vencido' ? 'negativo' : 'atencao'),
+      },
     ],
     rows,
     includeTotals: true,

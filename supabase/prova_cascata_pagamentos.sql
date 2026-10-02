@@ -89,9 +89,13 @@ begin
 
   insert into acordo_parcelas (empresa_id, acordo_id, obra_id, numero_parcela, data_vencimento, valor_previsto, status)
   values (v_emp, v_acordo, v_obra, 2, current_date, 500, 'cancelada') returning id into v_parc_canc;
-  insert into pagamentos (empresa_id, obra_id, origem, parcela_acordo_id, valor) values (v_emp, v_obra, 'acordo', v_parc_canc, 500);
-  insert into prova select 17, 'parcela cancelada recebe pagamento: o BANCO aceita, e o status fica (a action recusa, 10.2)', 'cancelada',
-    status, status = 'cancelada' from acordo_parcelas where id = v_parc_canc;
+  begin
+    insert into pagamentos (empresa_id, obra_id, origem, parcela_acordo_id, valor) values (v_emp, v_obra, 'acordo', v_parc_canc, 500);
+    v_erro := 'aceitou';
+  exception when others then v_erro := sqlerrm;
+  end;
+  insert into prova select 17, 'parcela cancelada recebe pagamento: recusado (migration 035) e o status fica', 'cancelada / pagamento_parcela_cancelada',
+    status || ' / ' || v_erro, status = 'cancelada' and v_erro like '%pagamento_parcela_cancelada%' from acordo_parcelas where id = v_parc_canc;
 
   insert into prova select 18, 'nenhuma NF ou parcela ficou com o status antigo ''parcial''', '0',
     (select count(*) from notas_fiscais where status = 'parcial')::text || '+' || (select count(*) from acordo_parcelas where status = 'parcial')::text,

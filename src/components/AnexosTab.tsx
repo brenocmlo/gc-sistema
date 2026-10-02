@@ -32,6 +32,11 @@ type AnexosTabProps = {
   abrir: (
     path: string,
   ) => Promise<{ ok: true; url: string } | { ok: false; error: string }>
+  /**
+   * Quem anexa e exclui. Sem a prop, admin e comercial (proposta, contrato,
+   * orçamento); o acordo (11.3) passa admin e financeiro.
+   */
+  podeGerenciar?: boolean
 }
 
 export default function AnexosTab({
@@ -42,12 +47,13 @@ export default function AnexosTab({
   upload,
   remove,
   abrir,
+  podeGerenciar,
 }: AnexosTabProps) {
   const router = useRouter()
   const [deleting, setDeleting] = useState<Anexo | null>(null)
   const [opening, setOpening] = useState<string | null>(null)
 
-  const canManage = perfil === 'admin' || perfil === 'comercial'
+  const canManage = podeGerenciar ?? (perfil === 'admin' || perfil === 'comercial')
 
   async function handleUpload(file: File): Promise<UploadResult> {
     const formData = new FormData()

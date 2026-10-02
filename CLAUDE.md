@@ -3,13 +3,16 @@
 Next.js 14 (App Router) + Supabase. Português nos comentários, nas mensagens de
 UI e nos documentos.
 
-## Regra de validação — só no fim da sprint ou sob pedido
+## Regra de validação — ao fim de cada bloco
 
-**`npm run validar` e `npm test` rodam só em dois momentos:** no fechamento
-da sprint (depois do último bloco) ou quando o Breno pedir explicitamente.
-Bloco intermediário **não** roda o plano: o código fica no working tree, o
-plano é estendido junto (obrigação 1 abaixo continua valendo) e o documento do
-bloco registra "validação: não rodou — fica para o fechamento da sprint".
+**`npm run validar` roda ao terminar cada bloco `m.n`** (regra desde 2026-10-01, a
+pedido do Breno, depois de um fechamento da sprint 11 que acumulou cinco blocos sem
+rodar e levou sete rodadas). O bloco só é entregue como validado quando a rodada
+dele passa, e os números vão para o documento do bloco. Erro do plano ou do código
+aparece no bloco que o introduziu, e não se acumula para o fechamento.
+
+O fechamento da sprint é a rodada do último bloco: ela também tem de passar inteira.
+Fora disso, roda quando o Breno pedir.
 
 Quando roda, são sete camadas, do mais barato ao mais caro, parando no
 primeiro erro:
@@ -48,9 +51,9 @@ Três obrigações que vêm com a regra:
    "não exercitada". Conferência visual e escrita no banco continuam manuais —
    se não foram feitas, isso é escrito.
 
-Bloco sem validação é entregue como "implementado, validação pendente para o
-fechamento da sprint" — nunca como validado. A sprint só fecha com o plano
-rodado e passando.
+Bloco cuja rodada não passou (ou não rodou, por exemplo com o gc-dev pausado) é
+entregue como "implementado, validação pendente", com o motivo — nunca como
+validado. A sprint só fecha com o plano rodado e passando.
 
 ## Documentação
 

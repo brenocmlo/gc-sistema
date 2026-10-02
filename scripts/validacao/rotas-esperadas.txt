@@ -1,5 +1,6 @@
 /
 /_not-found
+/api/export/acordos
 /api/export/contratos
 /api/export/execucao
 /api/export/fd
@@ -31,6 +32,9 @@
 /fd/[id]/editar
 /fd/novo
 /financeiro
+/financeiro/acordos
+/financeiro/acordos/[id]
+/financeiro/acordos/novo
 /financeiro/notas-fiscais
 /financeiro/notas-fiscais/[id]
 /financeiro/notas-fiscais/[id]/editar

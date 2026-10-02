@@ -167,7 +167,8 @@ const REGRAS: Regra[] = [
       codigo: 'TOKEN_INVALIDO',
       titulo: 'Sistema e automação não se reconheceram',
       explicacao: 'O token trocado entre o sistema e o n8n foi recusado.',
-      oQueFazer: 'Conferir se o token da Credential no n8n é o mesmo das variáveis do sistema.',
+      oQueFazer:
+        'Conferir se INGESTAO_TOKEN na Vercel (Production) é igual ao header x-ingestao-token da Credential do n8n — sem aspas, espaço ou quebra de linha — e fazer Redeploy, porque variável nova só vale no deploy seguinte. Depois, reprocessar o documento.',
       bloqueiaAutomacao: true,
     },
   },
