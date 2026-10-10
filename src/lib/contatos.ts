@@ -13,6 +13,7 @@
 // Decisão 14: a Z-API saiu, então contato novo é sempre Telegram; os de
 // WhatsApp antigos aparecem na lista e podem ser excluídos.
 import { z } from 'zod'
+import { mensagemDeErroBanco } from './erro-banco.ts'
 
 export type Canal = 'TELEGRAM' | 'WHATSAPP'
 
@@ -110,5 +111,5 @@ export function mensagemDeErroContato(raw: string): string {
   if (raw.includes('contatos_whatsapp_obra_fk')) {
     return 'Obra inválida para esta empresa'
   }
-  return raw
+  return mensagemDeErroBanco(raw)
 }

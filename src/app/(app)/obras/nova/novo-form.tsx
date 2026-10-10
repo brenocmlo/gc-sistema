@@ -26,7 +26,7 @@ export default function NovaObraForm({ clienteOptions }: NovaObraFormProps) {
       return
     }
 
-    toast.success('Obra criada com sucesso')
+    toast.success('Obra criada')
     router.push(`/obras/${result.id}`)
     router.refresh()
   }

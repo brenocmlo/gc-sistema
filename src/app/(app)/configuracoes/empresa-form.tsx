@@ -58,7 +58,7 @@ export default function EmpresaForm({
     setUploading(false)
 
     if (!result.ok) {
-      toast.error(`Falha no upload: ${result.error}`)
+      toast.error(`Não foi possível enviar o logo: ${result.error}`)
       return
     }
     setLogoUrl(result.url)

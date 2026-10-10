@@ -11,6 +11,7 @@
 
 import { z } from 'zod'
 
+import { mensagemDeErroBanco } from './erro-banco.ts'
 import { formatCurrency } from './format.ts'
 import { FORMA_PAGAMENTO_LABELS, isPagamentoForma, isPagamentoOrigem, ORIGEM_PAGAMENTO_LABELS } from './pagamentos.ts'
 import type { PagamentoForma, PagamentoOrigem } from './types'
@@ -144,7 +145,7 @@ export function mensagemDeErroPagamento(raw: string): string {
   if (raw.includes('pagamentos_valor_check')) return 'O valor tem de ser maior que zero'
   if (raw.includes('pagamentos_forma_check')) return 'Forma de pagamento inválida'
   if (raw.includes('pagamentos_origem_check')) return 'Origem do pagamento inválida'
-  return raw
+  return mensagemDeErroBanco(raw)
 }
 
 /** O que falta receber, em centavos exatos: o total menos o que já entrou. Nunca negativo. */

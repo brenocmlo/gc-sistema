@@ -28,6 +28,8 @@ export function isEtapa(v: unknown): v is Etapa {
 }
 
 export function rotuloEtapa(v: unknown): string {
+  // Não é etapa de documento: o registro de um alerta mandado ao grupo (telegram.ts).
+  if (v === 'ALERTA') return 'Alerta ao grupo do Telegram'
   return isEtapa(v) ? ETAPA_LABELS[v] : typeof v === 'string' && v ? v : 'Sem etapa registrada'
 }
 

@@ -2,6 +2,7 @@
 // Fora do actions.ts de propósito: todo export de um arquivo 'use server'
 // vira Server Action chamável pelo navegador.
 
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import type { createClient } from '@/lib/supabase/server'
 
 /**
@@ -23,7 +24,7 @@ export async function itensSemExecucao(
     supabase.from('execucao').select('item_id, item:itens!inner(obra_id)').eq('item.obra_id', obraId),
   ])
   const erro = e1 ?? e2
-  if (erro) return { ids: [], error: erro.message }
+  if (erro) return { ids: [], error: mensagemDeErroBanco(erro) }
   const jaTem = new Set((comExecucao ?? []).map((e) => e.item_id))
   return { ids: (itens ?? []).map((i) => i.id).filter((id) => !jaTem.has(id)), error: null }
 }

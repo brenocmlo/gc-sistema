@@ -8,6 +8,7 @@ import {
   todayStr,
 } from '@/lib/excel-export'
 import { STATUS_CONTRATO_LABELS, isContratoStatus } from '@/lib/contratos'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { computePeriodoCutoff, sanitizeBusca } from '@/lib/listagem'
 import { formatPct, obraIdsDaBusca } from '@/lib/propostas'
 import { createClient } from '@/lib/supabase/server'
@@ -99,7 +100,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await query
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: mensagemDeErroBanco(error) }, { status: 500 })
   }
 
   const rows = (data ?? []).map((d) => {

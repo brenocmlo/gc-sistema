@@ -17,6 +17,7 @@ import {
   validarEvidencia,
   type Evidencia,
 } from '@/lib/evidencias'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import type { Etapa } from '@/lib/execucao'
 import { iconForFile } from '@/lib/file-icons'
 import { formatFileSize } from '@/lib/files'
@@ -63,7 +64,7 @@ export default function EvidenciasEtapa({
     const { error } = await createClient()
       .storage.from(BUCKET_EVIDENCIAS)
       .upload(caminho, file, { contentType: tipoDaEvidencia(file) ?? undefined, upsert: false })
-    if (error) return { ok: false, error: error.message }
+    if (error) return { ok: false, error: mensagemDeErroBanco(error) }
     const r = await registrarEvidencia(execucaoId, etapa, { caminho, nome: file.name, tamanho: file.size }, updatedAtVisto)
     if (!r.ok) {
       // Sem registro, o arquivo não aparece em lugar nenhum: tira do bucket.

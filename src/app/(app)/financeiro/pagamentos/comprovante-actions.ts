@@ -7,6 +7,7 @@ import {
   caminhoDoComprovante,
   caminhoEhDoPagamento,
 } from '@/lib/pagamento-comprovante'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { createClient } from '@/lib/supabase/server'
 
 // Comprovante do pagamento (10.4), no padrão dos arquivos da NF (9.5): o
@@ -70,7 +71,7 @@ export async function registrarComprovante(pagamentoId: string, path: string): P
 
   const anterior = c.pagamento.anexo
   const { error } = await c.supabase.from('pagamentos').update({ anexo: path }).eq('id', pagamentoId)
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
   if (anterior && anterior !== path) {
     // O comprovante novo já está gravado; se a remoção falhar, o antigo só
     // fica sem referência, e o erro não desfaz a substituição.

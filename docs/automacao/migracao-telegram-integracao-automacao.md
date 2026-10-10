@@ -625,6 +625,23 @@ lista de 7 workflows. Onde uma fase abaixo contradisser uma delas, vale a decis�
     do Gemini, token, obra não identificada, contrato repetido e outros. Aparece no detalhe
     do documento, numa faixa vermelha em `/documentos` quando um erro que para tudo não teve
     sucesso depois (`situacaoDaAutomacao`) e em `/documentos/log`.
+31. **Obra não identificada vira pergunta pelo bot** (Breno, 07/10, item 2 dos próximos passos).
+    Em vez de ir direto para revisão, o bot manda uma lista numerada e a pessoa responde com o
+    número. A lista tem as obras empatadas, ou até 8 obras da empresa (as mais recentes), e a
+    opção "0) nenhuma destas".
+    - **Por que número e não botão:** o nó de Telegram do n8n só monta botões em quantidade
+      fixa, e a lista muda a cada documento.
+    - **Onde fica a pergunta:** as opções ficam em `documentos_processamento.opcoes_obra`
+      (migration `20261008100000`), para a resposta ser conferida contra o que foi perguntado.
+    - **Resposta:** `POST /api/ingestao/resposta-obra` recebe toda mensagem de texto de um
+      contato cadastrado.
+      - Com pergunta aberta naquele chat: o número fixa a obra e devolve o documento à fila,
+        e o n8n relê o PDF.
+      - "0": o documento fica em revisão, com o motivo.
+      - Resposta inválida: a pergunta é repetida.
+      - Sem pergunta aberta: o bot responde o de sempre.
+    - **Validade:** a pergunta vale por 7 dias. Depois disso, a revisão pela tela assume.
+    - A regra fica em `src/lib/obra-do-documento.ts`, com teste.
 
 ---
 

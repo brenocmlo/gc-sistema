@@ -44,16 +44,22 @@ const TABELAS = [
   // Acordo: a marca vai na descrição; as parcelas saem em cascata.
   { tabela: 'acordos_pagamento', coluna: 'descricao' },
   { tabela: 'obras', coluna: 'codigo_obra' },
+  // Usuários de teste da gestão de usuários (13.1): apagados pelo Auth (o perfil sai em cascata).
+  { tabela: 'profiles', coluna: 'email', padroes: ['valida-%@teste.com', 'run-%@teste.com'] },
 ]
 
-async function sobrasDe({ tabela, coluna }) {
-  const filtro = PADROES.map((p) => `${coluna}.like.${p}`).join(',')
+async function sobrasDe({ tabela, coluna, padroes = PADROES }) {
+  const filtro = padroes.map((p) => `${coluna}.like.${p}`).join(',')
   const { data, error } = await svc.from(tabela).select(`id, ${coluna}, created_at`).or(filtro)
   if (error) throw new Error(`${tabela}: ${error.message}`)
   return data.map((r) => ({ id: r.id, nome: r[coluna], criado: r.created_at }))
 }
 
 async function apagar(tabela, linha) {
+  if (tabela === 'profiles') {
+    const { error } = await svc.auth.admin.deleteUser(linha.id)
+    return error?.message ?? null
+  }
   if (tabela === 'contratos') {
     await svc.from('documentos_processamento').update({ contrato_criado_id: null }).eq('contrato_criado_id', linha.id)
     await svc.from('itens').delete().eq('contrato_id', linha.id)
@@ -64,6 +70,12 @@ async function apagar(tabela, linha) {
     await svc.from('itens').delete().eq('proposta_id', linha.id)
     const fotos = (comFoto ?? []).map((i) => i.foto_url).filter(Boolean)
     if (fotos.length > 0) await svc.storage.from('anexos').remove(fotos)
+  }
+  // Rodada interrompida no 7.2 deixa item de execução preso só à obra (sem contrato).
+  if (tabela === 'obras') {
+    await svc.from('itens').delete().eq('obra_id', linha.id)
+    // Rodada interrompida na ingestão deixa documento de teste preso à obra de teste.
+    await svc.from('documentos_processamento').delete().eq('obra_id', linha.id)
   }
   const { error } = await svc.from(tabela).delete().eq('id', linha.id)
   return error?.message ?? null

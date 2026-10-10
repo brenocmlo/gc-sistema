@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 
-// Sprint 9: o financeiro começa pelas notas fiscais. Pagamentos (sprint 10)
-// e acordos entram como irmãs de /financeiro/notas-fiscais.
+// O financeiro começa pela visão geral (12.2). NFs (sprint 9), pagamentos
+// (sprint 10) e acordos (sprint 11) são irmãs de /financeiro/visao-geral.
 export default function FinanceiroPage() {
-  redirect('/financeiro/notas-fiscais')
+  redirect('/financeiro/visao-geral')
 }

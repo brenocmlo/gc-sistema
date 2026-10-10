@@ -26,7 +26,7 @@ export default function NovoFdForm({ obraOptions }: NovoFdFormProps) {
       return
     }
 
-    toast.success('Lançamento criado com sucesso')
+    toast.success('Lançamento criado')
     router.push(`/fd/${result.id}`)
     router.refresh()
   }

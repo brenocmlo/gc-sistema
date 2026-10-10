@@ -12,6 +12,7 @@ import {
   validarReducaoDaExecucao,
   type ApontamentoPayload,
 } from '@/lib/execucao'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { createClient } from '@/lib/supabase/server'
 import type { ExecucaoListItem } from '@/lib/types'
 
@@ -246,7 +247,7 @@ export async function lerExecucao(id: string): Promise<LerExecucaoResult> {
   }
 
   const { data, error } = await supabase.from('execucao').select(SELECT_LINHA).eq('id', id).maybeSingle()
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
   if (!data) return { ok: false, error: 'Execução não encontrada' }
   return { ok: true, execucao: data as ExecucaoListItem }
 }
@@ -295,7 +296,7 @@ export async function criarNovaExecucao(
     supabase.from('execucao').select('sequencial, quantidade_total').eq('item_id', itemId),
   ])
   const erro = itemErr ?? irmasErr
-  if (erro) return { ok: false, error: erro.message }
+  if (erro) return { ok: false, error: mensagemDeErroBanco(erro) }
   if (!item) return { ok: false, error: 'Item não encontrado' }
 
   // A mesma regra da ação em lote do 7.2: execução é de item de contrato

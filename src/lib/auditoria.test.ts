@@ -7,6 +7,7 @@ import {
   camposAlterados,
   filtroBuscaAuditoria,
   formatarValorAuditoria,
+  eventoDeErroDaRequisicao,
   hrefDoRegistro,
   isAcaoDoTrigger,
   isEntidadeAuditada,
@@ -129,3 +130,68 @@ test('hrefDoRegistro: só para tela de detalhe que existe e registro que não fo
   assert.equal(hrefDoRegistro({ entidade: 'itens', registro_id: UUID, acao: 'criar' }), null)
   assert.equal(hrefDoRegistro({ entidade: 'propostas', registro_id: null, acao: 'criar' }), null)
 })
+
+test('hrefDoRegistro: contrato, NF, acordo e documento têm tela de detalhe (sprints 6, 9, 11 e automação)', () => {
+  assert.equal(hrefDoRegistro({ entidade: 'contratos', registro_id: UUID, acao: 'status' }), `/contratos/${UUID}`)
+  assert.equal(hrefDoRegistro({ entidade: 'notas_fiscais', registro_id: UUID, acao: 'editar' }), `/financeiro/notas-fiscais/${UUID}`)
+  assert.equal(hrefDoRegistro({ entidade: 'acordos_pagamento', registro_id: UUID, acao: 'criar' }), `/financeiro/acordos/${UUID}`)
+  assert.equal(hrefDoRegistro({ entidade: 'documentos_processamento', registro_id: UUID, acao: 'editar' }), `/documentos/${UUID}`)
+  assert.equal(hrefDoRegistro({ entidade: 'pagamentos', registro_id: UUID, acao: 'criar' }), null)
+})
+
+const REST = 'https://gzbmhgnpoehormnidmgg.supabase.co/rest/v1'
+
+test('eventoDeErroDaRequisicao: update recusado vira evento de edição com o registro do filtro', () => {
+  const ev = eventoDeErroDaRequisicao({
+    metodo: 'PATCH',
+    url: `${REST}/notas_fiscais?id=eq.${UUID}&status=neq.cancelada&select=id`,
+    status: 400,
+    corpo: JSON.stringify({ code: 'P0001', message: 'Nota fiscal cancelada não muda', details: null, hint: null }),
+  })
+  assert.deepEqual(ev, {
+    entidade: 'notas_fiscais',
+    acao: 'editar',
+    registroId: UUID,
+    mensagem: 'Nota fiscal cancelada não muda',
+    detalhe: { http: 400, codigo: 'P0001', detalhes: null, dica: null },
+  })
+})
+
+test('eventoDeErroDaRequisicao: insert e delete viram criar e excluir', () => {
+  const corpo = JSON.stringify({ code: '23505', message: 'duplicate key' })
+  assert.equal(eventoDeErroDaRequisicao({ metodo: 'POST', url: `${REST}/propostas?select=id`, status: 409, corpo })?.acao, 'criar')
+  const del = eventoDeErroDaRequisicao({ metodo: 'DELETE', url: `${REST}/contratos?id=eq.${UUID}`, status: 409, corpo })
+  assert.equal(del?.acao, 'excluir')
+  assert.equal(del?.registroId, UUID)
+  assert.equal(eventoDeErroDaRequisicao({ metodo: 'POST', url: `${REST}/propostas`, status: 409, corpo })?.registroId, null)
+})
+
+test('eventoDeErroDaRequisicao: erro de RPC vira operação com o nome da função', () => {
+  const ev = eventoDeErroDaRequisicao({
+    metodo: 'POST',
+    url: `${REST}/rpc/criar_acordo_com_parcelas`,
+    status: 400,
+    corpo: JSON.stringify({ code: 'P0001', message: 'parcelas não somam o total', hint: 'confira' }),
+  })
+  assert.equal(ev?.entidade, 'criar_acordo_com_parcelas')
+  assert.equal(ev?.acao, 'operacao')
+  assert.equal(ev?.detalhe.funcao, 'criar_acordo_com_parcelas')
+  assert.equal(ev?.detalhe.dica, 'confira')
+  assert.equal(labelAcao('operacao'), 'Operação')
+})
+
+test('eventoDeErroDaRequisicao: não registra sucesso, leitura, a própria RPC de log nem rota fora do PostgREST', () => {
+  const corpo = '{"message":"x"}'
+  assert.equal(eventoDeErroDaRequisicao({ metodo: 'PATCH', url: `${REST}/propostas?id=eq.${UUID}`, status: 200, corpo }), null)
+  assert.equal(eventoDeErroDaRequisicao({ metodo: 'GET', url: `${REST}/propostas`, status: 400, corpo }), null)
+  assert.equal(eventoDeErroDaRequisicao({ metodo: 'POST', url: `${REST}/rpc/registrar_evento`, status: 400, corpo }), null)
+  assert.equal(eventoDeErroDaRequisicao({ metodo: 'POST', url: 'https://x.supabase.co/auth/v1/token', status: 400, corpo }), null)
+  assert.equal(eventoDeErroDaRequisicao({ metodo: 'POST', url: 'https://x.supabase.co/storage/v1/object/anexos/a.pdf', status: 400, corpo }), null)
+  assert.equal(eventoDeErroDaRequisicao({ metodo: 'PATCH', url: 'não é url', status: 400, corpo }), null)
+})
+
+test('eventoDeErroDaRequisicao: corpo que não é JSON vai como mensagem crua, e vazio vira o HTTP', () => {
+  assert.equal(eventoDeErroDaRequisicao({ metodo: 'PATCH', url: `${REST}/obras`, status: 502, corpo: 'Bad Gateway' })?.mensagem, 'Bad Gateway')
+  assert.equal(eventoDeErroDaRequisicao({ metodo: 'PATCH', url: `${REST}/obras`, status: 504, corpo: '' })?.mensagem, 'HTTP 504')
+})
+

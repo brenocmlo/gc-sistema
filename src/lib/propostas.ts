@@ -6,6 +6,7 @@ import {
   novaEntradaHistorico,
   type EntradaHistorico,
 } from './historico.ts'
+import { mensagemDeErroBanco } from './erro-banco.ts'
 import type { MotivoRejeicao, Proposta, PropostaStatus } from './types'
 
 // ============================================================
@@ -423,7 +424,7 @@ export function mensagemDeErroProposta(raw: string): string {
   if (raw.includes('violates foreign key constraint') && raw.includes('propostas')) {
     return 'Existe registro vinculado a esta proposta'
   }
-  return raw
+  return mensagemDeErroBanco(raw)
 }
 
 // ============================================================

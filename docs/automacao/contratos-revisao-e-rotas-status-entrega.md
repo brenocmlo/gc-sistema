@@ -377,3 +377,168 @@ pedir).
    "Anexo falhou", "Etapa - Anexo falhou") e o IF.
 4. **Rota de contrato:** o anexo pela rota só é exercitado na de proposta; a de contrato usa o
    mesmo helper.
+
+### 10.1 No ar — 02/10
+
+Commit e merge feitos pelo Breno (`38f446a`). O deploy de Production na Vercel foi concluído.
+Teste direto na rota publicada, com um PDF de teste no bucket e a obra OBRA-2025-03:
+
+- **201**, com `anexo` = `{empresa}/propostas/{id}/…_smoke-anexo.pdf` e `anexoErro` null.
+- 1 entrada no jsonb `anexos`, com o nome original e 23 bytes; o arquivo está no bucket
+  `anexos` com o mesmo tamanho.
+- Limpeza feita: proposta, itens, anexo, documento e PDF de origem.
+
+Ainda falta o envio real pelo bot, que é o que leva o n8n pelo IF "Anexo pela rota?".
+
+### 10.2 Teste completo pelo bot — 07/10
+
+O Breno cadastrou a obra **Residencial Vista Verde - Bloco B** (`BRA-2026-005`) e mandou pelo
+bot o par de teste em `documentos-fonte/teste-vinculo-1n/`.
+
+| Documento | Leitura | Resultado |
+|---|---|---|
+| `6fac05a3`, proposta PROP-2026-0117 | Gemini | proposta de R$ 248.500,00 na obra Vista Verde, achada pelo nome, com 4 itens e o PDF em Anexos; etapa CONCLUÍDO, conferência pendente |
+| `c5e61c09`, contrato CT-2026-0042 | Groq (o Gemini falhou: aviso no andamento) | contrato de R$ 248.500,00 na mesma obra, **ligado à proposta PROP-2026-0117**, com 4 itens e o PDF em Anexos; etapa CONCLUÍDO |
+
+Andamento gravado: LEITURA → (LEITURA_RESERVA) → GRAVANDO → CONCLUIDO. Nenhum erro do n8n.
+
+**Depois do teste:**
+
+- **n8n:** os 6 nós do caminho antigo de anexo saíram ("Anexo pela rota?", "Preparar anexo",
+  "Supabase - Subir anexo", "Supabase - Registrar anexo", "Anexo falhou",
+  "Etapa - Anexo falhou"). "Documento aprovado" vai direto para "Montar avisos", que lê
+  `anexoErro` da rota. Publicado, com 33 nós e 0 erros.
+- **Nome do anexo:** pelo bot, o anexo saía com o update_id do Telegram na frente
+  (`174281296-PROPOSTA_…`). `nomeOriginalDoArquivo` passou a tirar esse prefixo também.
+  O teste do helper continua passando (**3/3**, com dois casos novos), e `tsc` e `lint` estão
+  limpos. A correção vale depois do próximo commit e merge; os dois anexos já gravados ficam
+  com o nome antigo.
+
+**Pendências:**
+
+- O `npm run validar` não rodou.
+- Conferência visual das telas (Anexos e andamento) não feita por mim.
+
+## 11. O bot pergunta a obra (decisão 31) — 07/10
+
+**Implementado, validação pendente** (`npm run validar` não rodou).
+
+### O que entrou
+
+- **Banco (aplicado em gc-dev):** migration `20261008100000_documentos_opcoes_obra.sql`,
+  com a coluna `opcoes_obra jsonb` e um índice parcial por chat. Types regenerados.
+- **`src/lib/obra-do-documento.ts`:** `opcoesParaPergunta`, `textoDaPergunta`,
+  `interpretarRespostaDeObra` e `lerOpcoesGravadas`.
+- **Rotas de proposta e contrato:**
+  - No 422 de obra não identificada, gravam as opções no documento e devolvem `pergunta`.
+  - As obras candidatas vêm da mais recente para a mais antiga.
+  - No sucesso, limpam `opcoes_obra`.
+- **Rota nova `POST /api/ingestao/resposta-obra`:** autentica por token, como as outras de
+  ingestão, e devolve uma de quatro ações: `sem_pergunta`, `repetir`, `nenhuma` ou
+  `reprocessar` (com a `entrada` para o n8n).
+- **n8n `Processar Documento`** (publicado, 37 nós, 0 erros):
+  - **"Triar mensagem":** texto de um contato cadastrado vira `acao: 'resposta'`, em vez do
+    aviso fixo.
+  - **Nós novos:** "Resposta de texto?" → "Rota - Resposta da obra" → "Tratar resposta" →
+    "Reprocessar?". Com a obra escolhida, o fluxo volta ao "Normalizar entrada" com a obra
+    fixada.
+  - **"Registrar falha"** guarda a `pergunta` do 422.
+  - **"Montar avisos"** manda a pergunta a quem enviou, com o aviso `[PERGUNTA DE OBRA]` ao
+    grupo.
+  - **Antes do deploy:** a rota de resposta ainda dá 404, o "Tratar resposta" cai no aviso de
+    sempre, e a pergunta não é feita porque a rota antiga não devolve `pergunta`. Nada quebra.
+
+### Números
+
+| Verificação | Resultado |
+|---|---|
+| `node --test src/lib/obra-do-documento.test.ts` | **14/14** (10 antigos + 4 novos) |
+| `tsc --noEmit` / `next lint` | limpos |
+| `n8n_validate_workflow` | 0 erros, 37 nós |
+
+### Plano estendido, nada rodou
+
+- **`validar-escrita.mjs`, 9 passos no bloco da rota de contrato:**
+  1. 422 com a pergunta e as opções gravadas.
+  2. `resposta-obra` sem token → 401.
+  3. Outro chat → `sem_pergunta`.
+  4. Texto → `repetir`.
+  5. Número fora da lista → `repetir`.
+  6. "1" → `reprocessar`, com o documento PENDENTE, a obra da opção 1 e a pergunta fechada.
+  7. Repetir o "1" → `sem_pergunta`.
+  8. "0" → `nenhuma`, em revisão, com o motivo.
+  9. Limpeza pelos documentos do bloco.
+- **`rotas-esperadas.txt`:** + `/api/ingestao/resposta-obra`.
+
+### Pendências nominais
+
+1. **`npm run validar` não rodou.**
+2. **Não publicado:** precisa de commit e merge.
+3. **Teste pelo bot depois do deploy:** mandar um PDF de obra não cadastrada, responder um
+   número e depois "0" noutro envio.
+4. **A releitura gasta mais uma chamada de IA:** o documento volta para a fila e o PDF é lido
+   de novo. Reaproveitar a leitura salva fica como melhoria, se o custo pesar.
+
+## 12. O bot avisa quem enviou e alerta o grupo quando a automação para — 08/10
+
+**Implementado, validação pendente** (`npm run validar` não rodou). Depende de uma variável
+nova, `TELEGRAM_BOT_TOKEN`.
+
+### Decisão de desenho
+
+O gc-sistema passa a mandar estas mensagens **direto pela API do Telegram**, sem o n8n.
+- **Por quê:** não gasta execução do n8n e é o único jeito de avisar o "limite de execuções do
+  n8n". Com o n8n no limite, nada nele roda, nem o próprio aviso.
+- **Token:** fica só na variável de ambiente. Nunca em código, documento ou log.
+
+### O que entrou
+
+- **`src/lib/telegram.ts` (novo).**
+  - Partes puras e testadas:
+    - `avisoDeResolucao`: textos de aceito, não aceito, vinculado e descartado, no gênero
+      certo para proposta e contrato.
+    - `alertaDeAutomacaoParada`: título, explicação e "o que fazer", de `descreverErro`.
+    - `deveAlertar`: um alerta por causa a cada 6 h.
+    - `chatIdValido`.
+  - `enviarTelegram`: um `sendMessage` com timeout de 5 s. Nunca lança erro. Sem token, não
+    envia.
+- **Ações de `/documentos` (Aceitar, Não aceitar, Vincular e Descartar).** Depois de feitas,
+  avisam quem mandou o PDF.
+  - Só se o documento veio pelo bot e o chat é um chat real do Telegram.
+  - Falha no envio não desfaz a ação: volta como aviso amarelo na tela ("Feito, mas…").
+- **Alerta ao grupo de admin.** Quando o envio ou o reprocessamento pela tela não consegue
+  acionar o n8n por um erro que para tudo (limite de execuções, token ou configuração), o grupo
+  recebe um `[AUTOMAÇÃO PARADA]`.
+  - Cada alerta fica registrado em `automacao_eventos` (etapa `ALERTA`, código no `detalhe`).
+    É isso que segura a repetição dentro da janela, e o log da automação mostra o registro
+    como "Alerta ao grupo do Telegram".
+  - O grupo vem de `TELEGRAM_ADMIN_CHAT_ID` ou, sem ela, do mesmo grupo do n8n.
+
+### Números
+
+| Verificação | Resultado |
+|---|---|
+| `node --test` telegram, automacao e documentos | **30/30** (4 novos em `telegram.test.ts`) |
+| `tsc --noEmit` / `next lint` | limpos |
+
+### Plano estendido, nada rodou
+
+`validar-escrita.mjs` ganhou 1 passo: descartar um documento de chat fictício não tenta
+avisar pelo Telegram (a ação volta sem aviso).
+
+O envio real não é exercitado pelo plano: o chat dos documentos de teste é fictício de
+propósito, para a validação não mandar mensagem a ninguém.
+
+### Pendências nominais
+
+1. **Configurar `TELEGRAM_BOT_TOKEN`:** o token do bot de produção, na Vercel (Production,
+   com Redeploy) e no `.env.local`. Sem ela, nada é enviado.
+2. **Commit e merge.**
+3. **Teste real:** aceitar ou descartar pela tela um documento enviado pelo bot e conferir a
+   mensagem no Telegram. O alerta de automação parada só aparece num erro de verdade; para
+   ver antes, dá para testar com o token do n8n trocado de propósito.
+4. **Limite que continua:** PDF enviado pelo bot enquanto o n8n está no limite não chega a
+   lugar nenhum, porque o Telegram entrega ao n8n e ele não roda. O alerta só sai quando
+   alguém usa a tela. Para cobrir isso, seria preciso uma verificação periódica do n8n, que
+   fica para depois.
+5. `npm run validar` não rodou.

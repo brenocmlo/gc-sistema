@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { createClient } from '@/lib/supabase/server'
 
 import type { ObraPayload } from '../../obra-form-helpers'
@@ -42,7 +43,7 @@ export async function updateObra(
         error: 'Já existe uma obra com esse código nessa empresa',
       }
     }
-    return { ok: false, error: error.message }
+    return { ok: false, error: mensagemDeErroBanco(error) }
   }
 
   revalidatePath('/obras')
@@ -83,7 +84,7 @@ export async function deleteObra(id: string): Promise<DeleteObraResult> {
           'Obra vinculada a propostas, contratos, itens, NFs, pagamentos, acordos ou FDs. Remova os vínculos antes.',
       }
     }
-    return { ok: false, error: error.message }
+    return { ok: false, error: mensagemDeErroBanco(error) }
   }
 
   revalidatePath('/obras')

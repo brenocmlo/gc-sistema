@@ -11,6 +11,7 @@
 import { z } from 'zod'
 
 import { isAcordoMotivo, MOTIVO_ACORDO_LABELS } from './acordos.ts'
+import { mensagemDeErroBanco } from './erro-banco.ts'
 import type { AcordoMotivo } from './types'
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/
@@ -205,7 +206,7 @@ export function mensagemDeErroAcordo(raw: string): string {
   if (raw.includes('acordo_nao_aberto')) return 'Só acordo aberto é convertido em nota fiscal'
   if (raw.includes('acordo_nao_encontrado')) return 'Acordo não encontrado'
   if (raw.includes('row-level security')) return 'Sem permissão pra criar acordos'
-  return raw
+  return mensagemDeErroBanco(raw)
 }
 
 /** Uma parcela adicionada ou editada no detalhe do acordo (11.3). */

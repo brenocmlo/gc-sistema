@@ -72,3 +72,44 @@ test('sem nenhuma pista, ou pista que não bate, é revisão (nunca chute)', () 
 test('lista de obras vazia', () => {
   assert.equal(identificarObra([], { codigo: 'EB-25-08-0044' }).ok, false)
 })
+
+import { interpretarRespostaDeObra, lerOpcoesGravadas, opcoesParaPergunta, textoDaPergunta } from './obra-do-documento.ts'
+
+const OBRAS_PERGUNTA = [
+  { id: 'a', codigo_obra: 'BRA-2026-005', nome: 'Residencial Vista Verde - Bloco B' },
+  { id: 'b', codigo_obra: 'OBRA-2026-001', nome: 'OBRA PRF' },
+  { id: 'c', codigo_obra: null, nome: 'Galpão Portal Norte' },
+]
+
+test('opcoesParaPergunta: empate oferece só as empatadas; sem candidatas, as obras da empresa', () => {
+  assert.deepEqual(opcoesParaPergunta(OBRAS_PERGUNTA, ['b', 'c']).map((o) => o.id), ['b', 'c'])
+  assert.deepEqual(opcoesParaPergunta(OBRAS_PERGUNTA, []).map((o) => o.rotulo), ['BRA-2026-005 — Residencial Vista Verde - Bloco B', 'OBRA-2026-001 — OBRA PRF', 'Galpão Portal Norte'])
+  // Candidata que sumiu do cadastro não trava: cai para a lista da empresa.
+  assert.equal(opcoesParaPergunta(OBRAS_PERGUNTA, ['x']).length, 3)
+  const muitas = Array.from({ length: 12 }, (_, i) => ({ id: String(i), codigo_obra: `O-${i}`, nome: null }))
+  assert.equal(opcoesParaPergunta(muitas, []).length, 8)
+})
+
+test('textoDaPergunta numera a partir de 1 e oferece o 0', () => {
+  const t = textoDaPergunta(opcoesParaPergunta(OBRAS_PERGUNTA, ['a', 'b']))
+  assert.match(t, /1\) BRA-2026-005/)
+  assert.match(t, /2\) OBRA-2026-001/)
+  assert.match(t, /0\) Nenhuma destas/)
+})
+
+test('interpretarRespostaDeObra aceita o número em formatos comuns e recusa o resto', () => {
+  const op = opcoesParaPergunta(OBRAS_PERGUNTA, [])
+  assert.deepEqual(interpretarRespostaDeObra(' 2 ', op), { tipo: 'obra', obraId: 'b', rotulo: 'OBRA-2026-001 — OBRA PRF' })
+  assert.equal(interpretarRespostaDeObra('1)', op).tipo, 'obra')
+  assert.equal(interpretarRespostaDeObra('opção 3', op).tipo, 'obra')
+  assert.equal(interpretarRespostaDeObra('0', op).tipo, 'nenhuma')
+  assert.equal(interpretarRespostaDeObra('4', op).tipo, 'invalida')
+  assert.equal(interpretarRespostaDeObra('a obra 2', op).tipo, 'invalida')
+  assert.equal(interpretarRespostaDeObra('', op).tipo, 'invalida')
+  assert.equal(interpretarRespostaDeObra(null, op).tipo, 'invalida')
+})
+
+test('lerOpcoesGravadas descarta o que não é opção', () => {
+  assert.deepEqual(lerOpcoesGravadas([{ id: 'a', rotulo: 'A' }, { id: 1 }, null]), [{ id: 'a', rotulo: 'A' }])
+  assert.deepEqual(lerOpcoesGravadas('x'), [])
+})

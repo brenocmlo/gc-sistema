@@ -88,12 +88,12 @@ export const MENU_ITEMS: readonly MenuItem[] = [
     perfis: ['admin', 'producao', 'medicao', 'visualizador'],
   },
   {
-    // O link vai direto à listagem de NFs. `/financeiro` redireciona para lá,
-    // mas redirect() numa page quebra a navegação pelo Link no Next 14 (o
+    // O link vai direto à visão geral (12.2). `/financeiro` redireciona para
+    // lá, mas redirect() numa page quebra a navegação pelo Link no Next 14 (o
     // clique usa o prefetch e não sai do lugar) — foi o "Em construção" que
     // continuou aparecendo no fechamento do 9.5.
     label: 'Financeiro',
-    href: '/financeiro/notas-fiscais',
+    href: '/financeiro/visao-geral',
     secao: '/financeiro',
     icon: Wallet,
     perfis: ['admin', 'financeiro', 'visualizador'],

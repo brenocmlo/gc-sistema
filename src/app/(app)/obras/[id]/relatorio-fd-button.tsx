@@ -3,6 +3,7 @@
 import { FileText } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { mensagemDeErroHttp } from '@/lib/erro-banco'
 
 export default function RelatorioFdButton({ obraId }: { obraId: string }) {
   const [loading, setLoading] = useState(false)
@@ -13,7 +14,7 @@ export default function RelatorioFdButton({ obraId }: { obraId: string }) {
       const res = await fetch(`/api/relatorio/fd-conciliacao/${obraId}`)
       if (!res.ok) {
         const text = await res.text().catch(() => '')
-        throw new Error(text || `Falha (${res.status})`)
+        throw new Error(mensagemDeErroHttp(res.status, text))
       }
 
       const blob = await res.blob()
@@ -32,8 +33,8 @@ export default function RelatorioFdButton({ obraId }: { obraId: string }) {
 
       toast.success('Relatório baixado')
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
-      toast.error(`Falha ao gerar: ${msg}`)
+      const msg = err instanceof Error ? err.message : mensagemDeErroHttp(0, '')
+      toast.error(`Não foi possível gerar o relatório: ${msg}`)
     } finally {
       setLoading(false)
     }

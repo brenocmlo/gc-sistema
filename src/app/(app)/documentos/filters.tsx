@@ -19,7 +19,7 @@ const TIPO_OPTIONS = [
   { value: 'CONTRATO', label: 'Contrato' },
 ]
 const SELECT_CLASS =
-  'px-3 py-2 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent'
+  'px-3 py-2 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent max-w-full'
 
 export default function DocumentosFilters({
   obraOptions,

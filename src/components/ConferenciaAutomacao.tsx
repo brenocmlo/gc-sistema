@@ -44,6 +44,7 @@ export default function ConferenciaAutomacao({
     setSalvando(false)
     if (!r.ok) return void toast.error(r.error)
     toast.success(`Conferido: ${oQue} mantid${artigo}`)
+    if (r.aviso) toast.warning(`Feito, mas ${r.aviso}.`)
     router.refresh()
   }
 
@@ -56,6 +57,7 @@ export default function ConferenciaAutomacao({
     setSalvando(false)
     if (!r.ok) return void toast.error(r.error)
     toast.success(`${oQue === 'proposta' ? 'Proposta desfeita' : 'Contrato desfeito'}; o documento voltou para revisão`)
+    if (r.aviso) toast.warning(`Feito, mas ${r.aviso}.`)
     setRecusando(false)
     // A proposta/contrato não existe mais: volta ao documento.
     router.push(`/documentos/${documentoId}`)

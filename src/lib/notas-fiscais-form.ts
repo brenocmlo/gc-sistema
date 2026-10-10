@@ -5,6 +5,7 @@
 
 import { z } from 'zod'
 
+import { mensagemDeErroBanco } from './erro-banco.ts'
 import { isNfTipo, TIPO_NF_LABELS } from './notas-fiscais.ts'
 import type { NotaFiscal, NotaFiscalTipo } from './types'
 
@@ -188,5 +189,5 @@ export function mensagemDeErroNf(raw: string): string {
   if (raw.includes('nf_cancelada_imutavel')) return 'Nota fiscal cancelada não pode ser alterada'
   if (raw.includes('pagamento_nf_cancelada')) return 'Nota fiscal cancelada não recebe pagamento'
   if (raw.includes('pagamentos_nota_fk')) return 'Nota fiscal com pagamento não pode ser excluída'
-  return raw
+  return mensagemDeErroBanco(raw)
 }

@@ -116,3 +116,62 @@ export function identificarObra(obras: ObraCandidata[], pistas: PistasDeObra): O
     candidatas: [],
   }
 }
+
+// ============================================================
+// Pergunta da obra pelo bot (decisão 31, Breno em 07/10)
+// ============================================================
+// Obra não identificada deixa de ir direto para revisão: o bot manda uma
+// lista numerada ("1) …, 2) …, 0) nenhuma delas") e a pessoa responde com o
+// número. O nó de Telegram do n8n só monta botões em quantidade fixa, por
+// isso a lista é texto. As opções ficam gravadas no documento
+// (documentos_processamento.opcoes_obra) para a resposta ser conferida contra
+// o que foi perguntado, não contra o cadastro de agora.
+
+export type OpcaoDeObra = { id: string; rotulo: string }
+
+export const MAX_OPCOES_OBRA = 8
+
+export function rotuloDaObra(o: Pick<ObraCandidata, 'codigo_obra' | 'nome'>): string {
+  return [o.codigo_obra, o.nome].filter(Boolean).join(' — ') || 'obra sem nome'
+}
+
+/**
+ * As candidatas da identificação, quando houve empate; senão as obras da
+ * empresa (a ordem de quem chama: a mais recente primeiro). No máximo 8 — a
+ * lista inteira não cabe numa mensagem legível.
+ */
+export function opcoesParaPergunta(obras: ObraCandidata[], candidatas: string[]): OpcaoDeObra[] {
+  const empatadas = candidatas.length ? obras.filter((o) => candidatas.includes(o.id)) : []
+  const base = empatadas.length ? empatadas : obras
+  return base.slice(0, MAX_OPCOES_OBRA).map((o) => ({ id: o.id, rotulo: rotuloDaObra(o) }))
+}
+
+export function textoDaPergunta(opcoes: OpcaoDeObra[]): string {
+  const linhas = opcoes.map((o, i) => `${i + 1}) ${o.rotulo}`)
+  return [
+    'De qual obra é este documento? Responda só com o número:',
+    ...linhas,
+    '0) Nenhuma destas (a equipe cadastra e registra)',
+  ].join('\n')
+}
+
+export type RespostaDeObra =
+  | { tipo: 'obra'; obraId: string; rotulo: string }
+  | { tipo: 'nenhuma' }
+  | { tipo: 'invalida' }
+
+/** "2", " 2 ", "2)", "opção 2" valem; "12" com 8 opções não. */
+export function interpretarRespostaDeObra(texto: unknown, opcoes: OpcaoDeObra[]): RespostaDeObra {
+  const m = String(texto ?? '').trim().match(/^(?:op[cç][aã]o\s*)?(\d{1,2})\s*[).]?$/i)
+  if (!m) return { tipo: 'invalida' }
+  const n = Number(m[1])
+  if (n === 0) return { tipo: 'nenhuma' }
+  const escolhida = opcoes[n - 1]
+  return escolhida ? { tipo: 'obra', obraId: escolhida.id, rotulo: escolhida.rotulo } : { tipo: 'invalida' }
+}
+
+/** O que foi gravado em opcoes_obra (jsonb) volta como lista válida, ou vazia. */
+export function lerOpcoesGravadas(v: unknown): OpcaoDeObra[] {
+  if (!Array.isArray(v)) return []
+  return v.filter((o): o is OpcaoDeObra => !!o && typeof o.id === 'string' && typeof o.rotulo === 'string')
+}

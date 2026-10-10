@@ -1,0 +1,622 @@
+{
+  "_leia": "Matriz perfil × entidade × operação do 13.3. Cada lista diz quais perfis PODEM. A camada dados (validar-dados.mjs, via matriz-rls.mjs) testa cada célula com a sessão do usuário de teste do perfil e compara com isto. Mudou a regra de acesso? Mude aqui e na policy, juntos.",
+  "perfis": [
+    "admin",
+    "comercial",
+    "financeiro",
+    "medicao",
+    "producao",
+    "visualizador"
+  ],
+  "tabelas": {
+    "clientes": {
+      "select": "todos",
+      "insert": [
+        "admin",
+        "comercial"
+      ],
+      "update": [
+        "admin",
+        "comercial"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "contatos_whatsapp": {
+      "select": "todos",
+      "insert": [
+        "admin",
+        "comercial"
+      ],
+      "update": [
+        "admin",
+        "comercial"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "orcamentos": {
+      "select": "todos",
+      "insert": [
+        "admin",
+        "comercial"
+      ],
+      "update": [
+        "admin",
+        "comercial"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "obras": {
+      "select": "todos",
+      "insert": [
+        "admin",
+        "comercial"
+      ],
+      "update": [
+        "admin",
+        "comercial"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "propostas": {
+      "select": "todos",
+      "insert": [
+        "admin",
+        "comercial"
+      ],
+      "update": [
+        "admin",
+        "comercial"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "itens": {
+      "select": "todos",
+      "insert": [
+        "admin",
+        "comercial"
+      ],
+      "update": [
+        "admin",
+        "comercial"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "contratos": {
+      "select": "todos",
+      "insert": [
+        "admin",
+        "comercial"
+      ],
+      "update": [
+        "admin",
+        "comercial"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "documentos_processamento": {
+      "select": "todos",
+      "insert": [
+        "admin",
+        "comercial"
+      ],
+      "update": [
+        "admin",
+        "comercial"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "execucao": {
+      "select": "todos",
+      "insert": [
+        "admin",
+        "producao",
+        "medicao"
+      ],
+      "update": [
+        "admin",
+        "producao",
+        "medicao"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "execucao_medicoes": {
+      "select": "todos",
+      "insert": [],
+      "update": [],
+      "delete": [],
+      "_nota": "escrita só pelo trigger da execução"
+    },
+    "notas_fiscais": {
+      "select": [
+        "admin",
+        "financeiro",
+        "visualizador",
+        "comercial"
+      ],
+      "insert": [
+        "admin",
+        "financeiro"
+      ],
+      "update": [
+        "admin",
+        "financeiro"
+      ],
+      "delete": [
+        "admin"
+      ],
+      "_nota": "comercial lê pelas views de proposta e contrato"
+    },
+    "pagamentos": {
+      "select": [
+        "admin",
+        "financeiro",
+        "visualizador",
+        "comercial"
+      ],
+      "insert": [
+        "admin",
+        "financeiro"
+      ],
+      "update": [
+        "admin",
+        "financeiro"
+      ],
+      "delete": [
+        "admin",
+        "financeiro"
+      ]
+    },
+    "acordos_pagamento": {
+      "select": [
+        "admin",
+        "financeiro",
+        "visualizador",
+        "comercial"
+      ],
+      "insert": [
+        "admin",
+        "financeiro"
+      ],
+      "update": [
+        "admin",
+        "financeiro"
+      ],
+      "delete": [
+        "admin",
+        "financeiro"
+      ]
+    },
+    "acordo_parcelas": {
+      "select": [
+        "admin",
+        "financeiro",
+        "visualizador",
+        "comercial"
+      ],
+      "insert": [
+        "admin",
+        "financeiro"
+      ],
+      "update": [
+        "admin",
+        "financeiro"
+      ],
+      "delete": [
+        "admin",
+        "financeiro"
+      ]
+    },
+    "fd": {
+      "select": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "insert": [
+        "admin",
+        "financeiro"
+      ],
+      "update": [
+        "admin",
+        "financeiro"
+      ],
+      "delete": [
+        "admin",
+        "financeiro"
+      ]
+    },
+    "empresas": {
+      "select": "todos",
+      "insert": [],
+      "update": [
+        "admin"
+      ],
+      "delete": []
+    },
+    "profiles": {
+      "select": "todos",
+      "insert": [
+        "admin"
+      ],
+      "update": [
+        "admin",
+        "medicao"
+      ],
+      "delete": [
+        "admin"
+      ],
+      "_nota": "a linha de amostra é a do usuário de medição: ele edita a própria linha (13.1 trava perfil, situação e e-mail por trigger)"
+    },
+    "auditoria_eventos": {
+      "select": [
+        "admin"
+      ],
+      "insert": [],
+      "update": [],
+      "delete": [],
+      "_nota": "amostra fora de notas_fiscais; o histórico da NF abre para financeiro e visualizador (13.2)"
+    },
+    "automacao_eventos": {
+      "select": "todos",
+      "insert": [],
+      "update": [],
+      "delete": []
+    }
+  },
+  "buckets": {
+    "anexos": {
+      "select": "todos",
+      "insert": [
+        "admin",
+        "comercial",
+        "producao",
+        "medicao",
+        "financeiro"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "anexos/pagamentos": {
+      "select": [
+        "admin",
+        "financeiro",
+        "visualizador",
+        "comercial"
+      ],
+      "insert": [
+        "admin",
+        "financeiro"
+      ],
+      "delete": [
+        "admin",
+        "financeiro"
+      ],
+      "_nota": "comprovante de pagamento: <empresa>/<x>/pagamentos/<arquivo>"
+    },
+    "documentos": {
+      "select": "todos",
+      "insert": [
+        "admin",
+        "comercial"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "documentos-processamento": {
+      "select": "todos",
+      "insert": [
+        "admin",
+        "comercial"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "evidencias": {
+      "select": "todos",
+      "insert": [
+        "admin",
+        "producao",
+        "medicao",
+        "financeiro"
+      ],
+      "delete": [
+        "admin"
+      ]
+    },
+    "notas-fiscais": {
+      "select": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "insert": [
+        "admin",
+        "financeiro"
+      ],
+      "delete": [
+        "admin"
+      ]
+    }
+  },
+  "rotas": {
+    "_leia": "Cada rota de rotas-esperadas.txt × cada perfil, pela URL direta (camada runtime). Lista = perfis que abrem a tela (200). Os outros têm de ser redirecionados (página) ou receber 401/403 (API). Rota fora daqui é pública ou de token e fica de fora da varredura: veja 'fora'.",
+    "fora": [
+      "/_not-found",
+      "/login",
+      "/convite",
+      "/convite/senha",
+      "/sair",
+      "/api/ingestao/contrato",
+      "/api/ingestao/proposta",
+      "/api/ingestao/resposta-obra"
+    ],
+    "acesso": {
+      "/": "todos",
+      "/obras": "todos",
+      "/obras/[id]": "todos",
+      "/obras/nova": [
+        "admin",
+        "comercial"
+      ],
+      "/obras/[id]/editar": [
+        "admin",
+        "comercial"
+      ],
+      "/clientes": [
+        "admin",
+        "comercial",
+        "visualizador"
+      ],
+      "/clientes/novo": [
+        "admin",
+        "comercial"
+      ],
+      "/clientes/[id]/editar": [
+        "admin",
+        "comercial"
+      ],
+      "/orcamentos": [
+        "admin",
+        "comercial",
+        "visualizador"
+      ],
+      "/orcamentos/[id]": [
+        "admin",
+        "comercial",
+        "visualizador"
+      ],
+      "/orcamentos/novo": [
+        "admin",
+        "comercial"
+      ],
+      "/orcamentos/[id]/editar": [
+        "admin",
+        "comercial"
+      ],
+      "/propostas": [
+        "admin",
+        "comercial",
+        "visualizador"
+      ],
+      "/propostas/[id]": [
+        "admin",
+        "comercial",
+        "visualizador"
+      ],
+      "/propostas/nova": [
+        "admin",
+        "comercial"
+      ],
+      "/propostas/[id]/editar": [
+        "admin",
+        "comercial"
+      ],
+      "/propostas/[id]/gerar-contrato": [
+        "admin",
+        "comercial"
+      ],
+      "/contratos": [
+        "admin",
+        "comercial",
+        "visualizador"
+      ],
+      "/contratos/[id]": [
+        "admin",
+        "comercial",
+        "visualizador"
+      ],
+      "/contratos/novo": [
+        "admin",
+        "comercial"
+      ],
+      "/contratos/[id]/editar": [
+        "admin",
+        "comercial"
+      ],
+      "/documentos": [
+        "admin",
+        "comercial",
+        "visualizador"
+      ],
+      "/documentos/[id]": [
+        "admin",
+        "comercial",
+        "visualizador"
+      ],
+      "/documentos/log": [
+        "admin",
+        "comercial",
+        "visualizador"
+      ],
+      "/execucao": [
+        "admin",
+        "producao",
+        "medicao",
+        "visualizador"
+      ],
+      "/fd": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/fd/[id]": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/fd/novo": [
+        "admin",
+        "financeiro"
+      ],
+      "/fd/[id]/editar": [
+        "admin",
+        "financeiro"
+      ],
+      "/financeiro": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/financeiro/visao-geral": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/financeiro/notas-fiscais": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/financeiro/notas-fiscais/[id]": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/financeiro/notas-fiscais/novo": [
+        "admin",
+        "financeiro"
+      ],
+      "/financeiro/notas-fiscais/[id]/editar": [
+        "admin",
+        "financeiro"
+      ],
+      "/financeiro/pagamentos": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/financeiro/pagamentos/novo": [
+        "admin",
+        "financeiro"
+      ],
+      "/financeiro/acordos": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/financeiro/acordos/[id]": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/financeiro/acordos/novo": [
+        "admin",
+        "financeiro"
+      ],
+      "/logs": [
+        "admin"
+      ],
+      "/configuracoes": [
+        "admin"
+      ],
+      "/configuracoes/contatos": [
+        "admin"
+      ],
+      "/configuracoes/usuarios": [
+        "admin"
+      ],
+      "/api/export/obras": "todos",
+      "/api/template/itens": "todos",
+      "/api/export/orcamentos": [
+        "admin",
+        "comercial",
+        "visualizador"
+      ],
+      "/api/export/propostas": [
+        "admin",
+        "comercial",
+        "visualizador"
+      ],
+      "/api/export/contratos": [
+        "admin",
+        "comercial",
+        "visualizador"
+      ],
+      "/api/export/execucao": [
+        "admin",
+        "producao",
+        "medicao",
+        "visualizador"
+      ],
+      "/api/export/notas-fiscais": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/api/export/pagamentos": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/api/export/acordos": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/api/export/financeiro": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/api/export/fd": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/api/relatorio/fd-conciliacao/[obraId]": [
+        "admin",
+        "financeiro",
+        "visualizador"
+      ],
+      "/api/relatorio/medicao/[obraId]": [
+        "admin",
+        "medicao",
+        "financeiro"
+      ]
+    },
+    "redirecionaQuemPode": {
+      "/financeiro": "/financeiro/visao-geral"
+    }
+  }
+}

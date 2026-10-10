@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
 import { filtroDePagamentos } from '@/app/(app)/financeiro/pagamentos/filtro'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { BRL_FORMAT, DATE_FORMAT, buildWorkbookResponse, todayStr } from '@/lib/excel-export'
 import { FORMA_PAGAMENTO_LABELS, documentoDoPagamento, isPagamentoForma, isPagamentoOrigem, ORIGEM_PAGAMENTO_LABELS, rotuloForma } from '@/lib/pagamentos'
 import { createClient } from '@/lib/supabase/server'
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
   )
     .order('data_pagamento', { ascending: false })
     .order('created_at', { ascending: false })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return NextResponse.json({ error: mensagemDeErroBanco(error) }, { status: 500 })
 
   const rows = (data ?? []) as Linha[]
   const metaParts = [

@@ -8,6 +8,7 @@ import {
   tipoDaEvidencia,
   type Evidencia,
 } from '@/lib/evidencias'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { isEtapa } from '@/lib/execucao'
 import { createClient } from '@/lib/supabase/server'
 import type { ExecucaoUpdate } from '@/lib/types'
@@ -64,7 +65,7 @@ async function lerLinha(supabase: Cliente, id: string) {
     .select('id, empresa_id, updated_at, evidencias, item:itens!inner(obra_id)')
     .eq('id', id)
     .maybeSingle()
-  if (error) return { ok: false as const, error: error.message }
+  if (error) return { ok: false as const, error: mensagemDeErroBanco(error) }
   if (!data) return { ok: false as const, error: 'Execução não encontrada' }
   return { ok: true as const, linha: data }
 }
@@ -95,7 +96,7 @@ async function gravarEvidencias(
     const { data, error } = await (visto === null ? base.is('updated_at', null) : base.eq('updated_at', visto))
       .select('updated_at')
       .maybeSingle()
-    if (error) return { ok: false, error: error.message }
+    if (error) return { ok: false, error: mensagemDeErroBanco(error) }
     if (data) {
       return {
         ok: true,
@@ -192,7 +193,7 @@ export async function urlsDasEvidencias(
   const paths = lerEvidencias(lida.linha.evidencias).map((e) => e.path)
   if (paths.length === 0) return { ok: true, urls: {} }
   const { data, error } = await s.supabase.storage.from(BUCKET_EVIDENCIAS).createSignedUrls(paths, 60 * 10)
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
   const urls: Record<string, string> = {}
   for (const d of data ?? []) if (d.path && d.signedUrl) urls[d.path] = d.signedUrl
   return { ok: true, urls }

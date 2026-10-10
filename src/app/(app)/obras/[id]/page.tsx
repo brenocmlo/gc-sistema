@@ -6,12 +6,25 @@ import DetailField from '@/components/DetailField'
 import StatusBadge from '@/components/StatusBadge'
 import Tabs from '@/components/Tabs'
 import { hojeISO } from '@/lib/execucao'
+import {
+  atrasadoDaObra,
+  blocosFinanceiros,
+  linhaDaNf,
+  linhaDoTempo,
+  parcelasEmAberto,
+  type AcordoDaObra,
+  type FinanceiroDaObra,
+  type NfDaObra,
+  type PagamentoDaObra,
+  type ReceitasDaObra,
+} from '@/lib/financeiro-obra'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { getCurrentProfile } from '@/lib/supabase/profile'
 import { createClient } from '@/lib/supabase/server'
 import type { ExecucaoListItem, Obra, ObraStatus } from '@/lib/types'
 
 import ExecucaoTab from './execucao-tab'
+import FinanceiroTab from './financeiro-tab'
 import RelatorioFdButton from './relatorio-fd-button'
 
 type PageProps = {
@@ -24,6 +37,8 @@ const PERFIS_QUE_VEEM_EXECUCAO = ['admin', 'producao', 'medicao', 'visualizador'
 const PERFIS_QUE_APONTAM = ['admin', 'producao', 'medicao']
 /** A rota /api/relatorio/medicao (8.4). */
 const PERFIS_QUE_EMITEM_MEDICAO = ['admin', 'medicao', 'financeiro']
+/** O layout de /financeiro: a aba Financeiro (12.1) é para os mesmos perfis. */
+const PERFIS_QUE_VEEM_FINANCEIRO = ['admin', 'financeiro', 'visualizador']
 /** Teto de linhas do PostgREST, como na /execucao. */
 const LIMITE_POSTGREST = 1000
 
@@ -32,8 +47,9 @@ export default async function ObraDetalhePage({ params, searchParams }: PageProp
   if (!profile) redirect('/login')
 
   const supabase = createClient()
+  const veFinanceiro = PERFIS_QUE_VEEM_FINANCEIRO.includes(profile.perfil)
 
-  const [{ data }, execRes] = await Promise.all([
+  const [{ data }, execRes, financeiro] = await Promise.all([
     supabase
       .from('obras_com_valores')
       .select(
@@ -47,6 +63,8 @@ export default async function ObraDetalhePage({ params, searchParams }: PageProp
       .select('*, item:itens!inner(id, numero, tipo, descricao, quantidade, unidade, obra_id)')
       .eq('item.obra_id', params.id)
       .limit(LIMITE_POSTGREST),
+    // Aba Financeiro (12.1): os totais das views, e as linhas das listas.
+    veFinanceiro ? carregarFinanceiro(supabase, params.id) : Promise.resolve(null),
   ])
 
   if (!data) notFound()
@@ -82,6 +100,9 @@ export default async function ObraDetalhePage({ params, searchParams }: PageProp
   }
 
   const execucoes = (execRes.data ?? []) as ExecucaoListItem[]
+  // Um "hoje" só para a requisição: o atrasado e as situações saem iguais.
+  const hoje = hojeISO()
+  const abaFinanceiro = financeiro ? montarFinanceiro(financeiro, valoresCalc.valor_final_calculado, hoje) : null
 
   const detalhes = (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -198,7 +219,7 @@ export default async function ObraDetalhePage({ params, searchParams }: PageProp
       </header>
 
       <Tabs
-        defaultValue={searchParams?.aba === 'execucao' ? 'execucao' : 'detalhes'}
+        defaultValue={searchParams?.aba === 'execucao' ? 'execucao' : searchParams?.aba === 'financeiro' && abaFinanceiro ? 'financeiro' : 'detalhes'}
         tabs={[
           { value: 'detalhes', label: 'Detalhes', content: detalhes },
           {
@@ -208,17 +229,64 @@ export default async function ObraDetalhePage({ params, searchParams }: PageProp
               <ExecucaoTab
                 obraId={obra.id}
                 execucoes={execucoes}
-                hoje={hojeISO()}
+                hoje={hoje}
                 podeAbrirExecucao={PERFIS_QUE_VEEM_EXECUCAO.includes(profile.perfil)}
                 podeApontar={PERFIS_QUE_APONTAM.includes(profile.perfil)}
                 podeEmitirMedicao={PERFIS_QUE_EMITEM_MEDICAO.includes(profile.perfil)}
               />
             ),
           },
+          ...(abaFinanceiro ? [{ value: 'financeiro', label: 'Financeiro', content: <FinanceiroTab {...abaFinanceiro} /> }] : []),
         ]}
       />
     </div>
   )
+}
+
+type Supabase = ReturnType<typeof createClient>
+
+async function carregarFinanceiro(supabase: Supabase, obraId: string) {
+  const [receitas, fin, nfs, acordos, pagamentos] = await Promise.all([
+    supabase.from('receitas_obra').select('total_recebido, saldo_pendente, total_acordos_convertidos_arquivado').eq('obra_id', obraId).maybeSingle(),
+    supabase.from('obras_financeiro').select('total_faturado, total_fd_aceito').eq('obra_id', obraId).maybeSingle(),
+    supabase
+      .from('notas_fiscais')
+      .select('id, numero, serie, tipo, status, data_emissao, data_vencimento, valor_total, pagamentos(valor)')
+      .eq('obra_id', obraId)
+      .order('data_emissao', { ascending: false })
+      .limit(LIMITE_POSTGREST),
+    supabase
+      .from('acordos_pagamento')
+      .select('id, descricao, status, parcelas:acordo_parcelas(id, numero_parcela, data_vencimento, valor_previsto, status, pagamentos(valor))')
+      .eq('obra_id', obraId)
+      .eq('status', 'aberto')
+      .limit(LIMITE_POSTGREST),
+    supabase
+      .from('pagamentos')
+      .select('id, data_pagamento, origem, forma, valor, nota:notas_fiscais(numero, serie, status), parcela:acordo_parcelas(numero_parcela, acordo:acordos_pagamento(descricao, status))')
+      .eq('obra_id', obraId)
+      .order('data_pagamento', { ascending: false })
+      .limit(LIMITE_POSTGREST),
+  ])
+  return {
+    receitas: receitas.data as ReceitasDaObra | null,
+    financeiro: fin.data as FinanceiroDaObra | null,
+    nfs: (nfs.data ?? []) as NfDaObra[],
+    acordos: (acordos.data ?? []) as AcordoDaObra[],
+    pagamentos: (pagamentos.data ?? []) as PagamentoDaObra[],
+  }
+}
+
+function montarFinanceiro(d: NonNullable<Awaited<ReturnType<typeof carregarFinanceiro>>>, contratado: number | null, hoje: string) {
+  const nfs = d.nfs.map((n) => linhaDaNf(n, hoje))
+  const parcelas = parcelasEmAberto(d.acordos, hoje)
+  return {
+    blocos: blocosFinanceiros(contratado, d.receitas, d.financeiro, atrasadoDaObra(nfs, parcelas)),
+    nfs,
+    parcelas,
+    linhaDoTempo: linhaDoTempo(d.pagamentos),
+    arquivado: Number(d.receitas?.total_acordos_convertidos_arquivado ?? 0),
+  }
 }
 
 function Block({ title, children }: { title: string; children: React.ReactNode }) {

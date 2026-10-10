@@ -133,13 +133,29 @@ Aberta em 2026-09-30 e fechada em 2026-10-01, validada no 11.5. A partir daqui, 
 | 11.4 Acordos: conversão em nota fiscal | `11.4-status-entrega.md` — implementado; validado no fechamento da sprint (11.5); migration 037 aplicada em gc-dev; prova das views 13/13 |
 | 11.5 Acordos: encerramento, export e testes | `11.5-status-entrega.md` — **fechamento da sprint: as sete camadas passam** (unitário 355, build 58, runtime 251/251, dados 51/51, escrita 474/474, navegador 209/209); cancelar acordo com pagamento encerra pelo recebido; os blocos 11.1 a 11.4 ficam validados por esta rodada |
 
-## Sprint 13 — Administração, qualidade e segurança · `sprint-13/`
+## Sprint 12 — Painel financeiro e Dashboard · `sprint-12/`
 
-Um bloco **adiantado** em 2026-09-23, a pedido do Breno: a tela de logs e auditoria.
+Aberta em 2026-10-01 e fechada em 2026-10-05, validada no 12.5. É a primeira sprint com a validação ao fim de cada bloco.
 
 | Bloco | Documento |
 |---|---|
-| 13.2 Histórico e auditoria de mudanças | `13.2-status-entrega.md` (etapa A: banco, trigger e tela `/logs`; B e C pendentes) |
+| 12.1 Obra: aba financeira consolidada | `12.1-status-entrega.md` — implementado e validado (sete camadas: unitário 359, runtime 257/257, dados 52/52, escrita 474/474, navegador 212/212); números conferidos contra o SQL manual |
+| 12.2 Tela /financeiro: visão consolidada da empresa | `12.2-status-entrega.md` — implementado e validado (unitário 363, build 60, runtime 267/267, dados 53/53, escrita 474/474, navegador 216/216); o menu Financeiro abre na visão geral |
+| 12.3 Dashboard: página inicial com KPIs | `12.3-status-entrega.md` — implementado e validado (unitário 369, build 60, runtime 273/273, dados 54/54, escrita 474/474, navegador 220/220); a home deixa de ser o "Em construção", com seções, pendências e atalhos por perfil |
+| 12.4 Dashboard: gráficos | `12.4-status-entrega.md` — implementado e validado (unitário 373, build 60, runtime 277/277, dados 55/55, escrita 474/474, navegador 224/224); recharts 3.10.1; funil, receita de 12 meses, progresso das obras e motivos de rejeição |
+| 12.5 Conferência dos números e testes | `12.5-status-entrega.md` — **fechamento da sprint: as sete camadas passam** (unitário 373, build 60, runtime 289/289, dados 56/56, escrita 474/474, navegador 249/249); 75 KPIs = SQL escrito à mão (`supabase/conferencia_kpis.sql`); obra com FD, acordo convertido e NF cancelada; matriz de perfis com clique; conferência visual medida pelo Playwright |
+
+## Sprint 13 — Administração, qualidade e segurança · `sprint-13/`
+
+Fechada em 2026-10-10, validada no 13.5. O 13.2 começou **adiantado**, em 2026-09-23, a pedido do Breno.
+
+| Bloco | Documento |
+|---|---|
+| 13.1 Gestão de usuários | `13.1-status-entrega.md` — **validado: as sete camadas passam** (unitário 379, build 64, runtime 296/296, dados 57/57, escrita 495/495, navegador 254/254); convite por link sem e-mail, desativação com bloqueio no Auth; migration `20261005120000` corrige a autopromoção a admin e o acesso do usuário inativo |
+| 13.2 Histórico e auditoria de mudanças | `13.2-status-entrega.md` — **validado em 2026-10-06: as sete camadas passam** (unitário 385, build 64, runtime 298/298, dados 58/58, escrita 496/496, navegador 256/256); etapa A (banco, trigger e `/logs`), etapa B (erro de escrita gravado pelo `fetch` do client do servidor) e aba Histórico da NF (migration `20261006100000`); etapa C coberta pelo `automacao_eventos`, confirmado pelo Breno em 2026-10-07 |
+| 13.3 Revisão de RLS ponta a ponta | `13.3-status-entrega.md` — **validado em 2026-10-10: as sete camadas passam** (unitário 393, build 65, runtime 298/298 + 342 células de URL direta, dados 60/60 com a matriz de 564 células, escrita 505/505, navegador 256/256); 6 pontos frouxos corrigidos (migrations `20261007100000` e `20261007110000`, guarda nas rotas de FD), regressão do recálculo de valor desfeita (`20261007120000`), matriz perfil × tabela × CRUD × bucket × rota em `scripts/validacao/matriz-rls.json`, conferida pelas camadas dados e runtime |
+| 13.4 Tratamento de erro, loading e estados vazios | `13.4-status-entrega.md` — **validado em 2026-10-10: as sete camadas passam** (unitário 397, build 65, runtime 319/319, dados 60/60, escrita 506/506, navegador 260/260); error/not-found globais e por detalhe, skeleton em 13 telas (grupo `(lista)` para não atrasar os redirects de perfil), erro do Postgres traduzido (`src/lib/erro-banco.ts`), "Limpar filtros" e toasts padronizados |
+| 13.5 Testes automatizados de fumaça | `13.5-status-entrega.md` — **fechamento da sprint: as sete camadas passam** (unitário 397, build 65, runtime 319/319, dados 60/60, escrita 506/506, navegador 260/260); `validar.sh fumaca` com os 4 caminhos críticos (22/22, ~1min30), sem Playwright por decisão do Breno; CI em `.github/workflows/validar.yml` (não está no GitHub ainda) |
 
 ## Sprints 7 a 15 — planejadas
 

@@ -12,6 +12,7 @@ import {
   MIME_COMPROVANTE,
   validarComprovante,
 } from '@/lib/pagamento-comprovante'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { fileExtension } from '@/lib/files'
 import { createClient } from '@/lib/supabase/client'
 
@@ -43,7 +44,7 @@ export default function ComprovanteCell({ pagamentoId, temComprovante, podeEnvia
       const { error } = await createClient()
         .storage.from(BUCKET_COMPROVANTE)
         .uploadToSignedUrl(prep.path, prep.token, arquivo, { contentType: MIME_COMPROVANTE[fileExtension(arquivo.name)] })
-      if (error) return void toast.error(`Não foi possível enviar: ${error.message}`)
+      if (error) return void toast.error(`Não foi possível enviar: ${mensagemDeErroBanco(error)}`)
       const reg = await registrarComprovante(pagamentoId, prep.path)
       if (!reg.ok) return void toast.error(reg.error)
       toast.success(temComprovante ? 'Comprovante substituído' : 'Comprovante anexado')

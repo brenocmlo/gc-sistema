@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { createClient } from '@/lib/supabase/server'
 
 import type { ClientePayload } from '../cliente-form-helpers'
@@ -42,7 +43,7 @@ export async function createCliente(
     .select('id')
     .single()
 
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
 
   revalidatePath('/clientes')
   return { ok: true, id: data.id }

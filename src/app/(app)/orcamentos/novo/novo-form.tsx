@@ -30,7 +30,7 @@ export default function NovoOrcamentoForm({
       return
     }
 
-    toast.success('Orçamento criado com sucesso')
+    toast.success('Orçamento criado')
     router.push(`/orcamentos/${result.id}`)
     router.refresh()
   }

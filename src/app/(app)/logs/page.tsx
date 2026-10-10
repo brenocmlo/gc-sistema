@@ -3,6 +3,7 @@ import { Activity } from 'lucide-react'
 
 import EmptyState from '@/components/EmptyState'
 import Pagination from '@/components/Pagination'
+import SemResultado from '@/components/SemResultado'
 import {
   filtroBuscaAuditoria,
   isAcaoDoTrigger,
@@ -130,9 +131,7 @@ export default async function LogsPage({
           description="Toda criação, edição, mudança de status e exclusão passa a aparecer aqui, com quem fez e o que mudou."
         />
       ) : isEmpty ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
-          Nenhum evento encontrado com esses filtros.
-        </div>
+        <SemResultado texto="Nenhum evento encontrado com esses filtros." limparHref="/logs" />
       ) : (
         <>
           <EventosTable eventos={eventos} autores={autores} />

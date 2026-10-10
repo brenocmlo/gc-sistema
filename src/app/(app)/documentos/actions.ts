@@ -10,9 +10,25 @@ import {
   podeRevisar,
   validarMotivoRecusa,
   validarMotivoDescarte,
+  resumoDoDocumento,
   type DestinoVinculo,
 } from '@/lib/documentos'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
+
+import { descreverErro } from '@/lib/automacao'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { createClient } from '@/lib/supabase/server'
+import type { Database } from '@/lib/supabase/types'
+import {
+  ADMIN_CHAT_ID_PADRAO,
+  alertaDeAutomacaoParada,
+  avisoDeResolucao,
+  chatIdValido,
+  deveAlertar,
+  enviarTelegram,
+  JANELA_ALERTA_HORAS,
+  type Resolucao,
+} from '@/lib/telegram'
 
 export type EnvioResult =
   | { ok: true; id: string; automacao: 'acionada' | 'indisponivel'; aviso?: string }
@@ -90,7 +106,7 @@ export async function registrarEnvioDocumento(input: {
     })
     .select('id')
     .single()
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
 
   revalidatePath('/documentos')
 
@@ -201,7 +217,7 @@ export async function reprocessarDocumento(documentoId: string, obraId: string):
     .from('documentos_processamento')
     .update({ status: 'PENDENTE', motivo_revisao: null, obra_id: obraId, arquivo_url: assinada.signedUrl, etapa: 'NA_FILA', etapa_detalhe: null })
     .eq('id', documentoId)
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
   revalidatePath('/documentos')
   revalidatePath(`/documentos/${documentoId}`)
 
@@ -221,7 +237,7 @@ export async function vincularDocumento(documentoId: string, destino: DestinoVin
   if (!isDestinoVinculo(destino)) return { ok: false, error: 'Escolha a proposta ou o contrato' }
 
   const tabela = destino.tipo === 'proposta' ? 'propostas' : 'contratos'
-  const { data: alvo } = await supabase.from(tabela).select('id, obra_id').eq('id', destino.id).eq('empresa_id', empresaId).maybeSingle()
+  const { data: alvo } = await supabase.from(tabela).select('id, obra_id, numero').eq('id', destino.id).eq('empresa_id', empresaId).maybeSingle()
   if (!alvo) return { ok: false, error: destino.tipo === 'proposta' ? 'Proposta não encontrada' : 'Contrato não encontrado' }
 
   const { error } = await supabase
@@ -236,10 +252,10 @@ export async function vincularDocumento(documentoId: string, destino: DestinoVin
       revisado_em: new Date().toISOString(),
     })
     .eq('id', documentoId)
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
   revalidatePath('/documentos')
   revalidatePath(`/documentos/${documentoId}`)
-  return { ok: true }
+  return comAviso(await avisarQuemEnviou(supabase, documentoId, { acao: 'vinculado', destino: destino.tipo, numeroDestino: alvo.numero ?? null }))
 }
 
 /** Encerra sem gravar nada: PDF errado, duplicado, sem relação com a empresa. */
@@ -257,10 +273,10 @@ export async function descartarDocumento(documentoId: string, motivo: string): P
       revisado_em: new Date().toISOString(),
     })
     .eq('id', documentoId)
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
   revalidatePath('/documentos')
   revalidatePath(`/documentos/${documentoId}`)
-  return { ok: true }
+  return comAviso(await avisarQuemEnviou(auth.supabase, documentoId, { acao: 'descartado', motivo: v.motivo }))
 }
 
 // ============================================================
@@ -308,9 +324,9 @@ export async function aceitarDocumento(documentoId: string): Promise<RevisaoResu
     .from('documentos_processamento')
     .update({ conferencia: 'aceita', revisado_por: auth.userId, revisado_em: new Date().toISOString() })
     .eq('id', documentoId)
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
   revalidarConferencia(auth.doc)
-  return { ok: true }
+  return comAviso(await avisarQuemEnviou(auth.supabase, documentoId, { acao: 'aceito' }))
 }
 
 /**
@@ -376,7 +392,7 @@ export async function recusarDocumento(documentoId: string, motivo: string): Pro
 
   revalidarConferencia(doc)
   revalidatePath(ehProposta ? '/propostas' : '/contratos')
-  return { ok: true }
+  return comAviso(await avisarQuemEnviou(supabase, documentoId, { acao: 'recusado', motivo: v.motivo }))
 }
 
 /**
@@ -394,4 +410,73 @@ async function marcarFalhaAoAcionar(
     .from('documentos_processamento')
     .update({ etapa: 'ERRO', etapa_detalhe: aviso.slice(0, 1000) })
     .eq('id', documentoId)
+  const erro = descreverErro(aviso)
+  if (erro.bloqueiaAutomacao) await alertarAutomacaoParada(erro, documentoId)
+}
+
+// ============================================================
+// Avisos pelo bot (07/10): a quem enviou e ao grupo de admin
+// ============================================================
+
+function comAviso(aviso: string | undefined): RevisaoResult {
+  return aviso ? { ok: true, aviso } : { ok: true }
+}
+
+/**
+ * Conta a quem mandou o PDF pelo bot o que a equipe decidiu. Documento que
+ * veio pela tela não tem a quem avisar. Sem TELEGRAM_BOT_TOKEN, não avisa e
+ * não reclama; com o token, falha no envio vira aviso na tela (a ação em si
+ * já foi feita).
+ */
+async function avisarQuemEnviou(
+  supabase: ReturnType<typeof createClient>,
+  documentoId: string,
+  resolucao: Resolucao,
+): Promise<string | undefined> {
+  const { data: d } = await supabase
+    .from('documentos_processamento')
+    .select('canal, canal_chat_id, tipo_documento, dados_extraidos')
+    .eq('id', documentoId)
+    .maybeSingle()
+  if (!d || d.canal !== 'TELEGRAM' || !chatIdValido(d.canal_chat_id)) return undefined
+  const texto = avisoDeResolucao(
+    { tipo: d.tipo_documento === 'CONTRATO' ? 'contrato' : 'proposta', numero: resumoDoDocumento(d.dados_extraidos).numero },
+    resolucao,
+  )
+  const envio = await enviarTelegram(d.canal_chat_id, texto)
+  if (envio.ok || envio.semConfiguracao) return undefined
+  return `o aviso a quem enviou pelo Telegram não saiu (${envio.error})`
+}
+
+/**
+ * A automação inteira parou (limite do n8n, token, configuração): avisa o
+ * grupo de admin direto pelo Telegram — com o n8n no limite, ele não roda e
+ * não avisaria. Um alerta por causa a cada JANELA_ALERTA_HORAS; o envio fica
+ * registrado em automacao_eventos (etapa ALERTA), que é a memória da janela.
+ * A tabela não tem policy de insert, por isso a service role.
+ */
+async function alertarAutomacaoParada(erro: ReturnType<typeof descreverErro>, documentoId: string) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !serviceRole || !process.env.TELEGRAM_BOT_TOKEN) return
+  const admin = createServiceClient<Database>(url, serviceRole, { auth: { persistSession: false } })
+  const { data: doc } = await admin.from('documentos_processamento').select('empresa_id').eq('id', documentoId).maybeSingle()
+  const desde = new Date(Date.now() - JANELA_ALERTA_HORAS * 3600 * 1000).toISOString()
+  const { data: recentes } = await admin
+    .from('automacao_eventos')
+    .select('detalhe, criado_em')
+    .eq('etapa', 'ALERTA')
+    .gte('criado_em', desde)
+  if (!deveAlertar(recentes ?? [], erro.codigo)) return
+  const chat = process.env.TELEGRAM_ADMIN_CHAT_ID || ADMIN_CHAT_ID_PADRAO
+  const envio = await enviarTelegram(chat, alertaDeAutomacaoParada(erro))
+  await admin.from('automacao_eventos').insert({
+    empresa_id: doc?.empresa_id ?? null,
+    documento_id: documentoId,
+    origem: 'sistema',
+    etapa: 'ALERTA',
+    nivel: envio.ok ? 'info' : 'aviso',
+    mensagem: envio.ok ? `alerta enviado ao grupo do Telegram: ${erro.titulo}` : `alerta ao grupo não saiu: ${envio.error}`,
+    detalhe: erro.codigo,
+  })
 }

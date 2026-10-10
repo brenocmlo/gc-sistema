@@ -13,10 +13,14 @@ import type { Anexo } from './types'
 
 export type EntidadeDoAnexo = 'propostas' | 'contratos'
 
-/** `{empresa}/sistema/1727_proposta-x.pdf` → `proposta-x.pdf` (tira o carimbo de tempo). */
+/**
+ * Tira a pasta e o prefixo que só serve para não colidir no bucket: o carimbo
+ * de tempo da tela (`1727712345678_proposta.pdf`) e o update_id do Telegram
+ * (`174281296-proposta.pdf`).
+ */
 export function nomeOriginalDoArquivo(caminho: string): string {
   const ultimo = caminho.split('/').pop() ?? ''
-  const nome = ultimo.replace(/^\d{10,}_/, '')
+  const nome = ultimo.replace(/^\d{10,}_/, '').replace(/^\d{6,}-/, '')
   return nome || 'documento.pdf'
 }
 

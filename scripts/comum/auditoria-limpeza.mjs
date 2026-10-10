@@ -55,6 +55,28 @@ export async function limparAuditoriaDoRoteiro(svc, desde) {
     }
   }
 
+  // Erro de escrita (etapa B do 13.2): o roteiro provoca recusas de propósito
+  // (perfil sem permissão, NF cancelada, CHECK), e o registro recusado em geral
+  // continua existindo — o critério acima não o pega. Sai o evento de erro
+  // gravado no período pelas sessões do roteiro: os perfis @teste.com e o
+  // usuário da validação. Um erro real desse usuário durante a rodada sai
+  // junto; é o preço de não deixar dezenas de erros de teste por rodada.
+  const emailValidacao = process.env.VALIDACAO_EMAIL
+  const filtroAutor = ['email.like.%@teste.com', emailValidacao ? `email.eq.${emailValidacao}` : null].filter(Boolean).join(',')
+  const { data: autores } = await svc.from('profiles').select('id').or(filtroAutor)
+  const idsAutores = (autores ?? []).map((a) => a.id)
+  if (idsAutores.length > 0) {
+    const { data: erros } = await svc
+      .from('auditoria_eventos')
+      .select('id')
+      .gte('em', desde)
+      .eq('resultado', 'erro')
+      .eq('origem', 'sistema')
+      .in('autor_id', idsAutores)
+    const ja = new Set(aApagar)
+    for (const e of erros ?? []) if (!ja.has(e.id)) aApagar.push(e.id)
+  }
+
   let error = null
   for (let i = 0; i < aApagar.length; i += 200) {
     const r = await svc.from('auditoria_eventos').delete().in('id', aApagar.slice(i, i + 200))

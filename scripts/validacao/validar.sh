@@ -6,8 +6,10 @@
 #   bash scripts/validacao/validar.sh                  # todas as camadas, em ordem
 #   bash scripts/validacao/validar.sh estatico unit    # só as camadas pedidas
 #   bash scripts/validacao/validar.sh --lista          # o que cada camada faz
+#   bash scripts/validacao/validar.sh fumaca           # build + os 4 caminhos críticos (13.5)
 #
 # Camadas: estatico | unit | build | runtime | dados | escrita | navegador
+# Fora da rodada completa: fumaca (subconjunto rápido; o plano inteiro já cobre)
 #
 # Para no primeiro erro: camada barata que falha invalida as caras, e seguir
 # em frente só produz ruído. O resumo final diz o que passou e o que não rodou.
@@ -115,6 +117,10 @@ navegador Chrome headless dirigido por CDP sobre o `next dev`
           (scripts/validacao/validar-navegador.mjs). Prova o que só roda no cliente: zod
           do formulário, cálculo ao vivo, diálogo condicional, toast, navegação
           e o ConfirmDialog. Deixa screenshots. Mais lenta que as outras.
+fumaca    (fora da rodada completa) build + next start + os 4 caminhos críticos
+          por HTTP contra gc-dev (scripts/validacao/validar-fumaca.mjs): login e
+          perfis, orçamento → proposta → contrato → item, a cascata da execução
+          e NF → pagamento → status. Poucos minutos. NÃO substitui o plano.
 TXT
 }
 
@@ -338,6 +344,46 @@ camada_escrita() {
   fi
 }
 
+camada_fumaca() {
+  titulo "fumaça — os 4 caminhos críticos (next start + Server Actions)"
+  local t0=$SECONDS
+
+  if ! exigir_gc_dev; then
+    falhou fumaca "0s, banco errado"; return 1
+  fi
+  if [[ ! -d "$NEXT_DIST_DIR" || -d "$NEXT_DIST_DIR/static/development" ]]; then
+    echo "  precisa do build de produção (o mapa de actions vem do $NEXT_DIST_DIR)."
+    falhou fumaca "0s, sem build"; return 1
+  fi
+  if ! exigir_porta_livre "$PORTA"; then
+    falhou fumaca "0s, porta ocupada"; return 1
+  fi
+  PORTAS_NOSSAS+=("$PORTA")
+  npx next start -p "$PORTA" > /tmp/validar-next-fumaca.log 2>&1 &
+  SERVER_PID=$!
+
+  local i codigo=000
+  for i in $(seq 1 40); do
+    codigo="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/login")"
+    [[ "$codigo" != "000" ]] && break
+    sleep 1
+  done
+  if [[ "$codigo" != "200" ]]; then
+    echo "  /login devolveu $codigo — servidor não está servindo a aplicação."
+    tail -20 /tmp/validar-next-fumaca.log
+    falhou fumaca "$((SECONDS - t0))s, /login devolveu $codigo"; return 1
+  fi
+
+  local r=0
+  BASE_URL="$BASE_URL" node --env-file=.env.local scripts/validacao/validar-fumaca.mjs || r=$?
+  derrubar_servidor "$PORTA"
+  if [[ $r -eq 0 ]]; then
+    ok fumaca "$((SECONDS - t0))s"
+  else
+    falhou fumaca "$((SECONDS - t0))s"; return 1
+  fi
+}
+
 camada_navegador() {
   titulo "7/7 navegador — Chrome headless sobre o next dev"
   local t0=$SECONDS
@@ -362,7 +408,10 @@ camada_navegador() {
   npx next dev -p "$porta_dev" > /tmp/validar-next-dev.log 2>&1 &
   SERVER_PID=$!
 
-  "$chrome" --headless=new --remote-debugging-port="$PORTA_CDP" --no-first-run     --user-data-dir="/tmp/gc-validacao/chrome-profile-$PORTA_CDP" about:blank     > /tmp/validar-chrome.log 2>&1 &
+  # CHROME_FLAGS: extras do ambiente. No GitHub Actions é `--no-sandbox`: o
+  # Ubuntu do runner não dá ao Chrome o namespace que o sandbox exige.
+  # shellcheck disable=SC2086
+  "$chrome" --headless=new ${CHROME_FLAGS:-} --remote-debugging-port="$PORTA_CDP" --no-first-run     --user-data-dir="/tmp/gc-validacao/chrome-profile-$PORTA_CDP" about:blank     > /tmp/validar-chrome.log 2>&1 &
   CHROME_PID=$!
 
   local i codigo=000
@@ -396,6 +445,8 @@ camada_navegador() {
 
 # ---------- orquestração ----------
 TODAS=(estatico unit build runtime dados escrita navegador)
+# Ordem de execução, com a fumaça no fim; ela só roda quando pedida.
+ORDEM=(estatico unit build runtime dados escrita navegador fumaca)
 ACEITAR_ROTAS=0
 PEDIDAS=()
 
@@ -404,6 +455,8 @@ for arg in "$@"; do
     --lista|-l) lista; exit 0 ;;
     --aceitar-rotas) ACEITAR_ROTAS=1 ;;
     estatico|unit|build|runtime|dados|escrita|navegador) PEDIDAS+=("$arg") ;;
+    # A fumaça chama as actions pelo build de produção: vem com a camada build.
+    fumaca) PEDIDAS+=(build fumaca) ;;
     *) echo "camada desconhecida: $arg (use --lista)" >&2; exit 2 ;;
   esac
 done
@@ -416,7 +469,7 @@ FALHOU=""
 # Sobra de rodada interrompida esconde dado de que outra camada depende e a
 # faz falhar com mensagem enganosa. Confere uma vez, antes da primeira camada
 # que usa o banco.
-if [[ " ${PEDIDAS[*]} " =~ \ (runtime|dados|escrita|navegador)\  ]]; then
+if [[ " ${PEDIDAS[*]} " =~ \ (runtime|dados|escrita|navegador|fumaca)\  ]]; then
   titulo "0/7 sobras — registros VALIDA-* e RUN-* de rodadas anteriores"
   if ! exigir_gc_dev || ! node --env-file=.env.local scripts/validacao/verificar-sobras.mjs; then
     falhou sobras "gc-dev com sobras"
@@ -424,7 +477,7 @@ if [[ " ${PEDIDAS[*]} " =~ \ (runtime|dados|escrita|navegador)\  ]]; then
   fi
 fi
 
-for camada in "${TODAS[@]}"; do
+for camada in "${ORDEM[@]}"; do
   # Mantém sempre a ordem barato → caro, independente da ordem dos argumentos.
   [[ " ${PEDIDAS[*]} " == *" $camada "* ]] || continue
 

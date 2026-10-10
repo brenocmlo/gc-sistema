@@ -1,3 +1,4 @@
+import { mensagemDeErroBanco } from './erro-banco.ts'
 import { novaEntradaHistorico, type EntradaHistorico } from './historico.ts'
 import type { ContratoStatus, MotivoRescisaoContrato } from './types'
 import { MOTIVO_RESCISAO_LABELS } from './types.ts'
@@ -194,5 +195,5 @@ export function mensagemDeErroContrato(raw: string): string {
   if (raw.includes('violates foreign key constraint') && raw.includes('contratos')) {
     return 'Existe registro vinculado a este contrato'
   }
-  return raw
+  return mensagemDeErroBanco(raw)
 }

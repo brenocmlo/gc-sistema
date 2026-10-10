@@ -16,6 +16,7 @@
 // `*_status` é GENERATED e as datas vêm do trigger `execucao_preenche_datas`.
 // `statusDaEtapa` só espelha a regra do GENERATED para a prévia na tela.
 
+import { mensagemDeErroBanco } from './erro-banco.ts'
 import type { EtapaStatus } from './types'
 
 export const ETAPAS = ['fab', 'ent', 'inst', 'med'] as const
@@ -244,7 +245,7 @@ export function mensagemDeErroExecucao(raw: string): string {
   if (raw.includes('apenas admin ou financeiro pode alterar valor_unit')) {
     return 'Só admin ou financeiro altera o valor unitário da execução'
   }
-  return raw
+  return mensagemDeErroBanco(raw)
 }
 
 // ============================================================

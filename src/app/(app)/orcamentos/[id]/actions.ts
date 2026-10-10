@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 
 import { autorizarExclusaoDeAnexo, removeuDoStorage, STATUS_MUDOU_NO_MEIO } from '@/lib/anexos'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { buildStoragePath, validateFile, fileErrorMessage } from '@/lib/files'
 import {
   appendHistorico,
@@ -48,7 +49,7 @@ export async function deleteOrcamento(
   }
 
   const { error } = await supabase.from('orcamentos').delete().eq('id', id)
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
 
   revalidatePath('/orcamentos')
   return { ok: true }
@@ -165,7 +166,7 @@ export async function changeOrcamentoStatus(
     .eq('status', statusAtual)
     .select('id')
 
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
   if (!gravado || gravado.length === 0) return { ok: false, error: STATUS_MUDOU_NO_MEIO }
 
   revalidatePath('/orcamentos')
@@ -291,7 +292,7 @@ export async function getAnexoUrl(path: string): Promise<AnexoUrlResult> {
     .from(BUCKET)
     .createSignedUrl(path, 60 * 60)
 
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
   return { ok: true, url: data.signedUrl }
 }
 

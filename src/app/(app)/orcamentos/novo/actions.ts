@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { createClient } from '@/lib/supabase/server'
 import type { OrcamentoStatus } from '@/lib/types'
 
@@ -60,7 +61,7 @@ export async function createOrcamento(
     .single()
 
   if (error) {
-    return { ok: false, error: error.message }
+    return { ok: false, error: mensagemDeErroBanco(error) }
   }
 
   // Invalida a lista pra mostrar o novo orçamento quando a usuária voltar.

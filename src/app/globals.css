@@ -1,3 +1,20 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Gráficos (recharts): a área do gráfico recebe foco pelo teclado
+ * (accessibilityLayer). O clique do mouse também dava foco e desenhava um
+ * contorno azul em volta do gráfico, que fazia ele parecer um botão. O
+ * contorno fica só no foco por teclado.
+ */
+.recharts-wrapper:focus:not(:focus-visible),
+.recharts-surface:focus:not(:focus-visible) {
+  outline: none;
+}
+.recharts-wrapper:focus-visible,
+.recharts-surface:focus-visible {
+  outline: 2px solid #2a78d6;
+  outline-offset: 2px;
+  border-radius: 4px;
+}

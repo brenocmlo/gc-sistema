@@ -2,8 +2,10 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
 
+import AuditoriaTab from '@/components/AuditoriaTab'
 import DetailField from '@/components/DetailField'
 import Tabs from '@/components/Tabs'
+import type { EventoAuditoria } from '@/lib/auditoria'
 import { hojeISO } from '@/lib/execucao'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { isNfEditavel, recebidoDaNf, situacaoDaNf, TIPO_NF_LABELS } from '@/lib/notas-fiscais'
@@ -46,6 +48,22 @@ export default async function NotaFiscalDetalhePage({ params }: PageProps) {
   const nf = row as NotaFiscal
   const recebido = recebidoDaNf(pagamentos)
   const obraLabel = obra ? `${obra.codigo_obra} — ${obra.nome}` : '—'
+
+  // Histórico (13.2): a NF não guarda histórico em jsonb; os eventos vêm de
+  // auditoria_eventos, que a policy da migration 20261006100000 abre para
+  // quem vê a NF. Os autores viram nome numa consulta só.
+  const { data: eventosData } = await supabase
+    .from('auditoria_eventos')
+    .select('id, em, origem, entidade, registro_id, referencia, acao, resultado, mensagem, autor_id, autor_descricao, detalhe')
+    .eq('entidade', 'notas_fiscais')
+    .eq('registro_id', nf.id)
+    .order('em', { ascending: false })
+    .order('id', { ascending: false })
+  const eventos = (eventosData ?? []) as EventoAuditoria[]
+  const autoresIds = Array.from(new Set(eventos.map((e) => e.autor_id).filter((v): v is string => Boolean(v))))
+  const { data: autoresData } =
+    autoresIds.length > 0 ? await supabase.from('profiles').select('id, nome').in('id', autoresIds) : { data: [] }
+  const autores = new Map((autoresData ?? []).map((p) => [p.id, p.nome]))
 
   return (
     <div className="space-y-6">
@@ -93,6 +111,11 @@ export default async function NotaFiscalDetalhePage({ params }: PageProps) {
                 cancelada={nf.status === 'cancelada'}
               />
             ),
+          },
+          {
+            value: 'historico',
+            label: `Histórico${eventos.length > 0 ? ` (${eventos.length})` : ''}`,
+            content: <AuditoriaTab eventos={eventos} autores={autores} entidade="nota fiscal" />,
           },
         ]}
       />

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { createClient } from '@/lib/supabase/server'
 
 import type { ObraPayload } from '../obra-form-helpers'
@@ -47,7 +48,7 @@ export async function createObra(input: ObraPayload): Promise<CreateObraResult> 
         error: 'Já existe uma obra com esse código nessa empresa',
       }
     }
-    return { ok: false, error: error.message }
+    return { ok: false, error: mensagemDeErroBanco(error) }
   }
 
   revalidatePath('/obras')

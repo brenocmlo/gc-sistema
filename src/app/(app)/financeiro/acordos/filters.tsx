@@ -80,7 +80,7 @@ export default function AcordosFiltros({
         aria-label="Obra"
         value={obra}
         onChange={(e) => updateParam('obra', e.target.value)}
-        className="px-3 py-2 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+        className="px-3 py-2 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent max-w-full"
       >
         <option value="">Todas as obras</option>
         {obraOptions.map((opt) => (
@@ -93,7 +93,7 @@ export default function AcordosFiltros({
         aria-label="Status"
         value={status}
         onChange={(e) => updateParam('status', e.target.value)}
-        className="px-3 py-2 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+        className="px-3 py-2 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent max-w-full"
       >
         {STATUS_OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>
@@ -105,7 +105,7 @@ export default function AcordosFiltros({
         aria-label="Motivo"
         value={motivo}
         onChange={(e) => updateParam('motivo', e.target.value)}
-        className="px-3 py-2 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+        className="px-3 py-2 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent max-w-full"
       >
         {MOTIVO_OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>
@@ -117,7 +117,7 @@ export default function AcordosFiltros({
         aria-label="Período"
         value={periodo}
         onChange={(e) => updateParam('periodo', e.target.value)}
-        className="px-3 py-2 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+        className="px-3 py-2 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent max-w-full"
       >
         {PERIODO_OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>

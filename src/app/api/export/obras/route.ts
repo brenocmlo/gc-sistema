@@ -7,6 +7,7 @@ import {
   buildWorkbookResponse,
   todayStr,
 } from '@/lib/excel-export'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { createClient } from '@/lib/supabase/server'
 import type { ObraStatus } from '@/lib/types'
 
@@ -63,7 +64,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await query
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: mensagemDeErroBanco(error) }, { status: 500 })
   }
 
   const rows = (data ?? []).map((d) => {

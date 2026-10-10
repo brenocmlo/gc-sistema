@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { createClient } from '@/lib/supabase/server'
 
 import type { ClientePayload } from '../../cliente-form-helpers'
@@ -35,7 +36,7 @@ export async function updateCliente(
 
   const { error } = await supabase.from('clientes').update(input).eq('id', id)
 
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
 
   revalidatePath('/clientes')
   revalidatePath(`/clientes/${id}/editar`)
@@ -76,7 +77,7 @@ export async function deleteCliente(id: string): Promise<DeleteClienteResult> {
           'Cliente vinculado a orçamentos ou obras. Remova os vínculos antes.',
       }
     }
-    return { ok: false, error: error.message }
+    return { ok: false, error: mensagemDeErroBanco(error) }
   }
 
   revalidatePath('/clientes')

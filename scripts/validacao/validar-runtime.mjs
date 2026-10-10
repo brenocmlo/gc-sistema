@@ -184,8 +184,8 @@ const cookie = `sb-${ref}-auth-token=${valor}`
 // Sessões extras, sob demanda: só entra o perfil que alguma rota pedir.
 const cookiesPorPerfil = { admin: cookie }
 
+// A varredura de URL direta do 13.3 (no fim) usa todos os perfis.
 for (const nome of Object.keys(PERFIS_DE_TESTE)) {
-  if (!rotas.some((r) => r.perfil === nome)) continue
 
   let sessao
   try {
@@ -305,6 +305,14 @@ const { data: ctExecucao } = await supabase
   .eq('numero', 'SEED-CT-EXEC')
   .maybeSingle()
 
+// {obraDosAcordos} → a obra do SEED-CT-EXEC-45 (supabase/seed_acordos.sql): a
+// parcela atrasada do SEED-AC-004 e o arquivado do convertido SEED-AC-005 (12.1).
+const { data: ctAcordos } = await supabase
+  .from('contratos')
+  .select('obra_id')
+  .eq('numero', 'SEED-CT-EXEC-45')
+  .maybeSingle()
+
 const { data: obraPrimeira } = await supabase
   .from('obras')
   .select('id')
@@ -411,6 +419,12 @@ for (const rota of rotas) {
     continue
   }
 
+  if (rota.path.includes('{obraDosAcordos}') && !ctAcordos) {
+    falhas += 1
+    console.log(`  FALHA ${rota.path} — sem SEED-CT-EXEC-45; rode bash scripts/banco/aplicar-seed.sh supabase/seed_execucao.sql`)
+    continue
+  }
+
   if (rota.path.includes('{obraExecucao}') && !ctExecucao) {
     falhas += 1
     console.log(
@@ -456,6 +470,7 @@ for (const rota of rotas) {
     .replace('{clienteDosContratos}', encodeURIComponent(clienteDosContratos ?? ''))
     .replace('{obraSemContrato}', obraSemContrato ?? '')
     .replace('{obraExecucao}', ctExecucao?.obra_id ?? '')
+    .replace('{obraDosAcordos}', ctAcordos?.obra_id ?? '')
     .replace('{obraPrimeira}', obraPrimeira?.id ?? '')
     .replace('{orcamentoPrimeiro}', orcamentoPrimeiro?.id ?? '')
     .replace('{nfEmitida}', nfSeed('SEED-NF-001') ?? '')
@@ -484,9 +499,21 @@ for (const rota of rotas) {
     redirect: 'manual',
     headers: { cookie: cookieDaRota },
   })
-  if (res.status !== esperaStatus) {
+  if (rota.redirecionaParaPrimeiraPagina) {
+    // 13.4: listagem com loading.tsx. A página além do fim redireciona depois
+    // que o skeleton já saiu, então o Next manda o redirect no HTML. O destino
+    // é a mesma listagem, sem a página e com os filtros.
+    const destino = new URL(path, BASE)
+    destino.searchParams.delete('page')
+    const esperado = `${destino.pathname}${destino.search}`.replace(/&/g, '&amp;')
+    const html = res.status === 200 ? await res.text() : ''
+    if (res.status !== 200) problemas.push(`autenticado devolveu ${res.status}, esperado 200 com o redirect no HTML`)
+    else if (!html.includes('id="__next-page-redirect"')) problemas.push('HTML sem o redirect do Next (__next-page-redirect)')
+    else if (!html.includes(`url=${esperado}"`)) problemas.push(`o redirect não vai para ${esperado}`)
+    else if (!html.includes('data-skeleton="listagem"')) problemas.push('HTML sem o skeleton da listagem')
+  } else if (res.status !== esperaStatus) {
     problemas.push(`autenticado devolveu ${res.status}, esperado ${esperaStatus}`)
-  } else if (res.status === 200 && !path.startsWith('/api/')) {
+  } else if ((res.status === 200 || res.status === 404) && !path.startsWith('/api/')) {
     const html = await res.text()
     for (const trecho of esperaHtml) {
       if (!html.includes(trecho)) problemas.push(`HTML sem "${trecho}"`)
@@ -539,6 +566,103 @@ if (obraSemContrato) {
   }
   await limparAuditoriaDoRoteiro(svc, INICIO_AUDITORIA)
 }
+
+// ------------------------------------------------------------------
+// 13.3: bypass por URL direta. Cada rota da baseline × cada perfil, contra o
+// mapa de acesso de matriz-rls.json. Quem pode recebe 200 (ou o redirect de
+// regra da rota); quem não pode é redirecionado (página) ou recebe 401/403
+// (API) — e nunca o conteúdo.
+// ------------------------------------------------------------------
+const MAPA = JSON.parse(readFileSync(new URL('./matriz-rls.json', import.meta.url), 'utf8'))
+const PERFIS = MAPA.perfis
+const baseline = readFileSync(new URL('./rotas-esperadas.txt', import.meta.url), 'utf8').split('\n').map((l) => l.trim()).filter(Boolean)
+const primeiro = async (tabela, filtro = (q) => q) => (await filtro(supabase.from(tabela).select('id, obra_id').limit(1)).maybeSingle()).data
+const hojeV = new Date().toISOString().slice(0, 10)
+// Rota que exige parâmetro de consulta para responder 200 a quem pode.
+const consultaDaRota = {
+  '/api/export/execucao': `?obra=${ctExecucao?.obra_id ?? ''}`,
+  '/api/relatorio/medicao/[obraId]': `?de=${hojeV.slice(0, 8)}01&ate=${hojeV}`,
+}
+const [clienteV, documentoV, fdV, propostaRascunhoV] = await Promise.all([
+  supabase.from('clientes').select('id').limit(1).maybeSingle().then((r) => r.data),
+  supabase.from('documentos_processamento').select('id').limit(1).maybeSingle().then((r) => r.data),
+  primeiro('fd', (q) => q.is('data_pagamento', null)),
+  // A edição de proposta só abre em rascunho; a do seed já foi enviada.
+  supabase.from('propostas').select('id').eq('status', 'rascunho').limit(1).maybeSingle().then((r) => r.data),
+])
+const idDaRota = {
+  // Obra do seed de contratos: estável. A "primeira por código" pode ser a obra
+  // de teste de outra rodada, criada e apagada no meio desta.
+  '/obras/[id]': ctComObra?.obra_id,
+  '/obras/[id]/editar': ctComObra?.obra_id,
+  '/clientes/[id]/editar': clienteV?.id,
+  '/orcamentos/[id]': orcamentoPrimeiro?.id,
+  '/orcamentos/[id]/editar': orcamentoPrimeiro?.id,
+  '/propostas/[id]': seed?.id,
+  '/propostas/[id]/editar': propostaRascunhoV?.id,
+  '/propostas/[id]/gerar-contrato': seedAprovada?.id,
+  '/contratos/[id]': seedContratoAtivo?.id,
+  '/contratos/[id]/editar': seedContratoAtivo?.id,
+  '/documentos/[id]': documentoV?.id,
+  '/fd/[id]': fdV?.id,
+  '/fd/[id]/editar': fdV?.id,
+  '/financeiro/notas-fiscais/[id]': nfSeed('SEED-NF-001'),
+  '/financeiro/notas-fiscais/[id]/editar': nfSeed('SEED-NF-001'),
+  '/financeiro/acordos/[id]': acordoSeed('acordoAberto'),
+  '/api/relatorio/fd-conciliacao/[obraId]': fdV?.obra_id,
+  '/api/relatorio/medicao/[obraId]': ctExecucao?.obra_id,
+}
+
+let celulas = 0
+let falhasVarredura = 0
+for (const padrao of baseline) {
+  if (MAPA.rotas.fora.includes(padrao)) continue
+  const regra = MAPA.rotas.acesso[padrao]
+  if (!regra) {
+    falhasVarredura += 1
+    console.log(`  FALHA varredura ${padrao} — rota sem regra em matriz-rls.json (rotas.acesso)`)
+    continue
+  }
+  let url = padrao
+  if (/\[(id|obraId)\]/.test(padrao)) {
+    const id = idDaRota[padrao]
+    if (!id) {
+      falhasVarredura += 1
+      console.log(`  FALHA varredura ${padrao} — sem registro em gc-dev para montar a URL`)
+      continue
+    }
+    url = padrao.replace(/\[(id|obraId)\]/, id)
+  }
+  url += consultaDaRota[padrao] ?? ''
+  const destinoDeQuemPode = MAPA.rotas.redirecionaQuemPode[padrao]
+  const erros = []
+  for (const perfil of PERFIS) {
+    celulas += 1
+    const podeAbrir = (regra === 'todos' ? PERFIS : regra).includes(perfil)
+    const res = await fetch(BASE + url, { redirect: 'manual', headers: { cookie: cookiesPorPerfil[perfil] } })
+    const destino = res.headers.get('location') ?? ''
+    await res.arrayBuffer().catch(() => null)
+    const api = padrao.startsWith('/api/')
+    let ok
+    if (podeAbrir) {
+      ok = destinoDeQuemPode ? [302, 307].includes(res.status) && destino.includes(destinoDeQuemPode) : res.status === 200
+    } else if (api) {
+      ok = res.status === 401 || res.status === 403
+    } else {
+      ok = [302, 303, 307].includes(res.status) && !(destinoDeQuemPode && destino.includes(destinoDeQuemPode))
+    }
+    if (!ok) erros.push(`${perfil}: ${res.status}${destino ? ` → ${destino}` : ''}, esperado ${podeAbrir ? 'abrir' : 'barrar'} (${url})`)
+  }
+  if (erros.length === 0) {
+    console.log(`  ok   varredura ${padrao} (${PERFIS.length} perfis)`)
+  } else {
+    falhasVarredura += 1
+    console.log(`  FALHA varredura ${padrao}`)
+    for (const e of erros) console.log(`         ${e}`)
+  }
+}
+console.log(`\nvarredura de URL direta (13.3): ${celulas} células, ${falhasVarredura === 0 ? 'nenhuma rota furada' : `${falhasVarredura} rota(s) com problema`}`)
+falhas += falhasVarredura
 
 console.log(
   `\n${rotas.length - falhas}/${rotas.length} rotas ok` +

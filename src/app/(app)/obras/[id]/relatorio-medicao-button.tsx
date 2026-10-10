@@ -4,6 +4,7 @@ import { FileText } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
+import { mensagemDeErroHttp } from '@/lib/erro-banco'
 import { validarPeriodo, type Periodo } from '@/lib/medicao'
 
 /** Relatório de medição por obra (8.4): o período e o download do PDF, como o do FD. */
@@ -19,8 +20,8 @@ export default function RelatorioMedicaoButton({ obraId, periodoInicial }: { obr
     try {
       const res = await fetch(`/api/relatorio/medicao/${obraId}?de=${de}&ate=${ate}`)
       if (!res.ok) {
-        const corpo = await res.json().catch(() => null)
-        throw new Error(corpo?.error ?? `Falha (${res.status})`)
+        const corpo = await res.text().catch(() => '')
+        throw new Error(mensagemDeErroHttp(res.status, corpo))
       }
       const blob = await res.blob()
       const dlUrl = URL.createObjectURL(blob)
@@ -34,7 +35,7 @@ export default function RelatorioMedicaoButton({ obraId, periodoInicial }: { obr
       URL.revokeObjectURL(dlUrl)
       toast.success('Relatório de medição baixado')
     } catch (err) {
-      toast.error(`Falha ao gerar: ${err instanceof Error ? err.message : 'erro desconhecido'}`)
+      toast.error(`Não foi possível gerar o relatório: ${err instanceof Error ? err.message : mensagemDeErroHttp(0, '')}`)
     } finally {
       setLoading(false)
     }

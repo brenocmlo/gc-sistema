@@ -7,6 +7,9 @@ import {
 } from '@/lib/pdf/conciliacao-fd'
 import { createClient } from '@/lib/supabase/server'
 
+// Os perfis do layout de /fd (13.3): a conciliação é do financeiro.
+const PERFIS_COM_ACESSO = ['admin', 'financeiro', 'visualizador']
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: { obraId: string } },
@@ -21,12 +24,15 @@ export async function GET(
   // Profile + empresa em paralelo
   const { data: profile } = await supabase
     .from('profiles')
-    .select('empresa_id, nome, email')
+    .select('empresa_id, nome, email, perfil')
     .eq('id', user.id)
     .maybeSingle()
 
   if (!profile) {
     return NextResponse.json({ error: 'Perfil não configurado' }, { status: 400 })
+  }
+  if (!PERFIS_COM_ACESSO.includes(profile.perfil)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const [empresaRes, obraRes, fdRes] = await Promise.all([

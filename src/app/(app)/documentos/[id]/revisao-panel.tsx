@@ -73,6 +73,7 @@ export default function RevisaoPanel({
       else toast.success('Documento enviado para nova leitura. Leva até 1 minuto.')
     } else if (acao === 'vincular') toast.success('Documento vinculado')
     else toast.success('Documento descartado')
+    if (acao !== 'reprocessar' && r.aviso) toast.warning(`Feito, mas ${r.aviso}.`)
     setAcao(null)
     router.refresh()
   }

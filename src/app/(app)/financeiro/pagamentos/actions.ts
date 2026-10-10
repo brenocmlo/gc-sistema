@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { BUCKET_COMPROVANTE } from '@/lib/pagamento-comprovante'
 import { motivoParaNaoEstornar } from '@/lib/pagamentos'
 import { createClient } from '@/lib/supabase/server'
@@ -38,7 +39,7 @@ export async function estornarPagamento(id: string): Promise<EstornarPagamentoRe
   if (bloqueio) return { ok: false, error: bloqueio }
 
   const { error, count } = await supabase.from('pagamentos').delete({ count: 'exact' }).eq('id', id)
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
   if (count === 0) return { ok: false, error: 'Pagamento não encontrado' }
   // O comprovante sai junto (o estorno é do admin, que pode apagar no bucket).
   if (pagamento.anexo) await supabase.storage.from(BUCKET_COMPROVANTE).remove([pagamento.anexo])

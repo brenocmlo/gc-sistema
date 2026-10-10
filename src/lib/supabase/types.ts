@@ -664,6 +664,7 @@ export type Database = {
           motivo_revisao: string | null
           numero_contrato: string | null
           obra_id: string | null
+          opcoes_obra: Json | null
           proposta_criada_id: string | null
           revisado_em: string | null
           revisado_por: string | null
@@ -688,6 +689,7 @@ export type Database = {
           motivo_revisao?: string | null
           numero_contrato?: string | null
           obra_id?: string | null
+          opcoes_obra?: Json | null
           proposta_criada_id?: string | null
           revisado_em?: string | null
           revisado_por?: string | null
@@ -712,6 +714,7 @@ export type Database = {
           motivo_revisao?: string | null
           numero_contrato?: string | null
           obra_id?: string | null
+          opcoes_obra?: Json | null
           proposta_criada_id?: string | null
           revisado_em?: string | null
           revisado_por?: string | null

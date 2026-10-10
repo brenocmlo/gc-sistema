@@ -107,8 +107,13 @@ export function labelEntidade(entidade: string): string {
   return ENTIDADE_LABELS[entidade] ?? entidade
 }
 
+/** Ação que só a RPC grava (erro de chamada a função do banco, 13.2 etapa B). */
+const ACAO_EXTRA_LABELS: Record<string, string> = {
+  operacao: 'Operação',
+}
+
 export function labelAcao(acao: string): string {
-  return ACAO_LABELS[acao] ?? acao
+  return ACAO_LABELS[acao] ?? ACAO_EXTRA_LABELS[acao] ?? acao
 }
 
 /**
@@ -192,6 +197,10 @@ const ROTA_DE_DETALHE: Record<string, string> = {
   orcamentos: '/orcamentos',
   obras: '/obras',
   fd: '/fd',
+  contratos: '/contratos',
+  notas_fiscais: '/financeiro/notas-fiscais',
+  acordos_pagamento: '/financeiro/acordos',
+  documentos_processamento: '/documentos',
 }
 
 export function hrefDoRegistro(
@@ -200,4 +209,82 @@ export function hrefDoRegistro(
   const base = ROTA_DE_DETALHE[evento.entidade]
   if (!base || !evento.registro_id || evento.acao === 'excluir') return null
   return `${base}/${evento.registro_id}`
+}
+
+// ------------------------------------------------------------------
+// Etapa B: o erro de escrita que o trigger não vê
+// ------------------------------------------------------------------
+
+/** O que vai para a RPC `registrar_evento` quando uma escrita falha. */
+export type EventoDeErro = {
+  entidade: string
+  acao: string
+  registroId: string | null
+  mensagem: string
+  detalhe: { http: number; codigo: string | null; detalhes: string | null; dica: string | null; funcao?: string }
+}
+
+const ACAO_DO_METODO: Record<string, string> = {
+  POST: 'criar',
+  PATCH: 'editar',
+  PUT: 'editar',
+  DELETE: 'excluir',
+}
+
+/**
+ * Lê a resposta de erro do PostgREST e diz o evento a gravar, ou null quando
+ * não é caso de auditoria: leitura (GET/HEAD), sucesso, rota que não é do
+ * PostgREST (Auth, Storage) ou a própria `registrar_evento` (senão o erro de
+ * gravar o log gravaria outro log).
+ *
+ * Quem chama é o `fetch` do client do servidor (`src/lib/supabase/server.ts`):
+ * assim toda Server Action que escreve tem o erro registrado sem lembrar de
+ * chamar nada. O sucesso não passa por aqui; quem registra é o trigger.
+ */
+export function eventoDeErroDaRequisicao(req: {
+  metodo: string
+  url: string
+  status: number
+  corpo: string
+}): EventoDeErro | null {
+  if (req.status < 400) return null
+  const metodo = req.metodo.toUpperCase()
+  let url: URL
+  try {
+    url = new URL(req.url)
+  } catch {
+    return null
+  }
+  const m = url.pathname.match(/\/rest\/v1\/(rpc\/)?([A-Za-z0-9_]+)$/)
+  if (!m) return null
+  const [, rpc, nome] = m
+  if (rpc && nome === 'registrar_evento') return null
+  if (!rpc && !ACAO_DO_METODO[metodo]) return null
+
+  let erro: Record<string, unknown> = {}
+  try {
+    const j = JSON.parse(req.corpo)
+    if (isObjeto(j)) erro = j
+  } catch {
+    // Corpo que não é JSON (proxy, timeout): vai como mensagem crua.
+  }
+  const texto = (v: unknown) => (typeof v === 'string' && v.trim() ? v : null)
+  const mensagem = texto(erro.message) ?? (texto(req.corpo)?.slice(0, 500) ?? `HTTP ${req.status}`)
+
+  // `id=eq.<uuid>` no filtro do update/delete diz qual registro era.
+  const id = url.searchParams.get('id')?.match(/^eq\.([0-9a-f-]{36})$/i)?.[1] ?? null
+
+  return {
+    entidade: nome,
+    acao: rpc ? 'operacao' : ACAO_DO_METODO[metodo],
+    registroId: id && UUID.test(id) ? id.toLowerCase() : null,
+    mensagem,
+    detalhe: {
+      http: req.status,
+      codigo: texto(erro.code),
+      detalhes: texto(erro.details),
+      dica: texto(erro.hint),
+      ...(rpc ? { funcao: nome } : {}),
+    },
+  }
 }

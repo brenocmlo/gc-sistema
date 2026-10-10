@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 const ABAS = [
   { href: '/configuracoes', label: 'Empresa' },
   { href: '/configuracoes/contatos', label: 'Contatos do bot' },
+  { href: '/configuracoes/usuarios', label: 'Usuários' },
 ] as const
 
 export default function ConfiguracoesAbas() {

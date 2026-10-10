@@ -306,6 +306,20 @@ andamento NA_FILA → CONCLUIDO de 10 dias atrás) exercita as duas queries da
 automação que saíam "não exercitadas". Elas agora têm `exigeSeed`: com zero
 linha, a camada dados falha e diz qual seed aplicar.
 
+## Fumaça e CI (13.5)
+
+`bash scripts/validacao/validar.sh fumaca` roda, fora da rodada completa, a camada build e os
+quatro caminhos críticos por HTTP contra o gc-dev: login e redirecionamento por perfil;
+orçamento → proposta → contrato → item; a cascata da execução; e NF → pagamento → status. São
+22 passos em cerca de 1min30 (`scripts/validacao/validar-fumaca.mjs`). Ela **não substitui** o
+plano: é o atalho de quando não dá tempo das sete camadas, e o modo padrão do botão do CI. Usa o
+mesmo mecanismo da camada escrita (`scripts/validacao/actions-http.mjs`), apaga o que cria e marca
+tudo com `VALIDA-FUMACA-*`, o que o `verificar-sobras.mjs` acha.
+
+O CI (`.github/workflows/validar.yml`) roda estático, unitário e build em todo push. Contra o
+gc-dev, roda pelo botão "Run workflow", fumaça ou completo, só no repositório com a variável
+`VALIDAR_GC_DEV=sim`. Detalhes em `docs/sprint-13/13.5-status-entrega.md`.
+
 ## O que continua manual
 
 Duas coisas, deliberadamente. Não há automação disso hoje, e finge-la seria pior

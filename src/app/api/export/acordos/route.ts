@@ -10,6 +10,7 @@ import {
   resumoFinanceiroDoAcordo,
   STATUS_ACORDO_LABELS,
 } from '@/lib/acordos'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { BRL_FORMAT, DATE_FORMAT, buildWorkbookResponse, todayStr, type Destaque } from '@/lib/excel-export'
 import { hojeISO } from '@/lib/execucao'
 import { numeroComSerie } from '@/lib/notas-fiscais'
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
   )
     .order('data_abertura', { ascending: false })
     .order('created_at', { ascending: false })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return NextResponse.json({ error: mensagemDeErroBanco(error) }, { status: 500 })
 
   const rows = ((data ?? []) as Linha[]).map((a) => ({
     ...a,

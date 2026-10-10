@@ -49,3 +49,10 @@ next-env.d.ts
 .token-optimizer/
 # worktrees do Claude Code (isolamento de sessões paralelas): nunca versionar
 .claude/worktrees/
+
+# logs de console do Playwright MCP (sessões do Claude Code com navegador)
+.playwright-mcp/
+
+# scripts descartáveis de investigação (scripts/.tmp-*.mjs): rodam de dentro
+# de scripts/ para achar os pacotes, e não devem ser versionados
+/scripts/.tmp-*

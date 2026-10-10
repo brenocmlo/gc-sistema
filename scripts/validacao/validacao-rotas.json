@@ -32,7 +32,8 @@
   {
     "path": "/propostas?busca=zzz-inexistente",
     "esperaHtml": [
-      "Nenhuma proposta encontrada com esses filtros"
+      "Nenhuma proposta encontrada com esses filtros",
+      "Limpar filtros"
     ],
     "naoEsperaHtml": [
       "<table"
@@ -218,13 +219,13 @@
   },
   {
     "path": "/propostas?page=99",
-    "esperaStatus": 307,
-    "nota": "página além do fim: PostgREST devolve 416 sem count; a tela redireciona pra primeira página em vez de mostrar erro de banco"
+    "nota": "página além do fim: PostgREST devolve 416 sem count; a tela redireciona pra primeira página em vez de mostrar erro de banco · 13.4: com o skeleton (loading.tsx) a resposta já começou quando a page redireciona, então o redirect vem no HTML (meta refresh, status 200) e não como 307; o destino é conferido",
+    "redirecionaParaPrimeiraPagina": true
   },
   {
     "path": "/propostas?busca=SEED&page=99",
-    "esperaStatus": 307,
-    "nota": "o redirect preserva os filtros — perder a busca junto seria pior que perder a página"
+    "nota": "o redirect preserva os filtros — perder a busca junto seria pior que perder a página · 13.4: com o skeleton (loading.tsx) a resposta já começou quando a page redireciona, então o redirect vem no HTML (meta refresh, status 200) e não como 307; o destino é conferido",
+    "redirecionaParaPrimeiraPagina": true
   },
   {
     "path": "/orcamentos?page=2",
@@ -237,19 +238,23 @@
   },
   {
     "path": "/orcamentos?page=99",
-    "esperaStatus": 307
+    "redirecionaParaPrimeiraPagina": true,
+    "nota": "13.4: com o skeleton (loading.tsx) a resposta já começou quando a page redireciona, então o redirect vem no HTML (meta refresh, status 200) e não como 307; o destino é conferido"
   },
   {
     "path": "/fd?page=99",
-    "esperaStatus": 307
+    "redirecionaParaPrimeiraPagina": true,
+    "nota": "13.4: com o skeleton (loading.tsx) a resposta já começou quando a page redireciona, então o redirect vem no HTML (meta refresh, status 200) e não como 307; o destino é conferido"
   },
   {
     "path": "/obras?page=99",
-    "esperaStatus": 307
+    "redirecionaParaPrimeiraPagina": true,
+    "nota": "13.4: com o skeleton (loading.tsx) a resposta já começou quando a page redireciona, então o redirect vem no HTML (meta refresh, status 200) e não como 307; o destino é conferido"
   },
   {
     "path": "/clientes?page=99",
-    "esperaStatus": 307
+    "redirecionaParaPrimeiraPagina": true,
+    "nota": "13.4: com o skeleton (loading.tsx) a resposta já começou quando a page redireciona, então o redirect vem no HTML (meta refresh, status 200) e não como 307; o destino é conferido"
   },
   {
     "path": "/orcamentos",
@@ -487,7 +492,8 @@
   {
     "path": "/logs?busca=zzz-inexistente",
     "esperaHtml": [
-      "Nenhum evento encontrado com esses filtros"
+      "Nenhum evento encontrado com esses filtros",
+      "Limpar filtros"
     ],
     "naoEsperaHtml": [
       "<table"
@@ -593,7 +599,8 @@
   {
     "path": "/contratos?busca=zzz-inexistente",
     "esperaHtml": [
-      "Nenhum contrato encontrado com esses filtros"
+      "Nenhum contrato encontrado com esses filtros",
+      "Limpar filtros"
     ],
     "naoEsperaHtml": [
       "<table"
@@ -601,8 +608,8 @@
   },
   {
     "path": "/contratos?page=99",
-    "esperaStatus": 307,
-    "nota": "página além do fim redireciona pra primeira, como /propostas"
+    "nota": "página além do fim redireciona pra primeira, como /propostas · 13.4: com o skeleton (loading.tsx) a resposta já começou quando a page redireciona, então o redirect vem no HTML (meta refresh, status 200) e não como 307; o destino é conferido",
+    "redirecionaParaPrimeiraPagina": true
   },
   {
     "path": "/contratos",
@@ -830,7 +837,11 @@
   {
     "path": "/contratos/00000000-0000-0000-0000-000000000000",
     "esperaStatus": 404,
-    "nota": "id inexistente cai no notFound"
+    "nota": "id inexistente cai no notFound",
+    "esperaHtml": [
+      "Contrato não encontrado",
+      "Pode ter sido excluído"
+    ]
   },
   {
     "path": "/contratos/{contratoAtivo}/editar",
@@ -1179,7 +1190,8 @@
   {
     "path": "/execucao?obra={obraExecucao}&busca=zzz-inexistente",
     "esperaHtml": [
-      "Nenhuma execução encontrada com esses filtros."
+      "Nenhuma execução encontrada com esses filtros.",
+      "Limpar filtros"
     ]
   },
   {
@@ -1192,8 +1204,8 @@
   },
   {
     "path": "/execucao?obra={obraExecucao}&page=99",
-    "esperaStatus": 307,
-    "nota": "página além do fim volta pra primeira"
+    "nota": "página além do fim volta pra primeira · 13.4: com o skeleton (loading.tsx) a resposta já começou quando a page redireciona, então o redirect vem no HTML (meta refresh, status 200) e não como 307; o destino é conferido",
+    "redirecionaParaPrimeiraPagina": true
   },
   {
     "path": "/execucao?obra={obraExecucao}",
@@ -1414,7 +1426,7 @@
   {
     "path": "/financeiro",
     "esperaStatus": 307,
-    "nota": "9.1: /financeiro leva para /financeiro/notas-fiscais"
+    "nota": "9.1: /financeiro redireciona; 12.2: para /financeiro/visao-geral"
   },
   {
     "path": "/financeiro/notas-fiscais",
@@ -1508,8 +1520,8 @@
   },
   {
     "path": "/financeiro/notas-fiscais?page=99",
-    "esperaStatus": 307,
-    "nota": "9.1: página além do fim volta para a primeira"
+    "nota": "9.1: página além do fim volta para a primeira · 13.4: com o skeleton (loading.tsx) a resposta já começou quando a page redireciona, então o redirect vem no HTML (meta refresh, status 200) e não como 307; o destino é conferido",
+    "redirecionaParaPrimeiraPagina": true
   },
   {
     "path": "/financeiro/notas-fiscais/novo",
@@ -1616,7 +1628,11 @@
   {
     "path": "/financeiro/notas-fiscais/00000000-0000-4000-8000-000000000000",
     "esperaStatus": 404,
-    "nota": "9.3: NF inexistente"
+    "nota": "9.3: NF inexistente",
+    "esperaHtml": [
+      "Nota fiscal não encontrada",
+      "Pode ter sido excluído"
+    ]
   },
   {
     "path": "/financeiro/notas-fiscais/{nfEmitida}",
@@ -1703,12 +1719,12 @@
     "path": "/financeiro/notas-fiscais",
     "perfil": "financeiro",
     "esperaHtml": [
-      "href=\"/financeiro/notas-fiscais\""
+      "href=\"/financeiro/visao-geral\""
     ],
     "naoEsperaHtml": [
       "href=\"/financeiro\""
     ],
-    "nota": "9.5: o item Financeiro do menu vai direto à listagem. Com href=\"/financeiro\" (que só redireciona), o clique no menu usava o prefetch e não saía da tela — era o \"Em construção\" que o Breno via"
+    "nota": "9.5: o item Financeiro do menu vai direto à listagem. Com href=\"/financeiro\" (que só redireciona), o clique no menu usava o prefetch e não saía da tela — era o \"Em construção\" que o Breno via; 12.2: o menu passou a abrir na visão geral"
   },
   {
     "path": "/",
@@ -1717,26 +1733,27 @@
       "href=\"/contratos\""
     ],
     "naoEsperaHtml": [
+      "href=\"/financeiro/visao-geral\"",
       "href=\"/financeiro/notas-fiscais\"",
       "href=\"/fd\""
     ],
-    "nota": "9.6: comercial não vê o menu Financeiro (nem o FD)"
+    "nota": "9.6: comercial não vê o menu Financeiro (nem o FD); 12.2: o menu passou a abrir na visão geral"
   },
   {
     "path": "/",
     "perfil": "financeiro",
     "esperaHtml": [
-      "href=\"/financeiro/notas-fiscais\""
+      "href=\"/financeiro/visao-geral\""
     ],
-    "nota": "9.6: financeiro vê o menu Financeiro"
+    "nota": "9.6: financeiro vê o menu Financeiro; 12.2: o menu passou a abrir na visão geral"
   },
   {
     "path": "/",
     "perfil": "visualizador",
     "esperaHtml": [
-      "href=\"/financeiro/notas-fiscais\""
+      "href=\"/financeiro/visao-geral\""
     ],
-    "nota": "9.6: visualizador vê o menu Financeiro"
+    "nota": "9.6: visualizador vê o menu Financeiro; 12.2: o menu passou a abrir na visão geral"
   },
   {
     "path": "/",
@@ -1745,9 +1762,10 @@
       "href=\"/execucao\""
     ],
     "naoEsperaHtml": [
+      "href=\"/financeiro/visao-geral\"",
       "href=\"/financeiro/notas-fiscais\""
     ],
-    "nota": "9.6: produção não vê o menu Financeiro"
+    "nota": "9.6: produção não vê o menu Financeiro; 12.2: o menu passou a abrir na visão geral"
   },
   {
     "path": "/financeiro/notas-fiscais",
@@ -1872,7 +1890,8 @@
     "esperaHtml": [
       "Nenhum pagamento encontrado com esses filtros",
       "R$ 0,00",
-      "em 0 pagamentos"
+      "em 0 pagamentos",
+      "Limpar filtros"
     ],
     "naoEsperaHtml": [
       "<table"
@@ -1881,8 +1900,8 @@
   },
   {
     "path": "/financeiro/pagamentos?page=99",
-    "esperaStatus": 307,
-    "nota": "10.1: página além do fim redireciona para a primeira"
+    "nota": "10.1: página além do fim redireciona para a primeira · 13.4: com o skeleton (loading.tsx) a resposta já começou quando a page redireciona, então o redirect vem no HTML (meta refresh, status 200) e não como 307; o destino é conferido",
+    "redirecionaParaPrimeiraPagina": true
   },
   {
     "path": "/financeiro/notas-fiscais",
@@ -1987,6 +2006,27 @@
       "aria-label=\"Estornar pagamento"
     ],
     "nota": "10.3: visualizador vê as baixas, sem registrar nem estornar"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfPaga}",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "Histórico (",
+      "Histórico da nota fiscal",
+      "Criação",
+      "Mudança de status",
+      "status: "
+    ],
+    "nota": "13.2: aba Histórico da NF lida de auditoria_eventos — o financeiro vê a criação e a mudança de status do seed (policy 20261006100000)"
+  },
+  {
+    "path": "/financeiro/notas-fiscais/{nfPaga}",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Histórico (",
+      "Histórico da nota fiscal"
+    ],
+    "nota": "13.2: o visualizador, que lê a NF, também lê o histórico dela"
   },
   {
     "path": "/financeiro/notas-fiscais/{nfCancelada}",
@@ -2173,7 +2213,8 @@
   {
     "path": "/financeiro/acordos?busca=zzz-inexistente",
     "esperaHtml": [
-      "Nenhum acordo encontrado com esses filtros"
+      "Nenhum acordo encontrado com esses filtros",
+      "Limpar filtros"
     ],
     "naoEsperaHtml": [
       "<table"
@@ -2182,8 +2223,8 @@
   },
   {
     "path": "/financeiro/acordos?page=99",
-    "esperaStatus": 307,
-    "nota": "11.1: página além do fim redireciona"
+    "nota": "11.1: página além do fim redireciona · 13.4: com o skeleton (loading.tsx) a resposta já começou quando a page redireciona, então o redirect vem no HTML (meta refresh, status 200) e não como 307; o destino é conferido",
+    "redirecionaParaPrimeiraPagina": true
   },
   {
     "path": "/financeiro/notas-fiscais",
@@ -2333,7 +2374,11 @@
   {
     "path": "/financeiro/acordos/00000000-0000-4000-8000-000000000000",
     "esperaStatus": 404,
-    "nota": "11.3: acordo inexistente"
+    "nota": "11.3: acordo inexistente",
+    "esperaHtml": [
+      "Acordo não encontrado",
+      "Pode ter sido excluído"
+    ]
   },
   {
     "path": "/financeiro/acordos/{acordoConvertido}",
@@ -2495,5 +2540,707 @@
       "Quitado"
     ],
     "nota": "11.5: o encerrado não oferece encerrar de novo"
+  },
+  {
+    "path": "/obras/{obraDosAcordos}?aba=financeiro",
+    "esperaHtml": [
+      "aria-label=\"Resumo financeiro da obra\"",
+      "Valor contratado",
+      "FD descontado",
+      "R$ 1.500,00",
+      "R$ 6.500,00",
+      "R$ 3.900,00",
+      "R$ 1.200,00",
+      "R$ 2.900,00",
+      "SEED-CONV-001",
+      "SEED-AC-004 Troca emergencial",
+      "Atrasada",
+      "Linha do tempo de recebimentos",
+      "acumulado",
+      "de pagamentos de acordos convertidos em NF ficam arquivados: não entram no recebido"
+    ],
+    "nota": "12.1: aba Financeiro da obra dos acordos (SEED-CT-EXEC-45): faturado 1.500 (a NF de saldo), recebido 6.500, a receber 3.900, atrasado 1.200 (a parcela 1 do SEED-AC-004), FD 2.900, o arquivado do convertido e a parcela atrasada na lista"
+  },
+  {
+    "path": "/obras/{obraExecucao}?aba=financeiro",
+    "esperaHtml": [
+      "aria-label=\"Resumo financeiro da obra\"",
+      "R$ 15.300,00",
+      "R$ 8.850,00",
+      "R$ 11.450,00",
+      "R$ 15,00",
+      "SEED-NF-001",
+      "SEED-NF-005",
+      "Cancelada",
+      "Notas fiscais (6)",
+      "Linha do tempo de recebimentos"
+    ],
+    "naoEsperaHtml": [
+      "ficam arquivados: não entram no recebido"
+    ],
+    "nota": "12.1: aba Financeiro da obra do SEED-CT-EXEC: faturado 15.300, recebido 8.850, a receber 11.450, FD 15, as 6 NFs (a cancelada sem saldo), sem arquivado. O atrasado depende da data (a SEED-NF-003 vence em 14/10) e é conferido na camada dados"
+  },
+  {
+    "path": "/obras/{obraDosAcordos}?aba=financeiro",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "aria-label=\"Resumo financeiro da obra\"",
+      "R$ 6.500,00"
+    ],
+    "nota": "12.1: o financeiro vê a aba"
+  },
+  {
+    "path": "/obras/{obraDosAcordos}?aba=financeiro",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "aria-label=\"Resumo financeiro da obra\"",
+      "R$ 6.500,00"
+    ],
+    "nota": "12.1: o visualizador vê a aba (lê o financeiro)"
+  },
+  {
+    "path": "/obras/{obraDosAcordos}?aba=financeiro",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "Detalhes"
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Resumo financeiro da obra\"",
+      "Linha do tempo de recebimentos"
+    ],
+    "nota": "12.1: comercial abre a obra sem a aba Financeiro (a mesma regra do layout de /financeiro)"
+  },
+  {
+    "path": "/obras/{obraDosAcordos}?aba=financeiro",
+    "perfil": "producao",
+    "esperaHtml": [
+      "Detalhes"
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Resumo financeiro da obra\""
+    ],
+    "nota": "12.1: produção abre a obra sem a aba Financeiro"
+  },
+  {
+    "path": "/financeiro/visao-geral",
+    "esperaHtml": [
+      "aria-label=\"Resumo do financeiro\"",
+      "A receber",
+      "Recebido no período",
+      "Atrasado",
+      "Previsto para 30 dias",
+      "aria-label=\"Financeiro por obra\"",
+      "Contas a receber por vencimento",
+      "Vencidas",
+      "Vencem hoje",
+      "Próximos 7 dias",
+      "De 8 a 30 dias",
+      "Fora da lista:",
+      "Exportar XLSX",
+      "href=\"/financeiro/visao-geral\"",
+      "Visão geral"
+    ],
+    "nota": "12.2: a visão geral com os quatro cards, a tabela por obra, as faixas de vencimento e o export; a aba Visão geral"
+  },
+  {
+    "path": "/financeiro/visao-geral?obra={obraDosAcordos}&periodo=tudo",
+    "esperaHtml": [
+      "R$ 3.900,00",
+      "R$ 6.500,00",
+      "R$ 1.200,00",
+      "R$ 1.500,00",
+      "OBRA-2026-001",
+      "SEED-AC-004 Troca emergencial · parcela 1",
+      "Por obra (1)"
+    ],
+    "naoEsperaHtml": [
+      "Recebido no período"
+    ],
+    "nota": "12.2: filtro por obra (a dos acordos) e todo o período: a receber 3.900, recebido 6.500, atrasado 1.200 (a parcela 1 do SEED-AC-004, vencida), faturado 1.500, uma obra só na tabela; sem período, o card perde o \"no período\""
+  },
+  {
+    "path": "/financeiro/visao-geral",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "aria-label=\"Resumo do financeiro\""
+    ],
+    "nota": "12.2: o financeiro abre a visão geral"
+  },
+  {
+    "path": "/financeiro/visao-geral",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "aria-label=\"Resumo do financeiro\"",
+      "Exportar XLSX"
+    ],
+    "nota": "12.2: o visualizador abre a visão geral e exporta"
+  },
+  {
+    "path": "/financeiro/visao-geral",
+    "perfil": "comercial",
+    "esperaStatus": 307,
+    "nota": "12.2: comercial não entra (layout de /financeiro)"
+  },
+  {
+    "path": "/financeiro/visao-geral",
+    "perfil": "producao",
+    "esperaStatus": 307,
+    "nota": "12.2: produção não entra (layout de /financeiro)"
+  },
+  {
+    "path": "/api/export/financeiro?periodo=tudo",
+    "esperaContentType": "spreadsheetml",
+    "esperaXlsx": {
+      "colunas": [
+        "Obra",
+        "Nome",
+        "Faturado",
+        "Recebido",
+        "Saldo atual",
+        "% recebido"
+      ],
+      "minLinhas": 2,
+      "contem": [
+        "Financeiro — visão geral",
+        "Período: Todo o período",
+        "OBRA-2026-001",
+        "Previsto para 30 dias"
+      ]
+    },
+    "nota": "12.2: o export da visão geral, todo o período: as 6 colunas, as obras dos seeds e os cards no cabeçalho"
+  },
+  {
+    "path": "/api/export/financeiro?obra={obraDosAcordos}&periodo=tudo",
+    "esperaContentType": "spreadsheetml",
+    "esperaXlsx": {
+      "colunas": [
+        "Obra",
+        "Nome",
+        "Faturado",
+        "Recebido",
+        "Saldo atual",
+        "% recebido"
+      ],
+      "contem": [
+        "Obra: OBRA-2026-001",
+        "A receber: R$ 3.900,00",
+        "Recebido: R$ 6.500,00",
+        "Atrasado: R$ 1.200,00",
+        "Total de registros: 1"
+      ]
+    },
+    "nota": "12.2: o filtro da tela vale no export: a obra dos acordos, com os cards dela no cabeçalho e uma linha só"
+  },
+  {
+    "path": "/api/export/financeiro",
+    "esperaContentType": "spreadsheetml",
+    "esperaXlsx": {
+      "colunas": [
+        "Obra",
+        "Nome",
+        "Faturado no período",
+        "Recebido no período",
+        "Saldo atual",
+        "% recebido"
+      ],
+      "contem": [
+        "Período: Este mês"
+      ]
+    },
+    "nota": "12.2: sem período, o mês corrente, e as colunas dizem \"no período\""
+  },
+  {
+    "path": "/api/export/financeiro",
+    "perfil": "comercial",
+    "esperaStatus": 403,
+    "nota": "12.2: a rota repete a regra do layout de /financeiro"
+  },
+  {
+    "path": "/",
+    "esperaHtml": [
+      "aria-label=\"Funil comercial\"",
+      "aria-label=\"Operação\"",
+      "aria-label=\"Financeiro\"",
+      "Orçamentos em aberto",
+      "Propostas enviadas",
+      "Taxa de conversão",
+      "Obras ativas",
+      "Em fabricação",
+      "Em entrega",
+      "Em instalação",
+      "Em medição",
+      "A receber",
+      "Recebido no mês",
+      "Suas pendências",
+      "Orçamentos aguardando análise",
+      "NFs e parcelas vencidas",
+      "href=\"/orcamentos/novo\"",
+      "href=\"/logs\""
+    ],
+    "naoEsperaHtml": [
+      "Em construção"
+    ],
+    "nota": "12.3: o dashboard substituiu o EmConstrucao; o admin vê as três seções, as pendências de todas as frentes e os atalhos"
+  },
+  {
+    "path": "/",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "aria-label=\"Funil comercial\"",
+      "Taxa de conversão",
+      "Orçamentos aguardando análise",
+      "Documentos em revisão humana",
+      "href=\"/orcamentos/novo\"",
+      "href=\"/propostas/nova\""
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Operação\"",
+      "aria-label=\"Financeiro\"",
+      "Recebido no mês",
+      "NFs e parcelas vencidas",
+      "Execuções com prazo vencido"
+    ],
+    "nota": "12.3: comercial vê só o funil e as pendências comerciais"
+  },
+  {
+    "path": "/",
+    "perfil": "producao",
+    "esperaHtml": [
+      "aria-label=\"Operação\"",
+      "Obras ativas",
+      "Em fabricação",
+      "Apontar execução",
+      "href=\"/execucao\""
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Funil comercial\"",
+      "aria-label=\"Financeiro\"",
+      "Orçamentos aguardando análise",
+      "NFs e parcelas vencidas",
+      "Novo orçamento"
+    ],
+    "nota": "12.3: produção vê só a operação"
+  },
+  {
+    "path": "/",
+    "perfil": "medicao",
+    "esperaHtml": [
+      "aria-label=\"Operação\"",
+      "Em medição",
+      "Apontar medição"
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Funil comercial\"",
+      "aria-label=\"Financeiro\"",
+      "A receber"
+    ],
+    "nota": "12.3: medição vê só a operação"
+  },
+  {
+    "path": "/",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "aria-label=\"Financeiro\"",
+      "A receber",
+      "Recebido no mês",
+      "NFs e parcelas vencidas",
+      "href=\"/financeiro/pagamentos/novo\"",
+      "href=\"/fd/novo\""
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Funil comercial\"",
+      "aria-label=\"Operação\"",
+      "Orçamentos aguardando análise",
+      "Execuções com prazo vencido"
+    ],
+    "nota": "12.3: financeiro vê só o financeiro; a NF e a parcela vencidas dos seeds aparecem como pendência"
+  },
+  {
+    "path": "/",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "aria-label=\"Funil comercial\"",
+      "aria-label=\"Operação\"",
+      "aria-label=\"Financeiro\"",
+      "O perfil de consulta não tem pendências de ação"
+    ],
+    "naoEsperaHtml": [
+      "href=\"/orcamentos/novo\"",
+      "href=\"/financeiro/pagamentos/novo\"",
+      "Orçamentos aguardando análise"
+    ],
+    "nota": "12.3: visualizador vê as três seções, sem pendência e sem atalho de criar"
+  },
+  {
+    "path": "/",
+    "esperaHtml": [
+      "aria-label=\"Funil comercial\"",
+      "aria-label=\"Motivos de rejeição\"",
+      "aria-label=\"Progresso das obras ativas\"",
+      "aria-label=\"Receita por mês\"",
+      "Propostas enviadas",
+      "Faturado",
+      "Recebido"
+    ],
+    "nota": "12.4: o admin vê os quatro gráficos, com a tabela dos dados no HTML"
+  },
+  {
+    "path": "/",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "aria-label=\"Funil comercial\"",
+      "aria-label=\"Motivos de rejeição\""
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Receita por mês\"",
+      "aria-label=\"Progresso das obras ativas\""
+    ],
+    "nota": "12.4: comercial vê o funil e os motivos de rejeição"
+  },
+  {
+    "path": "/",
+    "perfil": "producao",
+    "esperaHtml": [
+      "aria-label=\"Progresso das obras ativas\""
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Funil comercial\"",
+      "aria-label=\"Receita por mês\"",
+      "aria-label=\"Motivos de rejeição\""
+    ],
+    "nota": "12.4: produção vê só o progresso das obras"
+  },
+  {
+    "path": "/",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "aria-label=\"Receita por mês\""
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Funil comercial\"",
+      "aria-label=\"Progresso das obras ativas\"",
+      "aria-label=\"Motivos de rejeição\""
+    ],
+    "nota": "12.4: financeiro vê só a receita por mês"
+  },
+  {
+    "path": "/",
+    "perfil": "medicao",
+    "esperaHtml": [
+      "aria-label=\"Progresso das obras ativas\""
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Funil comercial\"",
+      "aria-label=\"Receita por mês\"",
+      "aria-label=\"Motivos de rejeição\"",
+      "R$"
+    ],
+    "nota": "12.5: medição vê só o progresso das obras, sem nenhum valor em reais"
+  },
+  {
+    "path": "/",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "aria-label=\"Funil comercial\"",
+      "aria-label=\"Motivos de rejeição\"",
+      "aria-label=\"Progresso das obras ativas\"",
+      "aria-label=\"Receita por mês\""
+    ],
+    "nota": "12.5: visualizador vê os quatro gráficos (consulta tudo)"
+  },
+  {
+    "path": "/",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "aria-label=\"Funil comercial\""
+    ],
+    "naoEsperaHtml": [
+      "R$"
+    ],
+    "nota": "12.5: o dashboard do comercial não mostra nenhum valor em reais (funil e motivos são contagens)"
+  },
+  {
+    "path": "/",
+    "perfil": "producao",
+    "esperaHtml": [
+      "aria-label=\"Operação\""
+    ],
+    "naoEsperaHtml": [
+      "R$"
+    ],
+    "nota": "12.5: o dashboard da produção não mostra nenhum valor em reais"
+  },
+  {
+    "path": "/financeiro/visao-geral",
+    "perfil": "medicao",
+    "esperaStatus": 307,
+    "nota": "12.5: medição não abre a visão geral do financeiro"
+  },
+  {
+    "path": "/api/export/financeiro",
+    "perfil": "producao",
+    "esperaStatus": 403,
+    "nota": "12.5: produção não baixa o export do financeiro"
+  },
+  {
+    "path": "/api/export/financeiro",
+    "perfil": "medicao",
+    "esperaStatus": 403,
+    "nota": "12.5: medição não baixa o export do financeiro"
+  },
+  {
+    "path": "/api/export/financeiro",
+    "perfil": "visualizador",
+    "nota": "12.5: visualizador baixa o export do financeiro (consulta)"
+  },
+  {
+    "path": "/obras/{obraDosAcordos}?aba=financeiro",
+    "perfil": "medicao",
+    "esperaHtml": [
+      "OBRA-2026-001"
+    ],
+    "naoEsperaHtml": [
+      "aria-label=\"Resumo financeiro da obra\""
+    ],
+    "nota": "12.5: medição abre a obra sem a aba Financeiro"
+  },
+  {
+    "path": "/obras/{obraDosAcordos}?aba=financeiro",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "SEED-NF-CANC-45",
+      "Cancelada",
+      "R$ 6.500,00",
+      "R$ 3.900,00",
+      "R$ 1.200,00",
+      "R$ 2.900,00"
+    ],
+    "nota": "12.5: a obra com FD, acordo convertido e NF cancelada: a cancelada aparece na lista com o selo, e os blocos seguem recebido 6.500, a receber 3.900, atrasado 1.200 e FD 2.900"
+  },
+  {
+    "path": "/",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "Documentos lançados a conferir",
+      "href=\"/documentos?status=A_CONFERIR\""
+    ],
+    "nota": "12.5: a pendência de conferência aparece (o SEED-DOC-CONF do seed_conferencia_12_5.sql); antes voltava zero em gc-dev"
+  },
+  {
+    "path": "/",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "FDs vencidos sem pagamento",
+      "href=\"/fd?status=vencido\""
+    ],
+    "nota": "12.5: a pendência de FD vencido aparece (o SEED-FD-VENC do seed_conferencia_12_5.sql); antes voltava zero em gc-dev"
+  },
+  {
+    "path": "/configuracoes/usuarios",
+    "esperaHtml": [
+      "aria-label=\"Usuários da empresa\"",
+      "Convidar usuário",
+      "breno@obraminds.com",
+      "(você)",
+      "Ativo"
+    ],
+    "nota": "13.1: o admin vê os usuários da empresa, com a situação e ele mesmo marcado"
+  },
+  {
+    "path": "/configuracoes",
+    "esperaHtml": [
+      "href=\"/configuracoes/usuarios\""
+    ],
+    "nota": "13.1: a aba Usuários nas configurações"
+  },
+  {
+    "path": "/configuracoes/usuarios",
+    "perfil": "comercial",
+    "esperaStatus": 307,
+    "nota": "13.1: comercial não abre a gestão de usuários"
+  },
+  {
+    "path": "/configuracoes/usuarios",
+    "perfil": "financeiro",
+    "esperaStatus": 307,
+    "nota": "13.1: financeiro não abre a gestão de usuários"
+  },
+  {
+    "path": "/configuracoes/usuarios",
+    "perfil": "visualizador",
+    "esperaStatus": 307,
+    "nota": "13.1: visualizador não abre a gestão de usuários"
+  },
+  {
+    "path": "/convite",
+    "esperaStatus": 307,
+    "nota": "13.1: /convite sem token volta ao login com o recado do link"
+  },
+  {
+    "path": "/convite/senha",
+    "esperaHtml": [
+      "Crie sua senha",
+      "id=\"senha\"",
+      "id=\"confirmacao\""
+    ],
+    "nota": "13.1: a tela de definir a senha, com a sessão aberta"
+  },
+  {
+    "path": "/propostas/00000000-0000-4000-8000-000000000000",
+    "esperaStatus": 404,
+    "esperaHtml": [
+      "Proposta não encontrada",
+      "Ver as propostas"
+    ],
+    "nota": "13.4: not-found da proposta, dentro do shell"
+  },
+  {
+    "path": "/propostas/00000000-0000-4000-8000-000000000000/editar",
+    "esperaStatus": 404,
+    "esperaHtml": [
+      "Proposta não encontrada"
+    ],
+    "nota": "13.4: a edição usa o not-found do [id]"
+  },
+  {
+    "path": "/obras/00000000-0000-4000-8000-000000000000",
+    "esperaStatus": 404,
+    "esperaHtml": [
+      "Obra não encontrada",
+      "Ver as obras"
+    ],
+    "nota": "13.4"
+  },
+  {
+    "path": "/orcamentos/00000000-0000-4000-8000-000000000000",
+    "esperaStatus": 404,
+    "esperaHtml": [
+      "Orçamento não encontrado"
+    ],
+    "nota": "13.4"
+  },
+  {
+    "path": "/fd/00000000-0000-4000-8000-000000000000",
+    "esperaStatus": 404,
+    "esperaHtml": [
+      "Lançamento de FD não encontrado"
+    ],
+    "nota": "13.4"
+  },
+  {
+    "path": "/documentos/00000000-0000-4000-8000-000000000000",
+    "esperaStatus": 404,
+    "esperaHtml": [
+      "Documento não encontrado"
+    ],
+    "nota": "13.4"
+  },
+  {
+    "path": "/clientes/00000000-0000-4000-8000-000000000000/editar",
+    "esperaStatus": 404,
+    "esperaHtml": [
+      "Cliente não encontrado"
+    ],
+    "nota": "13.4"
+  },
+  {
+    "path": "/pagina-que-nao-existe",
+    "esperaStatus": 404,
+    "esperaHtml": [
+      "Página não encontrada",
+      "Voltar ao início"
+    ],
+    "nota": "13.4: URL inexistente cai no not-found global (fora do shell)"
+  },
+  {
+    "path": "/obras",
+    "esperaHtml": [
+      "data-skeleton=\"listagem\""
+    ],
+    "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
+  },
+  {
+    "path": "/clientes",
+    "esperaHtml": [
+      "data-skeleton=\"listagem\""
+    ],
+    "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
+  },
+  {
+    "path": "/orcamentos",
+    "esperaHtml": [
+      "data-skeleton=\"listagem\""
+    ],
+    "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
+  },
+  {
+    "path": "/propostas",
+    "esperaHtml": [
+      "data-skeleton=\"listagem\""
+    ],
+    "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
+  },
+  {
+    "path": "/contratos",
+    "esperaHtml": [
+      "data-skeleton=\"listagem\""
+    ],
+    "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
+  },
+  {
+    "path": "/documentos",
+    "esperaHtml": [
+      "data-skeleton=\"listagem\""
+    ],
+    "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
+  },
+  {
+    "path": "/fd",
+    "esperaHtml": [
+      "data-skeleton=\"listagem\""
+    ],
+    "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
+  },
+  {
+    "path": "/financeiro/notas-fiscais",
+    "esperaHtml": [
+      "data-skeleton=\"listagem\""
+    ],
+    "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
+  },
+  {
+    "path": "/financeiro/pagamentos",
+    "esperaHtml": [
+      "data-skeleton=\"listagem\""
+    ],
+    "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
+  },
+  {
+    "path": "/financeiro/acordos",
+    "esperaHtml": [
+      "data-skeleton=\"listagem\""
+    ],
+    "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
+  },
+  {
+    "path": "/financeiro/visao-geral",
+    "esperaHtml": [
+      "data-skeleton=\"listagem\""
+    ],
+    "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
+  },
+  {
+    "path": "/logs",
+    "esperaHtml": [
+      "data-skeleton=\"listagem\""
+    ],
+    "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
+  },
+  {
+    "path": "/execucao",
+    "esperaHtml": [
+      "data-skeleton=\"listagem\""
+    ],
+    "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
   }
 ]

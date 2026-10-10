@@ -6,6 +6,10 @@ import { juntarAnexo, nomeOriginalDoArquivo } from './anexo-do-documento.ts'
 test('nomeOriginalDoArquivo tira a pasta e o carimbo de tempo', () => {
   assert.equal(nomeOriginalDoArquivo('emp/telegram/1727712345678_proposta_eb-25.pdf'), 'proposta_eb-25.pdf')
   assert.equal(nomeOriginalDoArquivo('emp/sistema/1727712345678_contrato.pdf'), 'contrato.pdf')
+  // Pelo bot: update_id do Telegram e hífen.
+  assert.equal(nomeOriginalDoArquivo('emp/telegram/174281296-PROPOSTA_PROP-2026-0117_-_Vista_Verde.pdf'), 'PROPOSTA_PROP-2026-0117_-_Vista_Verde.pdf')
+  // Ano com hífen no começo do nome não é update_id.
+  assert.equal(nomeOriginalDoArquivo('emp/sistema/1727712345678_2025-tabela.pdf'), '2025-tabela.pdf')
   // Número curto no começo é parte do nome, não carimbo.
   assert.equal(nomeOriginalDoArquivo('emp/sistema/2025_tabela.pdf'), '2025_tabela.pdf')
   assert.equal(nomeOriginalDoArquivo(''), 'documento.pdf')

@@ -1,0 +1,127 @@
+# Plano de validação no GitHub Actions (13.5). Duas partes:
+#
+# 1. `rapido`: estático, unitário e build (tsc, lint, os testes de src/lib e
+#    o next build com o diff de rotas). Não toca no banco e não precisa de
+#    segredo. Roda em todo push e pull request, nos dois repositórios.
+#
+# 2. `completo`: contra o gc-dev, pelo botão "Run workflow", escolhendo o modo:
+#    `fumaca` (padrão, ~2 min: build + os 4 caminhos críticos) ou `completo`
+#    (as sete camadas do `npm run validar`, ~25 min). Grava e apaga registros
+#    de teste no gc-dev, então só roda pelo botão e só no repositório que tiver a variável
+#    VALIDAR_GC_DEV=sim. O arquivo vai para o fork pelo sincronizar-fork.yml, e
+#    sem essa trava os dois repositórios brigariam pelo mesmo gc-dev. Segredos
+#    necessários, no repositório que roda:
+#      NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+#      SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ACCESS_TOKEN (matriz de RLS),
+#      VALIDACAO_EMAIL, VALIDACAO_SENHA, INGESTAO_TOKEN, INGESTAO_PROFILE_ID.
+#    Não dispare enquanto uma rodada local estiver no ar: as duas usam os mesmos
+#    usuários de teste. Rodada que falha pode deixar sobra VALIDA-*/RUN-*; a
+#    próxima reprova na checagem de sobras até alguém rodar
+#    `node --env-file=.env.local scripts/validacao/verificar-sobras.mjs --apagar`.
+#    O workflow não apaga sozinho, para não atropelar uma rodada local.
+name: Validar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: # botão "Run workflow"
+    inputs:
+      modo:
+        description: 'fumaca (~2 min, os 4 caminhos críticos) ou completo (as sete camadas, ~25 min)'
+        type: choice
+        options: [fumaca, completo]
+        default: fumaca
+  # Uma vez por noite (03h de Brasília), se quiser: descomente.
+  # schedule:
+  #   - cron: '0 6 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  rapido:
+    name: Estático, unitário e build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: bash scripts/validacao/validar.sh estatico unit build
+
+  completo:
+    name: Contra o gc-dev (${{ inputs.modo || 'completo' }})
+    if: github.event_name != 'push' && github.event_name != 'pull_request' && vars.VALIDAR_GC_DEV == 'sim'
+    needs: rapido
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Uma rodada por vez: a segunda espera a primeira acabar.
+    concurrency:
+      group: validar-gc-dev
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Montar o .env.local com os segredos
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          VALIDACAO_EMAIL: ${{ secrets.VALIDACAO_EMAIL }}
+          VALIDACAO_SENHA: ${{ secrets.VALIDACAO_SENHA }}
+          INGESTAO_TOKEN: ${{ secrets.INGESTAO_TOKEN }}
+          INGESTAO_PROFILE_ID: ${{ secrets.INGESTAO_PROFILE_ID }}
+        run: |
+          umask 077
+          : > .env.local
+          for v in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY \
+                   SUPABASE_ACCESS_TOKEN VALIDACAO_EMAIL VALIDACAO_SENHA INGESTAO_TOKEN INGESTAO_PROFILE_ID; do
+            if [ -z "${!v}" ]; then echo "::error::segredo $v não cadastrado"; exit 1; fi
+            printf '%s=%s\n' "$v" "${!v}" >> .env.local
+          done
+
+      # O validar.sh confere que o .env.local aponta para o gc-dev antes de
+      # qualquer camada que conecta (scripts/comum/gc-dev-guard.mjs).
+      - name: Validar contra o gc-dev
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+          CHROME_FLAGS: --no-sandbox
+          # Sem input (o agendamento, se for ligado) = completo.
+          MODO: ${{ inputs.modo || 'completo' }}
+        run: |
+          if [ "$MODO" = fumaca ]; then
+            bash scripts/validacao/validar.sh fumaca
+          else
+            bash scripts/validacao/validar.sh
+          fi
+
+      - name: Screenshots e logs da rodada
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validacao-${{ github.run_number }}
+          path: |
+            /tmp/gc-validacao/shots
+            /tmp/validar-*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Apagar o .env.local
+        if: always()
+        run: rm -f .env.local

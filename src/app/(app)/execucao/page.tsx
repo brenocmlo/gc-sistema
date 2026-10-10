@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import EmptyState from '@/components/EmptyState'
 import ExportButton from '@/components/ExportButton'
 import Pagination from '@/components/Pagination'
+import SemResultado from '@/components/SemResultado'
 import {
   etapasAtrasadas,
   filtrarExecucoes,
@@ -178,9 +179,7 @@ export default async function ExecucaoPage({ searchParams }: { searchParams: Sea
           }
         />
       ) : total === 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-500">
-          Nenhuma execução encontrada com esses filtros.
-        </div>
+        <SemResultado texto="Nenhuma execução encontrada com esses filtros." limparHref={`/execucao?obra=${obraId}`} />
       ) : (
         <>
           <ExecucaoTable

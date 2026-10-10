@@ -17,7 +17,7 @@ import { createClient } from '@supabase/supabase-js'
 import { anexarPdfDoDocumento } from '@/lib/anexo-do-documento'
 import { mensagemDeErroContrato } from '@/lib/contratos'
 import { montarIngestaoContrato, tokenConfere, type PayloadIngestaoContrato } from '@/lib/ingestao'
-import { identificarObra } from '@/lib/obra-do-documento'
+import { identificarObra, opcoesParaPergunta, textoDaPergunta } from '@/lib/obra-do-documento'
 import type { Database } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
@@ -55,6 +55,7 @@ export async function POST(req: Request) {
       .from('obras')
       .select('id, codigo_obra, nome, cliente:clientes(nome)')
       .eq('empresa_id', empresaIdPayload)
+      .order('created_at', { ascending: false })
     if (erroObras) return resposta(500, { ok: false, error: erroObras.message })
     const candidatas = (obrasEmpresa ?? []).map((o) => ({
       id: o.id,
@@ -63,7 +64,24 @@ export async function POST(req: Request) {
       cliente_nome: (o.cliente as { nome: string | null } | null)?.nome ?? null,
     }))
     const achada = identificarObra(candidatas, payload.obra ?? {})
-    if (!achada.ok) return resposta(422, { ok: false, error: `Obra não identificada: ${achada.motivo}`, candidatas: achada.candidatas })
+    if (!achada.ok) {
+      // Decisão 31: em vez de só ir para revisão, o bot pergunta a obra. As
+      // opções ficam no documento para conferir a resposta depois.
+      const opcoes = opcoesParaPergunta(candidatas, achada.candidatas)
+      if (opcoes.length) {
+        await supabase
+          .from('documentos_processamento')
+          .update({ opcoes_obra: opcoes })
+          .eq('id', String(payload.documentoId))
+          .eq('empresa_id', empresaIdPayload)
+      }
+      return resposta(422, {
+        ok: false,
+        error: `Obra não identificada: ${achada.motivo}`,
+        candidatas: achada.candidatas,
+        pergunta: opcoes.length ? textoDaPergunta(opcoes) : null,
+      })
+    }
     payload.obraId = achada.obraId
     obraIdentificadaComo = achada.como
   }
@@ -159,7 +177,7 @@ export async function POST(req: Request) {
 
   const { error: erroVinculo } = await supabase
     .from('documentos_processamento')
-    .update({ status: 'APROVADO', tipo_documento: 'CONTRATO', obra_id: contrato.obra_id, contrato_criado_id: criado.id, conferencia: 'pendente' })
+    .update({ status: 'APROVADO', tipo_documento: 'CONTRATO', obra_id: contrato.obra_id, contrato_criado_id: criado.id, conferencia: 'pendente', opcoes_obra: null })
     .eq('id', documentoId)
   if (erroVinculo) {
     avisos.push(`contrato criado, mas o documento não foi vinculado: ${erroVinculo.message}`)

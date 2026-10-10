@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { createClient } from '@/lib/supabase/server'
 
 import type { EmpresaPayload } from './empresa-form-helpers'
@@ -34,7 +35,7 @@ export async function updateEmpresa(
     .update(input)
     .eq('id', profile.empresa_id)
 
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
 
   revalidatePath('/configuracoes')
   return { ok: true }
@@ -84,7 +85,7 @@ export async function uploadLogo(formData: FormData): Promise<UploadLogoResult> 
     .from('documentos')
     .upload(path, file, { upsert: true, contentType: file.type })
 
-  if (uploadError) return { ok: false, error: uploadError.message }
+  if (uploadError) return { ok: false, error: mensagemDeErroBanco(uploadError) }
 
   // URL signed válida por 100 anos (basicamente "permanente" pra logo)
   const { data: signed, error: signError } = await supabase.storage
@@ -99,7 +100,7 @@ export async function uploadLogo(formData: FormData): Promise<UploadLogoResult> 
     .update({ logo_url: signed.signedUrl })
     .eq('id', profile.empresa_id)
 
-  if (updateError) return { ok: false, error: updateError.message }
+  if (updateError) return { ok: false, error: mensagemDeErroBanco(updateError) }
 
   revalidatePath('/configuracoes')
   return { ok: true, url: signed.signedUrl }

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { createClient } from '@/lib/supabase/server'
 import type { Anexo, FdUpdate } from '@/lib/types'
 
@@ -31,7 +32,7 @@ export async function deleteFd(id: string): Promise<DeleteFdResult> {
   }
 
   const { error } = await supabase.from('fd').delete().eq('id', id)
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
 
   revalidatePath('/fd')
   return { ok: true }
@@ -160,7 +161,7 @@ export async function getEvidenciaUrl(
     .from(BUCKET)
     .createSignedUrl(path, 60 * 60)
 
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
   return { ok: true, url: data.signedUrl }
 }
 

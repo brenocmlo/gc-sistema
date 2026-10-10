@@ -3,6 +3,7 @@
 import { Download } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { mensagemDeErroHttp } from '@/lib/erro-banco'
 
 type ExportButtonProps = {
   /** Endpoint completo: ex "/api/export/orcamentos" */
@@ -37,7 +38,7 @@ export default function ExportButton({
       const res = await fetch(url)
       if (!res.ok) {
         const text = await res.text().catch(() => '')
-        throw new Error(text || `Falha (${res.status})`)
+        throw new Error(mensagemDeErroHttp(res.status, text))
       }
 
       const blob = await res.blob()
@@ -52,8 +53,8 @@ export default function ExportButton({
 
       toast.success('Planilha baixada')
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Erro desconhecido'
-      toast.error(`Falha no export: ${msg}`)
+      const msg = err instanceof Error ? err.message : mensagemDeErroHttp(0, '')
+      toast.error(`Não foi possível baixar a planilha: ${msg}`)
     } finally {
       setLoading(false)
     }

@@ -26,7 +26,7 @@ export default function NovoClienteForm({
       return
     }
 
-    toast.success('Cliente criado com sucesso')
+    toast.success('Cliente criado')
     router.push(returnHref)
     router.refresh()
   }

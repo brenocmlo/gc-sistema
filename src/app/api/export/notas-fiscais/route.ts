@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { BRL_FORMAT, DATE_FORMAT, buildWorkbookResponse, todayStr } from '@/lib/excel-export'
 import { hojeISO } from '@/lib/execucao'
 import { computePeriodoCutoff, sanitizeBusca } from '@/lib/listagem'
@@ -94,7 +95,7 @@ export async function GET(req: NextRequest) {
   if (cutoff) query = query.gte('data_emissao', cutoff)
 
   const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) return NextResponse.json({ error: mensagemDeErroBanco(error) }, { status: 500 })
 
   const rows = (data ?? []) as Linha[]
   const metaParts = [

@@ -28,7 +28,7 @@ export default function NovaPropostaForm({
       return
     }
 
-    toast.success('Proposta criada com sucesso')
+    toast.success('Proposta criada')
     router.push(`/propostas/${result.id}`)
     router.refresh()
   }

@@ -25,8 +25,6 @@
  * Limpa o que cria: a proposta de teste é apagada no fim, inclusive quando algum
  * passo falha.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -34,6 +32,8 @@ import { exigirGcDev } from '../comum/gc-dev-guard.mjs'
 import { comNovaTentativa } from '../comum/rede.mjs'
 import { sessaoDePerfil } from '../comum/sessao-dev.mjs'
 import { limparAuditoriaDoRoteiro } from '../comum/auditoria-limpeza.mjs'
+
+import { cookieDeSessao as cookieDaSessaoEm, criarChamador, exigirActions, mapaDeActions, resultadoDoFlight } from './actions-http.mjs'
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3111'
 const URL_SUPABASE = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -51,32 +51,6 @@ exigirGcDev(URL_SUPABASE, 'a camada de escrita')
 // ============================================================
 // Mapa id → nome da action, lido do build
 // ============================================================
-
-function arquivosDoBuild(dir, saida = []) {
-  for (const nome of readdirSync(dir)) {
-    const caminho = join(dir, nome)
-    if (statSync(caminho).isDirectory()) arquivosDoBuild(caminho, saida)
-    else if (nome.endsWith('.js')) saida.push(caminho)
-  }
-  return saida
-}
-
-function mapaDeActions() {
-  const mapa = {}
-  // O build emite, minificado:
-  //   "<id>":()=>Promise.resolve().then(r.bind(r,N)).then(e=>e.nomeDaFuncao)
-  // A chave perde as aspas quando o hash começa por letra, daí o ["']? — e o
-  // corpo é lido sem cruzar aspas, pra não vazar pro próximo par.
-  const padrao = /["']?([0-9a-f]{40})["']?:\(\)=>[^"']{0,200}?\.then\(\w+=>\w+\.(\w+)\)/g
-  // `.next/server` inteiro, e não só `app/`: action usada por mais de uma rota
-  // (as de item, desde o 6.4, servem proposta e contrato) vai para um chunk
-  // compartilhado em `.next/server/chunks/`.
-  for (const arquivo of arquivosDoBuild(`${process.env.NEXT_DIST_DIR || '.next'}/server`)) {
-    const conteudo = readFileSync(arquivo, 'utf8')
-    for (const m of conteudo.matchAll(padrao)) mapa[m[2]] = m[1]
-  }
-  return mapa
-}
 
 const ACTIONS = mapaDeActions()
 
@@ -167,16 +141,14 @@ const NECESSARIAS = [
   // Automação: conferência do que o bot criou (aceitar ou não)
   'aceitarDocumento',
   'recusarDocumento',
+  // Gestão de usuários (13.1)
+  'convidarUsuario',
+  'gerarLinkDeAcesso',
+  'atualizarUsuario',
+  'definirAtivo',
 ]
 
-const faltando = NECESSARIAS.filter((n) => !ACTIONS[n])
-if (faltando.length > 0) {
-  console.error(
-    `FALHA: não achei no build as actions: ${faltando.join(', ')}.\n` +
-      `  Rode a camada build antes (o mapa vem de ${process.env.NEXT_DIST_DIR || '.next'}/server).`,
-  )
-  process.exit(1)
-}
+exigirActions(ACTIONS, NECESSARIAS)
 
 // ============================================================
 // Sessões
@@ -185,10 +157,7 @@ if (faltando.length > 0) {
 const ref = new URL(URL_SUPABASE).hostname.split('.')[0]
 
 /** O mesmo cookie, a partir de uma sessão já pronta (sem senha). */
-function cookieDeSessao(session) {
-  const valor = `base64-${Buffer.from(JSON.stringify(session)).toString('base64url')}`
-  return `sb-${ref}-auth-token=${valor}`
-}
+const cookieDeSessao = (session) => cookieDaSessaoEm(session, URL_SUPABASE)
 
 async function cookieDe(email, senha) {
   const sb = createClient(URL_SUPABASE, ANON)
@@ -199,8 +168,7 @@ async function cookieDe(email, senha) {
     console.error(`FALHA no login de ${email}: ${error.message}`)
     process.exit(1)
   }
-  const valor = `base64-${Buffer.from(JSON.stringify(data.session)).toString('base64url')}`
-  return { cookie: `sb-${ref}-auth-token=${valor}`, client: sb, userId: data.user.id }
+  return { cookie: cookieDeSessao(data.session), client: sb, userId: data.user.id }
 }
 
 const admin = await cookieDe(EMAIL, SENHA)
@@ -210,36 +178,7 @@ const supabase = admin.client
 // Chamada de Server Action
 // ============================================================
 
-function resultadoDoFlight(texto) {
-  // A resposta é RSC: uma linha "1:{...}" carrega o retorno da action.
-  for (const linha of texto.split('\n')) {
-    const i = linha.indexOf(':')
-    if (i < 0) continue
-    const corpo = linha.slice(i + 1)
-    if (!corpo.startsWith('{')) continue
-    try {
-      const json = JSON.parse(corpo)
-      if ('ok' in json || 'error' in json) return json
-    } catch {
-      /* linha de metadados do flight, ignora */
-    }
-  }
-  return { ok: false, error: `resposta não reconhecida: ${texto.slice(0, 200)}` }
-}
-
-async function chamar(nomeAction, args, { cookie = admin.cookie, rota = '/propostas' } = {}) {
-  const res = await fetch(BASE + rota, {
-    method: 'POST',
-    headers: {
-      cookie,
-      'Next-Action': ACTIONS[nomeAction],
-      'Content-Type': 'text/plain;charset=UTF-8',
-    },
-    body: JSON.stringify(args),
-  })
-  if (res.status !== 200) return { ok: false, error: `HTTP ${res.status}` }
-  return resultadoDoFlight(await res.text())
-}
+const chamar = criarChamador({ base: BASE, actions: ACTIONS, cookiePadrao: () => admin.cookie })
 
 async function chamarComArquivo(nomeAction, id, arquivo, { cookie = admin.cookie } = {}) {
   const form = new FormData()
@@ -1413,6 +1352,18 @@ try {
     checar('createOrcamento cria o orçamento', criadoOrc.ok === true, criadoOrc.error)
     orcamentoId = criadoOrc.id ?? null
 
+    // 13.4: o mesmo número bate no índice único do banco, e a action devolve a
+    // frase de usuário do tradutor genérico, não o "duplicate key value…".
+    if (orcamentoId) {
+      const repetidoOrc = await chamar('createOrcamento', [
+        { numero: `${NUMERO}-ORC`, data_solicitacao: hoje, cliente_id: cliente.id, descricao: 'Repetido',
+          escopo_resumo: null, valor_estimado: 1, prazo_estimado: null, responsavel: null, obra_id: null, observacao: null },
+      ], { rota: '/orcamentos/novo' })
+      checar('13.4: número de orçamento repetido volta em linguagem de usuário, sem o texto do Postgres',
+        repetidoOrc.ok === false && repetidoOrc.error === 'Já existe um registro com esses dados.',
+        JSON.stringify(repetidoOrc))
+    }
+
     if (orcamentoId) {
       const enviadoOrc = await chamar('changeOrcamentoStatus', [
         orcamentoId,
@@ -1688,6 +1639,21 @@ try {
     const vis = await chamar('createContrato', [av('V')], { rota: rn, cookie: cookieVis63 })
     checar('6.3: visualizador não cria contrato',
       vis.ok === false && /permissão/.test(vis.error ?? '') && (await existe(`${NUMERO}-AVV`)) === 0, vis.error)
+
+    // 13.2 etapa B: a recusa acima veio do banco (unique de número), e o fetch
+    // do client do servidor a registrou em auditoria_eventos, com a sessão do
+    // admin. O trigger não vê esse caso: o insert recusado não chega a gravar.
+    const { data: errosDup } = await svc
+      .from('auditoria_eventos')
+      .select('entidade, acao, resultado, origem, autor_id, mensagem, detalhe')
+      .gte('em', INICIO_AUDITORIA)
+      .eq('entidade', 'contratos')
+      .eq('resultado', 'erro')
+      .eq('autor_id', admin.userId)
+    const errDup = (errosDup ?? []).find((e) => e.detalhe?.codigo === '23505')
+    checar('13.2: a escrita recusada pelo banco vira evento de erro (contratos, criar, autor admin, código 23505, HTTP 409)',
+      errDup?.acao === 'criar' && errDup?.origem === 'sistema' && errDup?.detalhe?.http === 409 && /duplicate|unique/i.test(errDup?.mensagem ?? ''),
+      JSON.stringify(errosDup ?? null))
 
     const cookieCom63 = cookieDeSessao((await sessaoDePerfil('comercial')).session)
     const com = await chamar('createContrato', [av('C')], { rota: rn, cookie: cookieCom63 })
@@ -2828,6 +2794,49 @@ try {
     })
     checar('obra do documento que não existe no sistema → 422 legível, nada gravado', obraInexistente.status === 422 && /Obra não identificada/.test(obraInexistente.json?.error ?? ''), JSON.stringify(obraInexistente))
 
+    // Decisão 31: obra não identificada vira pergunta pelo bot. A rota grava as
+    // opções no documento e devolve o texto; a rota resposta-obra recebe o número.
+    {
+      const CHAT = `validacao-perg-${RUN}`
+      const docPerg = await novoDoc('PENDENTE', { canal_chat_id: CHAT })
+      const perg = await rota('/api/ingestao/contrato', {
+        ...corpoCt, documentoId: docPerg, numero: `${NUM_CT}-PERG`, obraId: undefined,
+        obra: { codigo: 'XYZ-NAO-EXISTE-999', nome: 'Condomínio que não existe', cliente: null },
+      })
+      const { data: dPerg } = await supabase.from('documentos_processamento').select('opcoes_obra').eq('id', docPerg).single()
+      const opcoesPerg = Array.isArray(dPerg?.opcoes_obra) ? dPerg.opcoes_obra : []
+      checar('obra não identificada: a rota devolve a pergunta numerada e grava as opções no documento',
+        perg.status === 422 && /1\) /.test(perg.json?.pergunta ?? '') && /0\) Nenhuma/.test(perg.json?.pergunta ?? '') && opcoesPerg.length > 0 && opcoesPerg.length <= 8,
+        JSON.stringify({ perg, opcoes: opcoesPerg.length }))
+      // O n8n põe o documento em revisão depois do 422.
+      await supabase.from('documentos_processamento').update({ status: 'REVISAO_HUMANA' }).eq('id', docPerg)
+
+      const semTokenResp = await rota('/api/ingestao/resposta-obra', { empresaId: EMP, chatId: CHAT, texto: '1' }, null)
+      checar('resposta-obra sem token → 401', semTokenResp.status === 401, JSON.stringify(semTokenResp))
+      const outroChat = await rota('/api/ingestao/resposta-obra', { empresaId: EMP, chatId: `${CHAT}-outro`, texto: '1' })
+      checar('resposta de outro chat não enxerga a pergunta (sem_pergunta)', outroChat.json?.acao === 'sem_pergunta', JSON.stringify(outroChat))
+      const invalida = await rota('/api/ingestao/resposta-obra', { empresaId: EMP, chatId: CHAT, texto: 'a segunda' })
+      checar('resposta que não é número repete a pergunta', invalida.json?.acao === 'repetir' && /1\) /.test(invalida.json?.pergunta ?? ''), JSON.stringify(invalida))
+      const fora = await rota('/api/ingestao/resposta-obra', { empresaId: EMP, chatId: CHAT, texto: String(opcoesPerg.length + 1) })
+      checar('número fora da lista repete a pergunta', fora.json?.acao === 'repetir', JSON.stringify(fora))
+
+      const escolha = await rota('/api/ingestao/resposta-obra', { empresaId: EMP, chatId: CHAT, texto: ' 1 ' })
+      const { data: dEsc } = await supabase.from('documentos_processamento').select('status, obra_id, opcoes_obra, etapa, motivo_revisao').eq('id', docPerg).single()
+      checar('escolher "1": documento volta para a fila com a obra da opção 1 e a pergunta fechada',
+        escolha.json?.acao === 'reprocessar' && escolha.json?.entrada?.documento_id === docPerg && escolha.json?.entrada?.obra_id === opcoesPerg[0]?.id &&
+          dEsc?.status === 'PENDENTE' && dEsc?.obra_id === opcoesPerg[0]?.id && dEsc?.opcoes_obra === null && dEsc?.etapa === 'NA_FILA' && dEsc?.motivo_revisao === null,
+        JSON.stringify({ escolha, dEsc }))
+      const denovo = await rota('/api/ingestao/resposta-obra', { empresaId: EMP, chatId: CHAT, texto: '1' })
+      checar('depois de respondida, a mesma resposta não reabre nada (sem_pergunta)', denovo.json?.acao === 'sem_pergunta', JSON.stringify(denovo))
+
+      const docNenhuma = await novoDoc('REVISAO_HUMANA', { canal_chat_id: CHAT, motivo_revisao: 'Obra não identificada', opcoes_obra: opcoesPerg })
+      const nenhuma = await rota('/api/ingestao/resposta-obra', { empresaId: EMP, chatId: CHAT, texto: '0' })
+      const { data: dNen } = await supabase.from('documentos_processamento').select('status, obra_id, opcoes_obra, motivo_revisao').eq('id', docNenhuma).single()
+      checar('"0": fica em revisão, sem obra, pergunta fechada e o motivo diz que a obra não está cadastrada',
+        nenhuma.json?.acao === 'nenhuma' && dNen?.status === 'REVISAO_HUMANA' && dNen?.obra_id === null && dNen?.opcoes_obra === null && /não está entre as cadastradas/.test(dNen?.motivo_revisao ?? ''),
+        JSON.stringify({ nenhuma, dNen }))
+    }
+
     // Revisão pela tela
     const docRev = await novoDoc('REVISAO_HUMANA', { obra_id: obraCt.id, motivo_revisao: 'validação' })
     const ROTA_REV = `/documentos/${docRev}`
@@ -2849,6 +2858,9 @@ try {
     const desc = await chamar('descartarDocumento', [docDesc, 'PDF duplicado da validação'], { rota: `/documentos/${docDesc}` })
     const { data: dd } = await supabase.from('documentos_processamento').select('status, motivo_revisao').eq('id', docDesc).single()
     checar('descartar: status DESCARTADO com o motivo', desc.ok === true && dd?.status === 'DESCARTADO' && dd?.motivo_revisao === 'Descartado: PDF duplicado da validação', JSON.stringify({ desc, dd }))
+    // Aviso pelo bot a quem enviou (07/10): o chat 'validacao' não é chat de
+    // Telegram, então nada é enviado e a ação não volta com aviso de envio.
+    checar('documento com chat fictício não tenta avisar pelo Telegram (ação sem aviso)', desc.ok === true && !desc.aviso, JSON.stringify(desc))
     // Log da automação (migration 20260928110000): o trigger grava o
     // recebimento e cada mudança de status; some junto com o documento (cascade).
     const { data: evDesc, error: eEvDesc } = await supabase
@@ -2976,6 +2988,106 @@ try {
       const excluido = await chamar('deleteContato', [contatoTesteId], { rota: ROTA_CT })
       checar('deleteContato exclui o contato', excluido.ok === true, excluido.error)
       if (excluido.ok) contatoTesteId = null
+    }
+  }
+
+  // ============================================================
+  // 13.1 Gestão de usuários (/configuracoes/usuarios): convite por link,
+  // senha, edição, a escalada recusada, desativar e reativar
+  // ============================================================
+  {
+    const ROTA_US = '/configuracoes/usuarios'
+    const EMAIL_US = `valida-usuario-${Date.now()}@teste.com`
+    let usuarioId = null
+    /** O link vem com a origem do pedido; aqui ele é aberto no mesmo servidor da rodada. */
+    const noServidor = (link) => { const u = new URL(link); return BASE + u.pathname + u.search }
+    const sessaoDoCookie = (setCookies) => {
+      const c = setCookies.find((x) => x.startsWith(`sb-${ref}-auth-token=`))
+      if (!c) return null
+      const valor = decodeURIComponent(c.split(';')[0].split('=').slice(1).join('='))
+      return JSON.parse(Buffer.from(valor.replace(/^base64-/, ''), 'base64url').toString('utf8'))
+    }
+    try {
+      const semEmail = await chamar('convidarUsuario', [{ nome: 'Validação', email: '', perfil: 'comercial' }], { rota: ROTA_US })
+      checar('13.1: convite sem e-mail é recusado no servidor (zod)', semEmail.ok === false && /e-mail/i.test(semEmail.error ?? ''), JSON.stringify(semEmail))
+      const perfilRuim = await chamar('convidarUsuario', [{ nome: 'Validação', email: EMAIL_US, perfil: 'dono' }], { rota: ROTA_US })
+      checar('13.1: perfil desconhecido é recusado', perfilRuim.ok === false, JSON.stringify(perfilRuim))
+      const com = await sessaoDePerfil('comercial')
+      const peloComercial = await chamar('convidarUsuario', [{ nome: 'Validação', email: EMAIL_US, perfil: 'comercial' }], { rota: ROTA_US, cookie: cookieDeSessao(com.session) })
+      checar('13.1: comercial não convida (o guard da action, além do layout)', peloComercial.ok === false && /administrador/.test(peloComercial.error ?? ''), JSON.stringify(peloComercial))
+
+      const convite = await chamar('convidarUsuario', [{ nome: 'Validação Usuário', email: EMAIL_US.toUpperCase(), perfil: 'comercial', telefone: '(85) 99999-1234' }], { rota: ROTA_US })
+      usuarioId = convite.id ?? null
+      checar('13.1: o admin convida e recebe o link de /convite com o token', convite.ok === true && /\/convite\?token_hash=[^&]+&type=invite$/.test(convite.link ?? ''), JSON.stringify({ ok: convite.ok, error: convite.error }))
+      const { data: perfilCriado } = await svc.from('profiles').select('email, perfil, ativo, telefone, empresa_id').eq('id', usuarioId ?? '').maybeSingle()
+      const { data: { user: doAuth } } = await svc.auth.admin.getUserById(usuarioId ?? '00000000-0000-0000-0000-000000000000')
+      checar('13.1: o perfil nasce na empresa do admin, com o e-mail em minúsculas, comercial e ativo; no Auth, sem e-mail confirmado',
+        perfilCriado?.email === EMAIL_US && perfilCriado?.perfil === 'comercial' && perfilCriado?.ativo === true && perfilCriado?.telefone === '(85) 99999-1234' && doAuth && !doAuth.email_confirmed_at,
+        JSON.stringify({ perfilCriado, confirmado: doAuth?.email_confirmed_at }))
+      const repetido = await chamar('convidarUsuario', [{ nome: 'Outro', email: EMAIL_US, perfil: 'financeiro' }], { rota: ROTA_US })
+      checar('13.1: o mesmo e-mail não é convidado duas vezes', repetido.ok === false && /já existe/i.test(repetido.error ?? ''), JSON.stringify(repetido))
+
+      // A pessoa abre o link: a rota troca o token pela sessão e leva à senha.
+      const aberto = await fetch(noServidor(convite.link), { redirect: 'manual' })
+      const sessaoNova = sessaoDoCookie(aberto.headers.getSetCookie?.() ?? [])
+      checar('13.1: o link abre /convite/senha com a sessão da pessoa', aberto.status === 307 && /\/convite\/senha\?tipo=invite$/.test(aberto.headers.get('location') ?? '') && sessaoNova?.user?.email === EMAIL_US,
+        `${aberto.status} ${aberto.headers.get('location')}`)
+      const telaSenha = await fetch(BASE + '/convite/senha?tipo=invite', { headers: { cookie: cookieDeSessao(sessaoNova) } })
+      checar('13.1: a tela de senha recebe a pessoa pelo nome', telaSenha.status === 200 && (await telaSenha.text()).includes('Bem-vindo, Validação Usuário'), `HTTP ${telaSenha.status}`)
+      const sbNovo = createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+      await sbNovo.auth.setSession(sessaoNova)
+      const senha = await sbNovo.auth.updateUser({ password: 'SenhaDeValidacao123' })
+      const sbLogin = createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+      const login1 = await sbLogin.auth.signInWithPassword({ email: EMAIL_US, password: 'SenhaDeValidacao123' })
+      checar('13.1: a senha definida pela tela de convite entra no sistema', !senha.error && !login1.error, senha.error?.message ?? login1.error?.message)
+      const reuso = await fetch(noServidor(convite.link), { redirect: 'manual' })
+      checar('13.1: o link usado não vale de novo (volta ao login com o recado)', reuso.status === 307 && /\/login\?erro=link$/.test(reuso.headers.get('location') ?? ''), `${reuso.status} ${reuso.headers.get('location')}`)
+
+      // Editar: o admin troca o perfil; a pessoa não consegue se promover pela API.
+      const edit = await chamar('atualizarUsuario', [usuarioId, { nome: 'Validação Usuário', perfil: 'visualizador', telefone: '' }], { rota: ROTA_US })
+      const { data: editado } = await svc.from('profiles').select('perfil, telefone').eq('id', usuarioId).single()
+      checar('13.1: o admin muda o perfil e limpa o telefone', edit.ok === true && editado?.perfil === 'visualizador' && editado?.telefone === null, JSON.stringify({ edit, editado }))
+      const escalada = await sbLogin.from('profiles').update({ perfil: 'admin' }).eq('id', usuarioId).select('perfil')
+      const proprioNome = await sbLogin.from('profiles').update({ nome: 'Validação Usuário' }).eq('id', usuarioId).select('nome')
+      const { data: depoisEscalada } = await svc.from('profiles').select('perfil').eq('id', usuarioId).single()
+      checar('13.1: pela API do Supabase, a pessoa não se promove a admin (o trigger recusa) mas edita o próprio nome',
+        Boolean(escalada.error) && /Só o admin muda/.test(escalada.error?.message ?? '') && !proprioNome.error && depoisEscalada?.perfil === 'visualizador',
+        JSON.stringify({ escalada: escalada.error?.message ?? escalada.data, nome: proprioNome.error?.message, perfil: depoisEscalada?.perfil }))
+
+      // Desativar: login recusado, bloqueio no Auth e RLS fechado para a sessão que estava aberta.
+      const proprio = await chamar('definirAtivo', [admin.userId, false], { rota: ROTA_US })
+      checar('13.1: o admin não desativa o próprio acesso', proprio.ok === false && /próprio acesso/.test(proprio.error ?? ''), JSON.stringify(proprio))
+      const desat = await chamar('definirAtivo', [usuarioId, false], { rota: ROTA_US })
+      const { data: { user: bloqueado } } = await svc.auth.admin.getUserById(usuarioId)
+      const { data: inativo } = await svc.from('profiles').select('ativo').eq('id', usuarioId).single()
+      checar('13.1: desativar marca o perfil e bloqueia no Auth', desat.ok === true && inativo?.ativo === false && Boolean(bloqueado?.banned_until) && new Date(bloqueado.banned_until) > new Date(), JSON.stringify({ desat, ativo: inativo?.ativo, ate: bloqueado?.banned_until }))
+      const loginInativo = await createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } }).auth.signInWithPassword({ email: EMAIL_US, password: 'SenhaDeValidacao123' })
+      checar('13.1: o login do inativo é recusado (banned)', Boolean(loginInativo.error) && /banned/i.test(loginInativo.error?.message ?? ''), loginInativo.error?.message ?? 'entrou')
+      const obrasInativo = await sbLogin.from('obras').select('id')
+      const proprioInativo = await sbLogin.from('profiles').select('ativo').eq('id', usuarioId)
+      checar('13.1: com a sessão que estava aberta, o inativo não lê nenhuma obra pelo RLS, só a própria linha',
+        (obrasInativo.data ?? []).length === 0 && (proprioInativo.data ?? []).length === 1,
+        JSON.stringify({ obras: obrasInativo.data?.length ?? obrasInativo.error?.message, proprio: proprioInativo.data }))
+      const linkInativo = await chamar('gerarLinkDeAcesso', [usuarioId], { rota: ROTA_US })
+      checar('13.1: inativo não recebe link de acesso', linkInativo.ok === false && /inativo/i.test(linkInativo.error ?? ''), JSON.stringify(linkInativo))
+
+      // Reativar: entra de novo; e o link de acesso (senha esquecida) leva à troca de senha.
+      const reat = await chamar('definirAtivo', [usuarioId, true], { rota: ROTA_US })
+      const login2 = await createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } }).auth.signInWithPassword({ email: EMAIL_US, password: 'SenhaDeValidacao123' })
+      checar('13.1: reativado, entra com a senha que já tinha', reat.ok === true && !login2.error, reat.error ?? login2.error?.message)
+      const acesso = await chamar('gerarLinkDeAcesso', [usuarioId], { rota: ROTA_US })
+      const abertoAcesso = acesso.ok ? await fetch(noServidor(acesso.link), { redirect: 'manual' }) : null
+      checar('13.1: o link de acesso (type=recovery) leva à tela de nova senha',
+        acesso.ok === true && /type=recovery$/.test(acesso.link) && abertoAcesso?.status === 307 && /\/convite\/senha\?tipo=recovery$/.test(abertoAcesso.headers.get('location') ?? ''),
+        JSON.stringify({ acesso: acesso.error, status: abertoAcesso?.status, location: abertoAcesso?.headers.get('location') }))
+      const doComercial = await chamar('definirAtivo', [usuarioId, false], { rota: ROTA_US, cookie: cookieDeSessao(com.session) })
+      checar('13.1: comercial não desativa ninguém', doComercial.ok === false, JSON.stringify(doComercial))
+    } finally {
+      if (usuarioId) {
+        const { error } = await svc.auth.admin.deleteUser(usuarioId)
+        const { count } = await svc.from('profiles').select('id', { count: 'exact', head: true }).eq('id', usuarioId)
+        checar('13.1: limpeza do usuário de teste (Auth e perfil)', !error && count === 0, error?.message ?? `perfis restantes: ${count}`)
+      }
     }
   }
 
@@ -3152,7 +3264,8 @@ try {
     checar('auditoria: rascunho → enviada virou evento "status" com o diff', Boolean(envio), `${evs.length} evento(s)`)
     const ruido = evs.filter((e) => {
       const campos = Object.keys(e.detalhe?.campos ?? {})
-      return (e.acao === 'editar' || e.acao === 'status') &&
+      // Evento de erro (etapa B) não tem diff: a escrita foi recusada.
+      return e.resultado !== 'erro' && (e.acao === 'editar' || e.acao === 'status') &&
         (campos.length === 0 || campos.includes('updated_at') || campos.includes('historico'))
     })
     checar('auditoria: nenhum evento de update traz só updated_at/historico', ruido.length === 0, `${ruido.length} com ruído`)

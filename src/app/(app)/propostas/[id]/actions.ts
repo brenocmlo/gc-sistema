@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 
 import { autorizarExclusaoDeAnexo, removeuDoStorage, STATUS_MUDOU_NO_MEIO } from '@/lib/anexos'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { buildStoragePath, fileErrorMessage, validateFile } from '@/lib/files'
 import { BUCKET_FOTOS, pathEhDoItem } from '@/lib/fotos'
 import {
@@ -330,7 +331,7 @@ export async function getAnexoUrl(path: string): Promise<AnexoUrlResult> {
     .from(BUCKET)
     .createSignedUrl(path, 60 * 60)
 
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: mensagemDeErroBanco(error) }
   return { ok: true, url: data.signedUrl }
 }
 

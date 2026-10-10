@@ -3,7 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -16,9 +16,20 @@ const loginSchema = z.object({
 
 type LoginForm = z.infer<typeof loginSchema>
 
+const ERROS_DA_URL: Record<string, string> = {
+  link: 'O link de acesso é inválido, já foi usado ou venceu. Peça um novo ao administrador.',
+  inativo: 'Seu acesso está desativado. Fale com o administrador.',
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const [authError, setAuthError] = useState<string | null>(null)
+
+  // Recados de quem chega aqui redirecionado: link de convite vencido ou acesso desativado.
+  useEffect(() => {
+    const erro = new URLSearchParams(window.location.search).get('erro')
+    if (erro && ERROS_DA_URL[erro]) setAuthError(ERROS_DA_URL[erro])
+  }, [])
 
   const {
     register,
@@ -40,7 +51,9 @@ export default function LoginPage() {
       setAuthError(
         error.message === 'Invalid login credentials'
           ? 'Email ou senha incorretos'
-          : error.message,
+          : /banned/i.test(error.message) || error.code === 'user_banned'
+            ? ERROS_DA_URL.inativo
+            : error.message,
       )
       return
     }

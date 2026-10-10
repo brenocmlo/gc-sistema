@@ -7,9 +7,14 @@ import {
   buildWorkbookResponse,
   todayStr,
 } from '@/lib/excel-export'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { computeStatusFd, formatStatusFdLabel } from '@/lib/fd'
 import { computePeriodoCutoff } from '@/lib/listagem'
 import { createClient } from '@/lib/supabase/server'
+
+// Os perfis do layout de /fd. Sem isto, a URL direta respondia 200 a qualquer
+// perfil (13.3); desde a migration 20261007100000 a RLS também esvazia a planilha.
+const PERFIS_COM_ACESSO = ['admin', 'financeiro', 'visualizador']
 
 export async function GET(req: NextRequest) {
   const supabase = createClient()
@@ -18,6 +23,10 @@ export async function GET(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { data: profile } = await supabase.from('profiles').select('perfil').eq('id', user.id).maybeSingle()
+  if (!profile || !PERFIS_COM_ACESSO.includes(profile.perfil)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   const sp = req.nextUrl.searchParams
   const busca = sp.get('busca')?.trim() ?? ''
@@ -56,7 +65,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await query
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: mensagemDeErroBanco(error) }, { status: 500 })
   }
 
   const rows = (data ?? []).map((d) => {

@@ -695,6 +695,8 @@ try {
   await b.esperar('location.pathname === "/logs"', { rotulo: '/logs pelo menu', ms: 20000 })
   checar('item "Logs e auditoria" do menu lateral navega', (await b.url()).startsWith('/logs'), await b.url())
 
+  // 13.4: a URL muda antes do conteúdo; enquanto isso a tela é o skeleton.
+  await b.esperar('document.querySelector(\'input[placeholder^="Buscar na mensagem"]\')', { rotulo: '/logs carregado', ms: 25000 })
   await b.preencher('input[placeholder^="Buscar na mensagem"]', NUMERO)
   await b.esperar(`location.search.includes("busca=${NUMERO}")`, { rotulo: 'busca na URL (debounce)', ms: 10000 })
   await b.esperar('document.querySelector("table")', { rotulo: 'tabela de eventos', ms: 20000 })
@@ -1558,11 +1560,12 @@ try {
     const { data: canc35 } = await sb.from('notas_fiscais').select('id').eq('numero', 'SEED-NF-005').maybeSingle()
     if (nf35 && canc35) {
       await b.ir(`${BASE}/financeiro/notas-fiscais/${nf35.id}`)
-      await b.esperar('Array.from(document.querySelectorAll("[role=tab]")).length === 3', { rotulo: 'abas da NF', ms: 25000 })
+      await b.esperar('Array.from(document.querySelectorAll("[role=tab]")).length === 4', { rotulo: 'abas da NF', ms: 25000 })
       const abas = await b.avaliar('Array.from(document.querySelectorAll("[role=tab]")).map((t) => t.innerText.trim())')
       const topo = await b.avaliar('document.querySelector("[aria-label=\\"Valores da nota fiscal\\"]").innerText.replace(/\\s+/g, " ")')
-      checar('o detalhe tem as abas Detalhes, Pagamentos e Arquivos, e o cabeçalho com valor, recebido e a receber',
-        JSON.stringify(abas) === JSON.stringify(['Detalhes', 'Pagamentos', 'Arquivos']) && /Valor total R\$\s?2\.500,50/.test(topo) && /A receber R\$\s?2\.500,50/.test(topo),
+      // 13.2: a quarta aba, Histórico, traz a contagem (a criação pela tela já é um evento).
+      checar('o detalhe tem as abas Detalhes, Pagamentos, Arquivos e Histórico, e o cabeçalho com valor, recebido e a receber',
+        JSON.stringify(abas.slice(0, 3)) === JSON.stringify(['Detalhes', 'Pagamentos', 'Arquivos']) && /^Histórico \(\d+\)$/.test(abas[3] ?? '') && /Valor total R\$\s?2\.500,50/.test(topo) && /A receber R\$\s?2\.500,50/.test(topo),
         `${JSON.stringify(abas)} · ${topo}`)
       await b.clicar('[role=tab]', { texto: 'Pagamentos' })
       // 10.3: a aba deixou de ser placeholder; a NF do passo 34 não tem pagamento.
@@ -1688,9 +1691,55 @@ try {
       await b.clicar('[role=tab]', { texto: 'Arquivos' })
       checar('na cancelada, a aba Arquivos não oferece envio nem substituição',
         await b.avaliar(`document.querySelectorAll('[data-arquivo-nf] input[type=file]').length === 0 && document.body.innerText.includes('sem envio nem substituição')`))
+
+      // 13.2: a aba Histórico da NF, lida de auditoria_eventos, mostra o
+      // cancelamento que acabou de acontecer, com o diff ao abrir.
+      await b.clicar('[role=tab]', { texto: 'Histórico' })
+      const painelHist = 'Array.from(document.querySelectorAll("[role=tabpanel]")).find((p) => !p.hidden)'
+      await b.esperar(`${painelHist}?.innerText.includes("status: emitida → cancelada")`, { rotulo: 'aba Histórico da NF', ms: 15000 })
+      const hist = await b.avaliar(`(() => {
+        const p = ${painelHist};
+        return { texto: p.innerText, itens: p.querySelectorAll('li').length };
+      })()`)
+      checar('13.2: a aba Histórico da NF lista o cancelamento (Mudança de status, emitida → cancelada) e a criação',
+        hist.texto.includes('Mudança de status') && hist.texto.includes('Criação') && hist.itens >= 2, hist.texto.slice(0, 300))
+      await b.avaliar(`(() => { const s = Array.from(${painelHist}.querySelectorAll('summary')).find((x) => x.innerText.includes('cancelada')); s?.click(); return Boolean(s) })()`)
+      checar('13.2: aberto, o evento mostra o diff com o motivo do cancelamento',
+        await b.avaliar(`${painelHist}.innerText.includes('motivo_cancelamento') && ${painelHist}.innerText.includes('Emitida para a obra errada')`))
+      await b.screenshot(`${SHOTS}/36-nf-historico.png`)
     } else {
       checar('a NF do passo 34 existe (passo 36)', false)
     }
+  }
+
+  // 13.4: "não encontrado" dentro do shell e o "Limpar filtros" da listagem
+  //       vazia por filtro, como admin.
+  {
+    const antes = b.erros.length
+    await b.ir(`${BASE}/propostas/00000000-0000-4000-8000-000000000000`)
+    await b.esperar('document.querySelector("[data-tela=nao-encontrado]")', { rotulo: 'tela de não encontrado', ms: 25000 })
+    const nf404 = await b.avaliar(`({
+      titulo: document.querySelector('[data-tela=nao-encontrado] h1')?.innerText ?? '',
+      menu: Boolean(document.querySelector('nav a[href="/propostas"]') || document.querySelector('button[aria-label="Abrir menu"]')),
+    })`)
+    checar('13.4: proposta inexistente mostra "Proposta não encontrada" dentro do shell (com o menu)',
+      nf404.titulo === 'Proposta não encontrada' && nf404.menu, JSON.stringify(nf404))
+    await b.screenshot(`${SHOTS}/57-nao-encontrado.png`)
+    await b.clicar('[data-tela=nao-encontrado] a', { texto: 'Ver as propostas' })
+    await b.esperar('location.pathname === "/propostas" && document.querySelector("table tbody tr")', { rotulo: 'volta à listagem', ms: 25000 })
+    checar('13.4: o botão da tela de não encontrado volta à listagem de propostas', true)
+    // O documento 404 deixa "Failed to load resource: 404" no console; é o esperado aqui.
+    const novos = b.erros.splice(antes)
+    b.erros.push(...novos.filter((e) => !/status of 404/.test(e)))
+
+    await b.ir(`${BASE}/contratos?busca=zzz-inexistente`)
+    await b.esperar('Array.from(document.querySelectorAll("a")).some((a) => a.innerText.trim() === "Limpar filtros")', { rotulo: 'sem resultado com filtro', ms: 25000 })
+    checar('13.4: a listagem vazia por filtro diz o porquê e oferece "Limpar filtros"',
+      (await b.avaliar('document.body.innerText')).includes('Nenhum contrato encontrado com esses filtros.'))
+    await b.clicar('a', { texto: 'Limpar filtros' })
+    await b.esperar('location.pathname === "/contratos" && location.search === "" && document.querySelector("table tbody tr")', { rotulo: 'filtros limpos', ms: 25000 })
+    checar('13.4: "Limpar filtros" volta à listagem sem filtro, com as linhas', true)
+    await b.screenshot(`${SHOTS}/57-limpar-filtros.png`)
   }
 
   // 38. Pagamentos (10.1): a aba do Financeiro leva da listagem de NFs à de
@@ -2155,6 +2204,174 @@ try {
     }
   }
 
+  // 47. Aba Financeiro da obra (12.1), como admin, na obra dos acordos
+  //     (SEED-CT-EXEC-45): a aba pela tela, os seis blocos com o atrasado em
+  //     vermelho, a parcela atrasada na lista e a linha do tempo; em 390px, a
+  //     página não rola de lado (as tabelas rolam no próprio container).
+  {
+    const sb = await clienteSupabase()
+    const { data: ct45 } = await sb.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC-45').maybeSingle()
+    if (!ct45) {
+      checar('seed: SEED-CT-EXEC-45 existe (passo 47)', false, 'rode bash scripts/banco/aplicar-seed.sh supabase/seed_execucao.sql')
+    } else {
+      await b.ir(`${BASE}/obras/${ct45.obra_id}`)
+      await b.esperar('Array.from(document.querySelectorAll("[role=tab]")).some((t) => t.innerText.trim() === "Financeiro")', { rotulo: 'aba Financeiro', ms: 25000 })
+      await b.clicar('[role=tab]', { texto: 'Financeiro' })
+      await b.esperar('(() => { const s = document.querySelector("[aria-label=\'Resumo financeiro da obra\']"); return s && s.offsetParent !== null })()', { rotulo: 'blocos da aba Financeiro' })
+      const blocos = await b.avaliar(`Object.fromEntries(Array.from(document.querySelectorAll('[data-bloco]')).map((d) => [d.dataset.bloco, d.querySelector('p + p').innerText.replace(/\\s+/g, ' ')]))`)
+      const atrasadoVermelho = await b.avaliar('document.querySelector("[data-bloco=Atrasado] p + p").className.includes("text-red")')
+      checar('a aba Financeiro mostra os seis blocos (recebido 6.500, a receber 3.900, atrasado 1.200 em vermelho, FD 2.900)',
+        Object.keys(blocos).length === 6 && /6\.500,00/.test(blocos['Recebido']) && /3\.900,00/.test(blocos['A receber']) && /1\.200,00/.test(blocos['Atrasado']) && /2\.900,00/.test(blocos['FD descontado']) && atrasadoVermelho,
+        JSON.stringify(blocos))
+      const listas = await b.avaliar(`({
+        parcela: Array.from(document.querySelectorAll('[data-parcela]')).find((tr) => tr.dataset.parcela.startsWith('SEED-AC-004'))?.innerText ?? '',
+        nf: document.querySelector('[data-nf="SEED-CONV-001"]')?.innerText ?? '',
+        meses: document.querySelectorAll('[aria-label="Recebimentos por mês"] > li').length,
+      })`)
+      checar('a parcela atrasada do SEED-AC-004 está na lista com o selo, a NF de saldo SEED-CONV-001 na de NFs, e a linha do tempo tem ao menos um mês',
+        /Atrasada/.test(listas.parcela) && /SEED-CONV-001/.test(listas.nf) && listas.meses >= 1, JSON.stringify(listas))
+      await b.screenshot(`${SHOTS}/47-obra-financeiro.png`)
+
+      await b.viewport(390, 844)
+      const larg = await b.avaliar('({ pagina: document.documentElement.scrollWidth, janela: window.innerWidth })')
+      checar('em 390px a aba Financeiro não rola de lado (as tabelas rolam no próprio container)', larg.pagina <= larg.janela, JSON.stringify(larg))
+      await b.screenshot(`${SHOTS}/47-obra-financeiro-390.png`, { largura: 390, altura: 844 })
+      await b.viewport(1440, 900)
+    }
+  }
+
+  // 48. Visão geral do financeiro (12.2), como admin: o menu Financeiro abre
+  //     nela; os filtros de obra e período vão para a URL e mudam os cards; o
+  //     link da obra leva à aba Financeiro dela (12.1); em 390px, sem rolagem
+  //     lateral.
+  {
+    const sb = await clienteSupabase()
+    const { data: ct45 } = await sb.from('contratos').select('obra_id').eq('numero', 'SEED-CT-EXEC-45').maybeSingle()
+    if (!ct45) {
+      checar('seed: SEED-CT-EXEC-45 existe (passo 48)', false, 'rode bash scripts/banco/aplicar-seed.sh supabase/seed_execucao.sql')
+    } else {
+      await b.ir(`${BASE}/`)
+      await b.esperar('document.querySelector(\'nav a[href="/financeiro/visao-geral"]\')', { rotulo: 'menu Financeiro', ms: 25000 })
+      await b.clicar('nav a[href="/financeiro/visao-geral"]')
+      await b.esperar('location.pathname === "/financeiro/visao-geral" && document.querySelector(\'[aria-label="Resumo do financeiro"]\')', { rotulo: 'visão geral pelo menu', ms: 25000 })
+      const cardsTodas = await b.avaliar(`Array.from(document.querySelectorAll('[data-card]')).map((d) => d.dataset.card)`)
+      checar('o menu Financeiro abre a visão geral, com os quatro cards',
+        JSON.stringify(cardsTodas) === JSON.stringify(['A receber', 'Recebido no período', 'Atrasado', 'Previsto para 30 dias']), JSON.stringify(cardsTodas))
+
+      for (let tentativa = 0; tentativa < 20; tentativa++) {
+        await b.preencher('select[aria-label=Obra]', ct45.obra_id)
+        await new Promise((r) => setTimeout(r, 500))
+        if (await b.avaliar(`location.search.includes(${JSON.stringify(`obra=${ct45.obra_id}`)})`)) break
+      }
+      await b.esperar(`location.search.includes(${JSON.stringify(`obra=${ct45.obra_id}`)})`, { rotulo: 'filtro de obra na URL', ms: 15000 })
+      await b.preencher('select[aria-label=Período]', 'tudo')
+      await b.esperar('location.search.includes("periodo=tudo") && document.querySelector("[data-card=Recebido]")', { rotulo: 'período na URL', ms: 20000 })
+      const cards = await b.avaliar(`Object.fromEntries(Array.from(document.querySelectorAll('[data-card]')).map((d) => [d.dataset.card, d.querySelector('p + p').innerText.replace(/\\s+/g, ' ')]))`)
+      const linhasObra = await b.avaliar('document.querySelectorAll(\'table[aria-label="Financeiro por obra"] tbody tr\').length')
+      checar('filtrado pela obra dos acordos e todo o período: a receber 3.900, recebido 6.500, atrasado 1.200, e uma obra na tabela',
+        /3\.900,00/.test(cards['A receber']) && /6\.500,00/.test(cards['Recebido']) && /1\.200,00/.test(cards['Atrasado']) && linhasObra === 1,
+        JSON.stringify({ cards, linhasObra }))
+      await b.screenshot(`${SHOTS}/48-financeiro-visao-geral.png`)
+
+      await b.clicar('table[aria-label="Financeiro por obra"] tbody a')
+      await b.esperar(`location.pathname === ${JSON.stringify(`/obras/${ct45.obra_id}`)} && (() => { const s = document.querySelector("[aria-label='Resumo financeiro da obra']"); return s && s.offsetParent !== null })()`, { rotulo: 'aba Financeiro da obra', ms: 25000 })
+      checar('o link da obra abre a obra direto na aba Financeiro (12.1)', true)
+
+      await b.ir(`${BASE}/financeiro/visao-geral`)
+      await b.esperar('document.querySelector(\'[aria-label="Resumo do financeiro"]\')', { rotulo: 'visão geral', ms: 25000 })
+      await b.viewport(390, 844)
+      const larg = await b.avaliar('({ pagina: document.documentElement.scrollWidth, janela: window.innerWidth })')
+      checar('em 390px a visão geral não rola de lado (as tabelas rolam no próprio container)', larg.pagina <= larg.janela, JSON.stringify(larg))
+      await b.screenshot(`${SHOTS}/48-financeiro-visao-geral-390.png`, { largura: 390, altura: 844 })
+      await b.viewport(1440, 900)
+    }
+  }
+
+  // 49. Dashboard (12.3), como admin: a home mostra as três seções com os
+  //     cards; a pendência leva à listagem já filtrada; o atalho abre a tela
+  //     de criar; em 390px, sem rolagem lateral.
+  {
+    await b.ir(`${BASE}/`)
+    await b.esperar('document.querySelector(\'[aria-label="Funil comercial"]\')', { rotulo: 'dashboard', ms: 25000 })
+    const secoes = await b.avaliar(`Object.fromEntries(['Funil comercial', 'Operação', 'Financeiro'].map((s) => [s, Array.from(document.querySelectorAll('section[aria-label="' + s + '"] [data-card]')).map((d) => d.dataset.card)]))`)
+    checar('o dashboard do admin tem as três seções com os seus cards',
+      JSON.stringify(secoes) === JSON.stringify({
+        'Funil comercial': ['Orçamentos em aberto', 'Propostas enviadas', 'Taxa de conversão'],
+        'Operação': ['Obras ativas', 'Em fabricação', 'Em entrega', 'Em instalação', 'Em medição'],
+        'Financeiro': ['A receber', 'Recebido no mês'],
+      }), JSON.stringify(secoes))
+    await b.screenshot(`${SHOTS}/49-dashboard.png`)
+
+    const temPendencia = await b.avaliar('Boolean(document.querySelector(\'[data-pendencia="orcamentos"] a\'))')
+    if (!temPendencia) {
+      checar('pendência de orçamento aguardando análise (passo 49)', false, 'nenhum orçamento pendente em gc-dev: rode o seed')
+    } else {
+      await b.clicar('[data-pendencia="orcamentos"] a')
+      await b.esperar('location.pathname === "/orcamentos" && location.search.includes("status=pendente")', { rotulo: 'pendência → orçamentos pendentes', ms: 25000 })
+      checar('a pendência abre a listagem de orçamentos filtrada por pendente', true)
+    }
+
+    await b.ir(`${BASE}/`)
+    await b.esperar('document.querySelector(\'nav[aria-label="Atalhos"] a[href="/orcamentos/novo"]\')', { rotulo: 'atalhos', ms: 25000 })
+    await b.clicar('nav[aria-label="Atalhos"] a[href="/orcamentos/novo"]')
+    await b.esperar('location.pathname === "/orcamentos/novo"', { rotulo: 'atalho Novo orçamento', ms: 25000 })
+    checar('o atalho Novo orçamento abre a tela de criar', true)
+
+    await b.ir(`${BASE}/`)
+    await b.esperar('document.querySelector(\'[aria-label="Funil comercial"]\')', { rotulo: 'dashboard', ms: 25000 })
+    await b.viewport(390, 844)
+    const larg = await b.avaliar('({ pagina: document.documentElement.scrollWidth, janela: window.innerWidth })')
+    checar('em 390px o dashboard não rola de lado', larg.pagina <= larg.janela, JSON.stringify(larg))
+    await b.screenshot(`${SHOTS}/49-dashboard-390.png`, { largura: 390, altura: 844 })
+    await b.viewport(1440, 900)
+  }
+
+  // Rótulos de gráfico encavalados ou fora do desenho (12.5): a conferência
+  // visual que dá para medir. O SVG do gráfico é o maior da figura (a legenda
+  // também desenha SVGs, de 14px).
+  const ROTULOS_DOS_GRAFICOS = `(() => {
+    const achados = []
+    for (const f of document.querySelectorAll('figure[data-grafico]')) {
+      const svg = Array.from(f.querySelectorAll('svg.recharts-surface')).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0]
+      if (!svg) continue
+      const sr = svg.getBoundingClientRect()
+      const ts = Array.from(svg.querySelectorAll('text')).filter((t) => t.textContent.trim()).map((t) => ({ t: t.textContent.trim(), r: t.getBoundingClientRect() }))
+      for (const x of ts) if (x.r.left < sr.left - 1 || x.r.right > sr.right + 1) achados.push(f.dataset.grafico + ': "' + x.t + '" sai do gráfico')
+      for (let i = 0; i < ts.length; i++) for (let j = i + 1; j < ts.length; j++) {
+        const a = ts[i].r, b = ts[j].r
+        if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1) achados.push(f.dataset.grafico + ': "' + ts[i].t + '" × "' + ts[j].t + '"')
+      }
+    }
+    return achados
+  })()`
+
+  // 50. Gráficos do dashboard (12.4), como admin: os quatro gráficos
+  //     desenham as barras no cliente (recharts), a receita tem os 12 meses
+  //     no eixo, e em 390px a página não rola de lado.
+  {
+    await b.ir(`${BASE}/`)
+    await b.esperar('document.querySelectorAll(\'figure[data-grafico] svg.recharts-surface\').length >= 4', { rotulo: 'gráficos desenhados', ms: 30000 })
+    const graficos = await b.avaliar(`Object.fromEntries(Array.from(document.querySelectorAll('figure[data-grafico]')).map((f) => [f.dataset.grafico, f.querySelectorAll('.recharts-bar-rectangle').length]))`)
+    checar('os quatro gráficos aparecem e têm barras',
+      ['Funil comercial', 'Motivos de rejeição', 'Progresso das obras ativas', 'Receita por mês'].every((t) => graficos[t] > 0), JSON.stringify(graficos))
+    const rotulos1440 = await b.avaliar(ROTULOS_DOS_GRAFICOS)
+    checar('em 1440px nenhum rótulo de gráfico encavalado ou fora do desenho', rotulos1440.length === 0, rotulos1440.join(' · '))
+    const meses = await b.avaliar(`document.querySelectorAll('figure[data-grafico="Receita por mês"] tbody tr').length`)
+    checar('a receita cobre os últimos 12 meses', meses === 12, String(meses))
+    await b.screenshot(`${SHOTS}/50-dashboard-graficos.png`, { largura: 1440, altura: 1800 })
+    await b.viewport(390, 844)
+    await new Promise((r) => setTimeout(r, 800))
+    const larg = await b.avaliar('({ pagina: document.documentElement.scrollWidth, janela: window.innerWidth })')
+    checar('em 390px os gráficos não fazem a página rolar de lado', larg.pagina <= larg.janela, JSON.stringify(larg))
+    const barras390 = await b.avaliar(`Object.fromEntries(Array.from(document.querySelectorAll('figure[data-grafico]')).map((f) => [f.dataset.grafico, f.querySelectorAll('.recharts-bar-rectangle').length]))`)
+    await new Promise((r) => setTimeout(r, 400))
+    const rotulos390 = await b.avaliar(ROTULOS_DOS_GRAFICOS)
+    checar('em 390px nenhum rótulo de gráfico encavalado ou fora do desenho', rotulos390.length === 0, rotulos390.join(' · '))
+    checar('em 390px os quatro gráficos ainda desenham as barras (o eixo e o rótulo não comem a área)', Object.values(barras390).length === 4 && Object.values(barras390).every((n) => n > 0), JSON.stringify(barras390))
+    await b.screenshot(`${SHOTS}/50-dashboard-graficos-390.png`, { largura: 390, altura: 844 })
+    await b.viewport(1440, 900)
+  }
+
   // 28. Documentos (automação, Fase 7), antes do passo 22 (que troca a
   //     sessão). Menu, listagem com filtro na URL, detalhe de um documento do
   //     gc-dev e a validação do envio pela tela — sem subir arquivo: o envio
@@ -2384,6 +2601,133 @@ try {
         await sb.storage.from('evidencias').remove([caminho])
         await sb.from('execucao').update({ evidencias: [] }).eq('id', box.id)
       }
+    }
+  }
+
+  // 51. Dashboard por perfil (12.5), com clique, depois dos passos que trocam
+  //     a sessão: cada um dos cinco perfis entra na home e vê só as seções e
+  //     os gráficos dele; a primeira pendência leva à tela filtrada; cada
+  //     atalho abre a tela sem redirecionar (prova que o perfil pode); quem
+  //     não é do financeiro não vê nenhum valor em reais.
+  {
+    const { atalhosDoPerfil, secoesDoPerfil } = await import('../../src/lib/dashboard.ts')
+    const ref = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname.split('.')[0]
+    const ROTULO = { comercial: 'Funil comercial', operacao: 'Operação', financeiro: 'Financeiro' }
+    const GRAFICOS = { comercial: ['Funil comercial', 'Motivos de rejeição'], operacao: ['Progresso das obras ativas'], financeiro: ['Receita por mês'] }
+    for (const perfil of ['comercial', 'producao', 'medicao', 'financeiro', 'visualizador']) {
+      const s = await sessaoDePerfil(perfil)
+      await b.limparSessao()
+      await b.definirCookie(`sb-${ref}-auth-token`, `base64-${Buffer.from(JSON.stringify(s.session)).toString('base64url')}`, BASE)
+      const secoes = secoesDoPerfil(perfil)
+      const graficos = secoes.flatMap((x) => GRAFICOS[x])
+      await b.ir(`${BASE}/`)
+      await b.esperar(`document.querySelector('section[aria-label="Pendências"]') && document.querySelectorAll('figure[data-grafico] svg.recharts-surface').length >= ${graficos.length}`, { rotulo: `dashboard como ${perfil}`, ms: 30000 })
+      const tela = await b.avaliar(`({
+        secoes: ['Funil comercial', 'Operação', 'Financeiro'].filter((t) => document.querySelector('section[aria-label="' + t + '"]')),
+        graficos: Array.from(document.querySelectorAll('figure[data-grafico]')).filter((f) => f.querySelector('svg.recharts-surface')).map((f) => f.dataset.grafico),
+        pendencias: Array.from(document.querySelectorAll('[data-pendencia] a')).map((a) => a.getAttribute('href')),
+        atalhos: Array.from(document.querySelectorAll('nav[aria-label="Atalhos"] a')).map((a) => a.getAttribute('href')),
+        semAcao: document.body.innerText.includes('não tem pendências de ação'),
+        reais: document.querySelector('main') ? document.querySelector('main').innerText.includes('R$') : document.body.innerText.includes('R$'),
+      })`)
+      checar(`como ${perfil}, o dashboard tem só as seções e os gráficos do perfil`,
+        JSON.stringify(tela.secoes) === JSON.stringify(secoes.map((x) => ROTULO[x])) && JSON.stringify(tela.graficos) === JSON.stringify(graficos),
+        JSON.stringify({ secoes: tela.secoes, graficos: tela.graficos }))
+      const esperados = atalhosDoPerfil(perfil).map((a) => a.href)
+      checar(`como ${perfil}, os atalhos são os do perfil`, JSON.stringify(tela.atalhos) === JSON.stringify(esperados), JSON.stringify(tela.atalhos))
+      if (!secoes.includes('financeiro')) checar(`como ${perfil}, nenhum valor em reais na home`, !tela.reais)
+      if (perfil === 'visualizador') {
+        checar('como visualizador, a home diz que não há pendência de ação', tela.semAcao && tela.pendencias.length === 0, JSON.stringify(tela.pendencias))
+      } else if (tela.pendencias.length > 0) {
+        const alvo = tela.pendencias[0]
+        await b.clicar(`[data-pendencia] a[href="${alvo}"]`)
+        await b.esperar(`location.pathname === ${JSON.stringify(alvo.split('?')[0])}`, { rotulo: `pendência de ${perfil}`, ms: 25000 })
+        checar(`como ${perfil}, a primeira pendência abre ${alvo.split('?')[0]} já filtrada`, await b.avaliar(`location.pathname + location.search`) === alvo, await b.avaliar('location.href'))
+      } else {
+        checar(`como ${perfil}, pendência para clicar (passo 51)`, false, 'nenhuma pendência do perfil em gc-dev: rode o seed_conferencia_12_5.sql')
+      }
+      await b.ir(`${BASE}/`)
+      await b.esperar('document.querySelector(\'section[aria-label="Pendências"]\')', { rotulo: 'dashboard', ms: 25000 })
+      await b.screenshot(`${SHOTS}/51-dashboard-${perfil}.png`, { largura: 1440, altura: 1400 })
+      await b.viewport(1440, 900)
+      const redirecionados = []
+      for (const href of esperados) {
+        await b.ir(`${BASE}${href}`)
+        await new Promise((r) => setTimeout(r, 400))
+        await b.esperar(`document.readyState === 'complete' && !document.body.innerText.includes('Carregando')`, { rotulo: `atalho ${href}`, ms: 30000 })
+        const onde = await b.avaliar('location.pathname')
+        if (onde !== href.split('?')[0]) redirecionados.push(`${href} → ${onde}`)
+      }
+      checar(`como ${perfil}, cada atalho abre a tela sem redirecionar (o perfil pode usá-la)`, redirecionados.length === 0, redirecionados.join(' · '))
+    }
+  }
+
+  // 52. Convite de usuário pela tela (13.1): o admin abre o diálogo, o zod
+  //     barra o vazio, o convite devolve o link (copiar e WhatsApp); a pessoa
+  //     abre o link sem sessão, o zod da senha barra a curta, ela cria a senha
+  //     e entra com o perfil escolhido. O usuário de teste é apagado no fim.
+  {
+    const { createClient } = await import('@supabase/supabase-js')
+    const svc = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY ?? '', { auth: { persistSession: false } })
+    const emailNovo = `valida-convite-${Date.now()}@teste.com`
+    try {
+      await b.limparSessao()
+      await b.ir(`${BASE}/login`)
+      await b.preencher('#email', EMAIL)
+      await b.preencher('#password', SENHA)
+      await b.clicar('button[type="submit"]')
+      await b.esperar('location.pathname !== "/login"', { rotulo: 'admin de volta', ms: 25000 })
+      await b.ir(`${BASE}/configuracoes/usuarios`)
+      await b.esperar('document.querySelector(\'table[aria-label="Usuários da empresa"]\')', { rotulo: 'lista de usuários', ms: 30000 })
+      await b.clicar('button', { texto: 'Convidar usuário' })
+      await b.esperar('document.querySelector("[role=dialog] #email")', { rotulo: 'diálogo de convite' })
+      await b.clicar('[role=dialog] button[type="submit"]')
+      await b.esperar('document.querySelector("[role=dialog]").innerText.includes("Informe o e-mail")', { rotulo: 'zod do convite', ms: 8000 })
+      const errosVazio = await b.avaliar('document.querySelector("[role=dialog]").innerText')
+      checar('convite vazio: o zod do formulário barra nome, e-mail e perfil sem chamar o servidor',
+        /ao menos 2 caracteres/.test(errosVazio) && /Informe o e-mail/.test(errosVazio) && /Escolha o perfil/.test(errosVazio), errosVazio.slice(0, 200))
+      await b.preencher('[role=dialog] #nome', 'Convite Navegador')
+      await b.preencher('[role=dialog] #email', emailNovo)
+      await b.preencher('[role=dialog] #perfil', 'producao')
+      await b.clicar('[role=dialog] button[type="submit"]')
+      await b.esperar('document.querySelector("#link-acesso")', { rotulo: 'link do convite', ms: 30000 })
+      const tela = await b.avaliar(`({ link: document.querySelector('#link-acesso').value, wa: document.querySelector('a[href^="https://wa.me/"]')?.getAttribute('href') ?? '' })`)
+      checar('o convite mostra o link de /convite e o atalho do WhatsApp com o link no texto',
+        /\/convite\?token_hash=.+&type=invite$/.test(tela.link) && tela.wa.includes(encodeURIComponent('/convite?token_hash=')), tela.link.replace(/token_hash=[^&]+/, 'token_hash=…'))
+      await b.screenshot(`${SHOTS}/52-convite-link.png`)
+
+      // Aquece /convite e /convite/senha: no next dev frio a primeira
+      // compilação passa de 25 s (ver 12.2), e o token do convite só vale uma vez.
+      await fetch(`${BASE}/convite`, { redirect: 'manual' })
+      await b.ir(`${BASE}/convite/senha`)
+      await b.esperar('document.querySelector("#senha")', { rotulo: 'compilar /convite/senha', ms: 90000 })
+
+      // A pessoa, sem sessão, abre o link.
+      await b.limparSessao()
+      const u = new URL(tela.link)
+      await b.ir(`${BASE}${u.pathname}${u.search}`)
+      try {
+        await b.esperar('location.pathname === "/convite/senha" && document.querySelector("h1")', { rotulo: 'tela de senha', ms: 60000 })
+      } catch (e) {
+        const onde = await b.avaliar('location.href + " | " + document.title + " | " + document.body.innerText.slice(0, 200).replace(/\\s+/g, " ")')
+        throw new Error(`${e.message} — a página ficou em: ${onde}`)
+      }
+      checar('o link abre a tela de criar a senha, com o nome da pessoa', (await b.avaliar('document.querySelector("h1").innerText')).includes('Convite Navegador'))
+      await b.preencher('#senha', 'curta')
+      await b.preencher('#confirmacao', 'curta')
+      await b.clicar('button[type="submit"]')
+      await b.esperar('document.body.innerText.includes("ao menos 8 caracteres")', { rotulo: 'zod da senha', ms: 8000 })
+      checar('senha curta: o zod barra na tela', true)
+      await b.screenshot(`${SHOTS}/52-convite-senha.png`)
+      await b.preencher('#senha', 'SenhaDoNavegador123')
+      await b.preencher('#confirmacao', 'SenhaDoNavegador123')
+      await b.clicar('button[type="submit"]')
+      await b.esperar('location.pathname === "/" && document.querySelector(\'section[aria-label="Pendências"]\')', { rotulo: 'entrou como produção', ms: 30000 })
+      const cabecalho = await b.avaliar('document.querySelector("header").innerText')
+      checar('criada a senha, a pessoa entra no dashboard com o perfil escolhido (Produção)', /Produção/.test(cabecalho) && /Convite Navegador/.test(cabecalho), cabecalho.replace(/\s+/g, ' ').slice(0, 80))
+    } finally {
+      const { data: criado } = await svc.from('profiles').select('id').eq('email', emailNovo).maybeSingle()
+      if (criado) await svc.auth.admin.deleteUser(criado.id)
     }
   }
 

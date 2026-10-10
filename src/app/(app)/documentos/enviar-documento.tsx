@@ -9,6 +9,7 @@ import FormField from '@/components/form/FormField'
 import Select from '@/components/form/Select'
 import Modal from '@/components/Modal'
 import { caminhoDeEnvio, validarPdfParaEnvio } from '@/lib/documentos'
+import { mensagemDeErroBanco } from '@/lib/erro-banco'
 import { createClient } from '@/lib/supabase/client'
 
 import { registrarEnvioDocumento } from './actions'
@@ -49,7 +50,7 @@ export default function EnviarDocumento({
         .storage.from('documentos-processamento')
         .upload(caminho, arquivo, { contentType: 'application/pdf', upsert: false })
       if (erroUpload) {
-        toast.error(`Não foi possível enviar o arquivo: ${erroUpload.message}`)
+        toast.error(`Não foi possível enviar o arquivo: ${mensagemDeErroBanco(erroUpload)}`)
         return
       }
       const r = await registrarEnvioDocumento({ caminho, obraId, nomeArquivo: arquivo.name })

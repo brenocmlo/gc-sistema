@@ -36,6 +36,9 @@ export default async function AppLayout({
     )
   }
 
+  // Desativado com a sessão aberta (13.1): sai na próxima navegação.
+  if (profile.ativo === false) redirect('/sair?erro=inativo')
+
   return (
     <>
       <AppShell
