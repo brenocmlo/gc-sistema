@@ -642,6 +642,16 @@ lista de 7 workflows. Onde uma fase abaixo contradisser uma delas, vale a decis�
       - Sem pergunta aberta: o bot responde o de sempre.
     - **Validade:** a pergunta vale por 7 dias. Depois disso, a revisão pela tela assume.
     - A regra fica em `src/lib/obra-do-documento.ts`, com teste.
+32. **Aditivo é uma proposta ligada ao contrato** (Breno, 10/10, opção 1.a).
+    - A coluna é `propostas.contrato_aditivo_id` (migration `20261012100000`). A FK composta
+      (mesma empresa e obra) fica em `20261012110000`, que **só pode ser aplicada depois do
+      merge**: com duas relações entre `propostas` e `contratos`, junção sem o nome da FK quebra
+      (PGRST201). O código já nomeia `propostas!contratos_proposta_fk`.
+    - O bot liga sozinho quando o PDF se declara aditivo ou complementar a um contrato da mesma
+      obra (campo `contrato_aditivo` da leitura). Contrato que não existe na obra vira aviso, e
+      a proposta entra como comum.
+    - Na tela, a proposta mostra "Aditivo do contrato", com "alterar" para admin e comercial, e
+      o contrato lista os aditivos.
 
 ---
 
@@ -1123,6 +1133,25 @@ no documento de status do bloco e o que não rodou listado nominalmente.
    `WHATSAPP` do Switch do `Notificar`, apagar os nós órfãos das Fases 3 e 6.
 3. Não delete o workflow Z-API. Deixe desativado como rollback por pelo menos um ciclo.
 4. Opcional, depois de tudo estável: renomear `contatos_whatsapp` → `contatos_canal`.
+
+**Estado em 12/10:**
+
+- **Item 1, os três caminhos: feito.**
+  - Proposta PROP-2026-0117 e contrato CT-2026-0042 (Vista Verde, 07/10) chegaram com itens e
+    PDF em Anexos.
+  - O caminho de revisão, com a pergunta da obra e a resposta "0", foi feito com o CT-2026-0051
+    em 10/10.
+- **Itens 2 e 3: feitos antes.** O workflow Z-API saiu em 22/09, a pedido do Breno, e o
+  `Notificar` ficou só com o alerta de erro.
+- **Workflow `SLA Gatilhos de Execução (5 dias)`:** estava inativo e foi **apagado** em 12/10.
+  A cópia está em `~/gc-sistema-staging/n8n-backups/`. O alerta de prazo de execução, se
+  voltar, é assunto da trilha de sprint (`/execucao`).
+- **Pendente com o Breno:**
+  - apagar a Credential "Telegram — ObraMinds Ingestão (teste)" no n8n e o bot de teste no
+    BotFather (`/deletebot`);
+  - descartar os 31 documentos de teste parados, que ficaram de fora porque a alteração em
+    lote precisa da autorização dele.
+- **Workflows em uso:** `Processar Documento` e `Notificar`.
 
 ---
 

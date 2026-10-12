@@ -141,6 +141,8 @@ const NECESSARIAS = [
   // Automação: conferência do que o bot criou (aceitar ou não)
   'aceitarDocumento',
   'recusarDocumento',
+  // Automação, opção 1.a: proposta aditivo de contrato (/propostas/[id])
+  'definirContratoAditivo',
   // Gestão de usuários (13.1)
   'convidarUsuario',
   'gerarLinkDeAcesso',
@@ -2837,6 +2839,55 @@ try {
         JSON.stringify({ nenhuma, dNen }))
     }
 
+    // Opção 1.a: proposta aditivo de contrato — pela rota (o bot) e à mão.
+    {
+      const { data: ctAlvo } = await supabase
+        .from('contratos')
+        .select('id, numero, obra_id, proposta_origem_id')
+        .in('obra_id', obrasTesteIngestao)
+        .neq('status', 'rescindido')
+        .limit(1)
+        .maybeSingle()
+      checar('há contrato de teste para receber o aditivo', Boolean(ctAlvo), 'nenhum contrato nas obras de teste')
+      if (ctAlvo) {
+        const ad = await rota('/api/ingestao/proposta', {
+          documentoId: await novoDoc(), empresaId: EMP, obraId: ctAlvo.obra_id, numero: `VALIDA-ADITIVO-${RUN}`,
+          valorTotal: 500, contratoAditivo: `n. ${ctAlvo.numero}`, origem: { canal: 'TELEGRAM' },
+        })
+        const { data: pAd } = ad.json?.propostaId ? await supabase.from('propostas').select('contrato_aditivo_id').eq('id', ad.json.propostaId).single() : { data: null }
+        checar('proposta que se declara aditivo é ligada ao contrato da mesma obra', ad.status === 201 && ad.json?.contratoAditivoId === ctAlvo.id && pAd?.contrato_aditivo_id === ctAlvo.id, JSON.stringify({ ad, pAd }))
+
+        const ad2 = await rota('/api/ingestao/proposta', {
+          documentoId: await novoDoc(), empresaId: EMP, obraId: ctAlvo.obra_id, numero: `VALIDA-ADITIVO-${RUN}-X`,
+          valorTotal: 500, contratoAditivo: 'CT-NAO-EXISTE-999', origem: { canal: 'TELEGRAM' },
+        })
+        checar('aditivo de contrato que não existe na obra entra como proposta comum, com aviso',
+          ad2.status === 201 && ad2.json?.contratoAditivoId === null && (ad2.json?.avisos ?? []).some((a) => /não existe nesta obra/.test(a)), JSON.stringify(ad2))
+
+        const propAd = ad2.json?.propostaId
+        if (propAd) {
+          const rotaP = `/propostas/${propAd}`
+          const ler = async () => (await supabase.from('propostas').select('contrato_aditivo_id').eq('id', propAd).single()).data?.contrato_aditivo_id
+          const sessaoVisAd = await sessaoDePerfil('visualizador')
+          const visAd = await chamar('definirContratoAditivo', [propAd, ctAlvo.id], { rota: rotaP, cookie: cookieDeSessao(sessaoVisAd.session) })
+          checar('visualizador não marca proposta como aditivo', visAd.ok === false && /permissão/i.test(visAd.error ?? ''), JSON.stringify(visAd))
+          const marca = await chamar('definirContratoAditivo', [propAd, ctAlvo.id], { rota: rotaP })
+          checar('admin marca a proposta como aditivo à mão', marca.ok === true && (await ler()) === ctAlvo.id, JSON.stringify(marca))
+          const { data: ctFora } = await supabase.from('contratos').select('id').eq('empresa_id', EMP).neq('obra_id', ctAlvo.obra_id).limit(1).maybeSingle()
+          if (ctFora) {
+            const fora = await chamar('definirContratoAditivo', [propAd, ctFora.id], { rota: rotaP })
+            checar('contrato de outra obra é recusado (e a ligação anterior fica)', fora.ok === false && /nesta obra/.test(fora.error ?? '') && (await ler()) === ctAlvo.id, JSON.stringify(fora))
+          }
+          if (ctAlvo.proposta_origem_id) {
+            const origem = await chamar('definirContratoAditivo', [ctAlvo.proposta_origem_id, ctAlvo.id], { rota: `/propostas/${ctAlvo.proposta_origem_id}` })
+            checar('a proposta de origem não pode ser aditivo do próprio contrato', origem.ok === false && /origem/.test(origem.error ?? ''), JSON.stringify(origem))
+          }
+          const desfaz = await chamar('definirContratoAditivo', [propAd, ''], { rota: rotaP })
+          checar('desfazer: a proposta deixa de ser aditivo', desfaz.ok === true && (await ler()) === null, JSON.stringify(desfaz))
+        }
+      }
+    }
+
     // Revisão pela tela
     const docRev = await novoDoc('REVISAO_HUMANA', { obra_id: obraCt.id, motivo_revisao: 'validação' })
     const ROTA_REV = `/documentos/${docRev}`
@@ -4238,6 +4289,13 @@ try {
       await supabase.from('documentos_processamento').update({ contrato_criado_id: null }).eq('contrato_criado_id', id)
       await supabase.from('itens').delete().eq('contrato_id', id)
       await supabase.from('contratos').delete().eq('id', id)
+    }
+    // Propostas criadas nessas obras pela rota (o aditivo da opção 1.a).
+    const { data: restosProp } = await supabase.from('propostas').select('id').in('obra_id', obrasTesteIngestao)
+    for (const { id } of restosProp ?? []) {
+      await supabase.from('documentos_processamento').update({ proposta_criada_id: null }).eq('proposta_criada_id', id)
+      await supabase.from('itens').delete().eq('proposta_id', id)
+      await supabase.from('propostas').delete().eq('id', id)
     }
     const { error: eob } = await supabase.from('obras').delete().in('id', obrasTesteIngestao)
     checar(`obras de teste da rota de contrato apagadas (${obrasTesteIngestao.length})`, !eob, eob?.message)

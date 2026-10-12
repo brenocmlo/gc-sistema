@@ -542,3 +542,165 @@ propósito, para a validação não mandar mensagem a ninguém.
    alguém usa a tela. Para cobrir isso, seria preciso uma verificação periódica do n8n, que
    fica para depois.
 5. `npm run validar` não rodou.
+
+### 12.1 Teste real da pergunta da obra e do aviso — 10/10
+
+Pré-requisito: o `TELEGRAM_BOT_TOKEN` estava com um valor que não era token de bot e foi
+trocado pelo do **@obraminds_ingestao_v2_bot**, no `.env.local` e na Vercel.
+
+Teste feito pelo Breno com o `CONTRATO CT-2026-0051 - Portal Norte`, documento `cf18ad40`:
+
+1. O Gemini leu o contrato. A obra "Galpão Logístico Portal Norte" não está cadastrada, então
+   **o bot perguntou a obra** com as 4 obras da empresa. O grupo recebeu `[PERGUNTA DE OBRA]`.
+2. A resposta **"0"** fechou a pergunta e deixou o documento em revisão, com o motivo. O bot
+   confirmou a quem enviou e o grupo recebeu `[REVISÃO]`.
+3. **Descartar pela tela:**
+   - A primeira tentativa não gravou: o documento continuou em revisão, e as duas mensagens
+     recebidas eram as do passo 2.
+   - Na segunda, o `cf18ad40` ficou `DESCARTADO` em 11/10 às 01:20 UTC, com o motivo "pdf enviado
+     por engano", e **o aviso chegou** a quem enviou: "Seu documento CT-2026-0051 foi encerrado
+     pela equipe sem registro no sistema: …".
+
+**Corrigido no teste:** a pergunta chegava com `\n` literal em vez de quebra de linha, porque
+o n8n repassa o corpo da rota com o escape. O "Registrar falha" passou a converter. Publicado
+no n8n; a correção vale para as próximas perguntas.
+
+**Ainda não exercitado:**
+
+- O aviso de Aceitar, Não aceitar e Vincular: o mesmo envio do Descartar, que foi testado.
+- Escolher uma obra pelo número, que reprocessa o documento com a obra fixada. Coberto no plano
+  de escrita, mas não testado pelo bot.
+- O alerta de automação parada, que só aparece com um erro real.
+- `npm run validar` não rodou.
+
+## 13. Validação das seções 9 a 12 — 12/10
+
+`npm run validar` completo, com o Mac na tomada e o gc-dev `ACTIVE_HEALTHY`. A rodada cobre o
+log da automação (9), o anexo pela rota (10), a pergunta da obra (11) e os avisos pelo bot (12).
+
+| Camada | Resultado |
+|---|---|
+| estatico | ok (12 s) |
+| unit | **397 casos** |
+| build | **65 rotas**, iguais à baseline |
+| runtime | **319/319 rotas** |
+| dados | **60/60 checagens** |
+| escrita | **506/506 passos** |
+| navegador | **260/260 passos** |
+
+**Passos da automação conferidos no log da rodada:**
+
+- **dados:** as 3 queries do log rodaram com registros (4, 43 e 2), ou seja, foram exercitadas.
+- **escrita:**
+  - log da automação: trigger em ordem; usuário não grava evento direto;
+  - anexo pela rota: entrada no jsonb e arquivo no bucket com o mesmo tamanho;
+  - pergunta da obra: 422 com a pergunta, `resposta-obra` sem token → 401, escolher "1"
+    reprocessa, "0" fica em revisão;
+  - avisos: chat fictício não tenta avisar pelo Telegram.
+- **navegador, passo 34:** etapa e erro traduzido no detalhe, faixa de automação parada e log
+  filtrado.
+
+Nenhuma sobra `VALIDA-*` ficou no gc-dev.
+
+**Continuam manuais ou não exercitados:**
+
+- O envio real pelo Telegram: o plano usa chat fictício de propósito. O envio foi conferido à
+  mão em 12.1.
+- Escolher uma obra pelo número, testado pelo bot.
+- O alerta de automação parada com um erro real.
+
+## 14. Aditivo como proposta ligada ao contrato (decisão 32) e corte — 12/10
+
+**Implementado, validação pendente** até a rodada completa registrada abaixo.
+
+### Aditivo (opção 1.a)
+
+- **Banco (gc-dev):**
+  - `20261012100000_propostas_aditivo_de_contrato.sql` aplicada: coluna
+    `contrato_aditivo_id` e índice.
+  - **A FK ficou fora, em `20261012110000_propostas_aditivo_fk.sql`, para aplicar depois do
+    merge.**
+    - **Por quê:** aplicada antes, ela quebra o detalhe de contrato e a exportação no site
+      publicado, que ainda roda o código antigo. Isso foi provado (PGRST201) e desfeito na
+      hora.
+    - **Atenção:** um `db push` antes do merge aplica essa FK e quebra o site.
+- **Junções nomeadas:** `propostas!contratos_proposta_fk` em `contratos/[id]/page.tsx`,
+  `api/export/contratos` e nas duas cópias em `validar-dados.mjs`.
+- **Leitura e rota:**
+  - O prompt ganhou o campo `contrato_aditivo`. Só é preenchido quando a proposta se declara
+    aditivo ou complementar; "base do contrato" não conta.
+  - "Analisar e decidir" e "Montar pedido da rota" repassam o número. O aviso ao grupo diz
+    "aditivo do contrato X".
+  - A rota de proposta procura o contrato na mesma obra (`numeroDoContratoAditivo` limpa o
+    prefixo "n.", "nº" e "Contrato"). Se acha, liga; se não acha, a proposta entra como comum,
+    com aviso.
+- **Tela:**
+  - Proposta: campo "Aditivo do contrato", com "alterar" para admin e comercial, que lista os
+    contratos da obra menos o que nasceu dessa proposta.
+  - Contrato: campo "Aditivos", com número, valor e status de cada um.
+  - A ação `definirContratoAditivo` fica em `propostas/[id]/aditivo-actions.ts` e repete a regra
+    de perfil.
+- **Números:**
+  - `ingestao.test.ts`: **26/26** (1 teste novo, com 8 casos).
+  - `tsc` e `lint`: limpos.
+  - `n8n_validate_workflow`: 0 erros.
+- **Plano estendido:**
+  - **escrita, 7 passos:** a rota liga o aditivo; contrato inexistente → aviso; visualizador
+    recusado; marcar à mão; contrato de outra obra recusado; a proposta de origem não pode ser
+    aditivo; desfazer. Também entrou a limpeza das propostas nas obras de teste.
+  - **dados:** 2 queries.
+  - **rotas:** o detalhe de contrato espera "Aditivos".
+  - **navegador:** passo 53 (alterar → escolher → Salvar → link; o contrato lista o aditivo).
+
+### Corte da Fase 8
+
+- **Workflow `SLA Gatilhos de Execução (5 dias)`:** apagado no n8n. Estava inativo. A cópia está
+  em `~/gc-sistema-staging/n8n-backups/`.
+- **31 documentos de teste parados** (14 PENDENTE, 16 REVISAO_HUMANA e 1 ERRO_VALIDACAO, todos
+  de antes de 11/10): **não descartados**. A alteração em lote foi barrada pela proteção de
+  escopo da sessão e ficou para o Breno decidir.
+- **Credential e bot de teste:** com o Breno. A sessão não tem ferramenta para apagar
+  Credential do n8n, e o bot só se apaga no BotFather.
+
+### 14.1 Validação do aditivo — 12/10 (rodada 2)
+
+| Camada | Resultado |
+|---|---|
+| estatico | ok |
+| unit | **398 casos** |
+| build | **65 rotas**, iguais à baseline |
+| runtime | **319/319 rotas** (o detalhe de contrato com "Aditivos") |
+| dados | **62/62 checagens**; 1 query sem registro, "aditivos de um contrato", **não exercitada** porque ainda não existe aditivo no gc-dev |
+| escrita | **513/513 passos** (7 do aditivo) |
+| navegador | **261/261 passos** na reexecução isolada de 12/10, à tarde (o passo 53 do aditivo incluso) |
+
+**O navegador falhou por causa da máquina, não do código.**
+
+- Na rodada 2, o passo 28 ("/documentos pelo menu") esperou 15 s pela navegação, e esse passo
+  já tinha passado na rodada 1 sem mudança.
+- Nas duas reexecuções, o login não saiu do `/login`: o `next dev` ficou compilando o `/` além
+  do tempo limite.
+- Na hora, o Mac estava com load average **238** e a CPU limitada a **21%** por temperatura
+  (`pmset -g therm`). Ollama, o vídeo do papel de parede e outro `next dev` rodavam juntos.
+- O login por senha no gc-dev funciona fora do navegador.
+
+**Resolvido.** Com a máquina folgada (CPU sem limite), a camada isolada passou.
+
+- **Tentativa intermediária:** um `next dev` de diagnóstico rodou ao mesmo tempo, na mesma
+  pasta `.next`, e a camada travou no login. Desligado esse servidor, o login passou.
+- **Defeito do passo 53, achado e corrigido:** o passo esperava o texto "Aditivos", mas o
+  rótulo sai em maiúsculas por CSS e o `innerText` devolve "ADITIVOS". O passo agora espera o
+  link da proposta. A tela estava certa: o screenshot mostrou o campo com o aditivo.
+- **Limpeza do passo 53:** depois da rodada, nenhuma proposta ficou como aditivo.
+
+Com as camadas da rodada 2 e esta reexecução, o aditivo (seção 14) fica **validado**.
+
+### 14.2 Corte, continuação — 12/10
+
+- **31 documentos de teste descartados** com autorização do Breno: status `DESCARTADO`,
+  motivo "teste da automação, encerrado no corte da Fase 8 (12/10)". Só os da lista, e só se
+  continuavam no mesmo status.
+- **Item 2, um contrato por obra na tela:** pela decisão do Breno (opção b), vai para a trilha
+  de sprint. O levantamento está em `docs/tecnicos/regra-um-contrato-por-obra.md`, com o que
+  quebra (seed, escrita, navegador e o "gerar duplicado" da 6.2) e o passo a passo.
+- **Ainda com o Breno:** apagar a Credential e o bot de teste.

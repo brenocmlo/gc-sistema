@@ -12,7 +12,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 import { anexarPdfDoDocumento } from '@/lib/anexo-do-documento'
-import { montarIngestao, tokenConfere, type PayloadIngestao } from '@/lib/ingestao'
+import { montarIngestao, numeroDoContratoAditivo, tokenConfere, type PayloadIngestao } from '@/lib/ingestao'
 import { mensagemDeErroProposta } from '@/lib/propostas'
 import { identificarObra, opcoesParaPergunta, textoDaPergunta } from '@/lib/obra-do-documento'
 import type { Database } from '@/lib/supabase/types'
@@ -115,9 +115,26 @@ export async function POST(req: Request) {
   if (erroObra) return resposta(500, { ok: false, error: erroObra.message })
   if (!obra) return resposta(422, { ok: false, error: 'Obra não pertence a esta empresa' })
 
+  // Opção 1.a: a proposta que se declara aditivo de um contrato liga-se a ele,
+  // se o contrato existir na mesma obra. Não achou: entra como proposta comum,
+  // com aviso — não é motivo para recusar.
+  let contratoAditivoId: string | null = null
+  const numeroAditivo = numeroDoContratoAditivo(payload.contratoAditivo)
+  if (numeroAditivo) {
+    const { data: ct } = await supabase
+      .from('contratos')
+      .select('id')
+      .eq('empresa_id', proposta.empresa_id)
+      .eq('obra_id', proposta.obra_id)
+      .eq('numero', numeroAditivo)
+      .maybeSingle()
+    if (ct) contratoAditivoId = ct.id
+    else avisos.push(`a proposta se declara aditivo do contrato ${numeroAditivo}, que não existe nesta obra; entrou como proposta comum`)
+  }
+
   const { data: criada, error: erroProposta } = await supabase
     .from('propostas')
-    .insert(proposta)
+    .insert({ ...proposta, contrato_aditivo_id: contratoAditivoId })
     .select('id')
     .single()
   if (erroProposta || !criada) {
@@ -164,6 +181,7 @@ export async function POST(req: Request) {
     itens: itens.length,
     obraId: proposta.obra_id,
     obraIdentificadaComo,
+    contratoAditivoId,
     avisos,
     anexo: anexado.ok ? anexado.anexo.path : null,
     anexoErro: anexado.ok ? null : anexado.error,

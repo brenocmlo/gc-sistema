@@ -260,3 +260,17 @@ test('contrato: aviso de soma divergente fala do contrato', () => {
   assert.ok(r.ok)
   if (r.ok) assert.match(r.avisos.join(' '), /o valor do contrato passa a ser a soma/)
 })
+
+import { numeroDoContratoAditivo } from './ingestao.ts'
+
+test('numeroDoContratoAditivo limpa o prefixo e devolve nulo quando não veio', () => {
+  assert.equal(numeroDoContratoAditivo('CT-2026-0042'), 'CT-2026-0042')
+  assert.equal(numeroDoContratoAditivo('n. CT-2026-0042'), 'CT-2026-0042')
+  assert.equal(numeroDoContratoAditivo('Contrato nº CT-2026-0042'), 'CT-2026-0042')
+  assert.equal(numeroDoContratoAditivo('  '), null)
+  assert.equal(numeroDoContratoAditivo(null), null)
+  assert.equal(numeroDoContratoAditivo(42), '42')
+  // Número que começa com N não perde a letra.
+  assert.equal(numeroDoContratoAditivo('NOVA-2026-1'), 'NOVA-2026-1')
+  assert.equal(numeroDoContratoAditivo('N-123'), 'N-123')
+})

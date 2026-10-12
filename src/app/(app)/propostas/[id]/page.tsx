@@ -26,6 +26,7 @@ import {
 import AnexosTab from '@/components/AnexosTab'
 
 import { deleteAnexo, getAnexoUrl, uploadAnexo } from './actions'
+import AditivoContrato from './aditivo-contrato'
 import DetailHeader from './detail-header'
 import ItensTab from '@/components/itens/itens-tab'
 import ConferenciaAutomacao from '@/components/ConferenciaAutomacao'
@@ -90,6 +91,19 @@ export default async function PropostaDetalhePage({ params }: PageProps) {
 
   const itens = (itensRes.data ?? []) as Item[]
 
+  // Opção 1.a: proposta aditivo de um contrato. Consulta pelo id (e não embed):
+  // propostas e contratos têm duas relações e o embed sem nome é ambíguo.
+  const [{ data: contratoAditivo }, { data: contratosDaObra }] = await Promise.all([
+    proposta.contrato_aditivo_id
+      ? supabase.from('contratos').select('id, numero').eq('id', proposta.contrato_aditivo_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    // Contratos da mesma obra que podem receber o aditivo (menos o que nasceu
+    // desta proposta).
+    supabase.from('contratos').select('id, numero, proposta_origem_id').eq('obra_id', proposta.obra_id).order('numero'),
+  ])
+  const contratoOptions = (contratosDaObra ?? [])
+    .filter((c) => c.proposta_origem_id !== proposta.id)
+    .map((c) => ({ value: c.id, label: c.numero }))
 
   const anexos = (proposta.anexos as Anexo[] | null) ?? []
   const obraLabel = obra ? `${obra.codigo_obra} — ${obra.nome}` : '—'
@@ -144,7 +158,14 @@ export default async function PropostaDetalhePage({ params }: PageProps) {
             value: 'detalhes',
             label: 'Detalhes',
             content: (
-              <DetailsTab proposta={proposta} obra={obra} qtdItens={itens.length} />
+              <DetailsTab
+                proposta={proposta}
+                obra={obra}
+                qtdItens={itens.length}
+                contratoAditivo={contratoAditivo}
+                contratoOptions={contratoOptions}
+                podeEditar={profile.perfil === 'admin' || profile.perfil === 'comercial'}
+              />
             ),
           },
           {
@@ -209,10 +230,16 @@ function DetailsTab({
   proposta,
   obra,
   qtdItens,
+  contratoAditivo,
+  contratoOptions,
+  podeEditar,
 }: {
   proposta: Proposta
   obra: ObraJoin
   qtdItens: number
+  contratoAditivo: { id: string; numero: string } | null
+  contratoOptions: { value: string; label: string }[]
+  podeEditar: boolean
 }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -229,6 +256,20 @@ function DetailsTab({
               proposta.data_validade ? formatDate(proposta.data_validade) : null
             }
           />
+          {(contratoAditivo || contratoOptions.length > 0) && (
+            <DetailField
+              label="Aditivo do contrato"
+              value={
+                <AditivoContrato
+                  propostaId={proposta.id}
+                  atual={contratoAditivo}
+                  contratoOptions={contratoOptions}
+                  podeEditar={podeEditar}
+                />
+              }
+              className="md:col-span-2"
+            />
+          )}
         </Block>
 
         <Block title="Obra e cliente">

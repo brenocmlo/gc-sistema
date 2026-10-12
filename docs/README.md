@@ -194,4 +194,5 @@ Trilha separada, com **numeração própria de 1 a 8** na lista do ClickUp — n
 | `auditoria-cobertura-sprint-4.md` | Os modos de falhar do próprio plano de validação — leia antes de mexer nos scripts |
 | `correcoes-listagens-e-obras.md` | Os três bugs achados ao fechar as lacunas do bloco 4.3 |
 | `exportacoes-xlsx.md` | O padrão visual das planilhas de `/api/export/*` (o gerador compartilhado) e o que mudou no FD |
+| `regra-um-contrato-por-obra.md` | Levantamento da regra "uma obra, um contrato vigente" na tela: o que quebra (seed, testes, 6.2) e o passo a passo para a trilha de sprint |
 | `README.md` | Índice da pasta |

@@ -645,7 +645,7 @@ const CHECKS = [
       const r = await sb
         .from('contratos')
         .select(
-          '*, obra:obras(codigo_obra, nome, cidade, cliente:clientes(nome, contato, telefone)), proposta_origem:propostas(id, numero)',
+          '*, obra:obras(codigo_obra, nome, cidade, cliente:clientes(nome, contato, telefone)), proposta_origem:propostas!contratos_proposta_fk(id, numero)',
         )
         .eq('id', alvo.id)
         .maybeSingle()
@@ -719,7 +719,7 @@ const CHECKS = [
       sb
         .from('contratos')
         .select(
-          'numero, data_assinatura, prazo_execucao, status, valor_total, desconto, valor_final, condicoes_pagamento, motivo_rescisao, detalhe_rescisao, pct_sinal, pct_fd, pct_entrega_material, pct_medicao_instalacao, obra:obras(codigo_obra, nome, cliente:clientes(nome)), proposta_origem:propostas(numero)',
+          'numero, data_assinatura, prazo_execucao, status, valor_total, desconto, valor_final, condicoes_pagamento, motivo_rescisao, detalhe_rescisao, pct_sinal, pct_fd, pct_entrega_material, pct_medicao_instalacao, obra:obras(codigo_obra, nome, cliente:clientes(nome)), proposta_origem:propostas!contratos_proposta_fk(numero)',
         )
         .order('data_assinatura', { ascending: false, nullsFirst: false })
         .order('numero', { ascending: false }),
@@ -922,6 +922,31 @@ const CHECKS = [
         .eq('nivel', 'erro')
         .range(0, 19),
     valida: (r) => ((r.data ?? []).some((e) => e.nivel !== 'erro') ? 'filtro por nível devolveu outro nível' : null),
+  },
+  {
+    // Query de src/app/(app)/contratos/[id]/page.tsx (opção 1.a): as propostas
+    // que se declaram aditivo do contrato. Sem embed — propostas e contratos
+    // têm duas relações. Pega um contrato que tenha aditivo, se houver.
+    nome: 'propostas: aditivos de um contrato (contrato_aditivo_id)',
+    bloco: 'automação · aditivo',
+    query: async (sb) => {
+      const comAditivo = await sb.from('propostas').select('contrato_aditivo_id').not('contrato_aditivo_id', 'is', null).limit(1).maybeSingle()
+      if (comAditivo.error) return comAditivo
+      const contratoId = comAditivo.data?.contrato_aditivo_id
+      if (!contratoId) return { data: [] }
+      return sb.from('propostas').select('id, numero, status, valor_total, valor_final').eq('contrato_aditivo_id', contratoId).order('numero')
+    },
+  },
+  {
+    // Query de src/app/(app)/propostas/[id]/page.tsx (opção 1.a): contratos da
+    // obra da proposta, que podem receber o aditivo.
+    nome: 'contratos: os da obra da proposta, para marcar o aditivo',
+    bloco: 'automação · aditivo',
+    query: async (sb) => {
+      const p = await sb.from('propostas').select('id, obra_id').limit(1).maybeSingle()
+      if (p.error || !p.data) return p.error ? p : { data: [] }
+      return sb.from('contratos').select('id, numero, proposta_origem_id').eq('obra_id', p.data.obra_id).order('numero')
+    },
   },
   // ============================================================
   // Sprint 9 — notas fiscais (9.1). Queries copiadas de

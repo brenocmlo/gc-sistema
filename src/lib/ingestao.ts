@@ -71,6 +71,22 @@ export type PayloadIngestao = {
    * escolheu a obra na tela (envio ou reprocesso).
    */
   obra?: { codigo?: unknown; nome?: unknown; cliente?: unknown } | null
+  /**
+   * Opção 1.a (Breno, 10/10): número do contrato do qual esta proposta se
+   * declara aditivo. A rota procura o contrato na mesma obra.
+   */
+  contratoAditivo?: unknown
+}
+
+/**
+ * O número do contrato do aditivo, limpo; nulo quando não veio. A leitura às
+ * vezes devolve "n. CT-2026-0042" ou "Contrato CT-2026-0042".
+ */
+export function numeroDoContratoAditivo(v: unknown): string | null {
+  const t = texto(v)
+  if (!t) return null
+  const limpo = t.replace(/^(contrato\s*)?((n[º°]|no\b|n\.|n[uú]mero)\s*[:.]?\s*)?/i, '').trim()
+  return limpo || null
 }
 
 /** Linha de `itens` pronta pro insert, faltando só `proposta_id`. */

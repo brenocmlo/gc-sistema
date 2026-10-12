@@ -2516,6 +2516,40 @@ try {
     }
   }
 
+  // 53. Aditivo de contrato na proposta (automação, opção 1.a), como admin e
+  //     antes do 22: numa proposta da obra do SEED-CT-001, "alterar" → escolher
+  //     o contrato → Salvar mostra o link; o contrato lista a proposta entre os
+  //     aditivos. A ligação é desfeita no finally.
+  {
+    const sb = await clienteSupabase()
+    const { data: ct } = await sb.from('contratos').select('id, numero, obra_id, proposta_origem_id').eq('numero', 'SEED-CT-001').maybeSingle()
+    let consulta = ct ? sb.from('propostas').select('id, numero').eq('obra_id', ct.obra_id).is('contrato_aditivo_id', null) : null
+    if (consulta && ct.proposta_origem_id) consulta = consulta.neq('id', ct.proposta_origem_id)
+    const { data: prop } = consulta ? await consulta.limit(1).maybeSingle() : { data: null }
+    if (!ct || !prop) {
+      checar('seed: SEED-CT-001 e uma proposta da mesma obra (passo 53)', false)
+    } else {
+      try {
+        await b.ir(`${BASE}/propostas/${prop.id}`)
+        await b.esperar('document.querySelector("[data-teste=aditivo-contrato]")', { rotulo: 'campo Aditivo do contrato' })
+        await b.clicar('[data-teste="aditivo-contrato"] button', { texto: 'alterar' })
+        await b.esperar('document.querySelector("#aditivo_contrato")', { rotulo: 'seletor do contrato' })
+        await b.preencher('#aditivo_contrato', ct.id)
+        await b.clicar('[data-teste="aditivo-editar"] button', { texto: 'Salvar' })
+        await b.esperar(`(document.querySelector('[data-teste="aditivo-contrato"] a')?.innerText ?? '').includes(${JSON.stringify(ct.numero)})`, { rotulo: 'link do contrato do aditivo' })
+        checar('proposta marcada como aditivo pela tela mostra o link do contrato', true)
+        await b.screenshot(`${SHOTS}/53-aditivo-contrato.png`)
+        await b.ir(`${BASE}/contratos/${ct.id}`)
+        // O rótulo do campo sai em maiúsculas por CSS (innerText devolve
+        // "ADITIVOS"); espera o link da proposta, que é o que importa.
+        await b.esperar(`!!document.querySelector('a[href="/propostas/${prop.id}"]')`, { rotulo: 'link da proposta nos Aditivos do contrato' })
+        checar('o contrato lista a proposta entre os aditivos', (await b.texto()).includes(prop.numero))
+      } finally {
+        await sb.from('propostas').update({ contrato_aditivo_id: null }).eq('id', prop.id)
+      }
+    }
+  }
+
   // 22. Pendência de anexos: o ícone de excluir só aparece no anexo que a
   //     pessoa pode apagar. Um anexo do admin e um do comercial no avulso do
   //     passo 18; a tela é aberta como comercial, pelo cookie da sessão sem

@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
   let query = supabase
     .from('contratos')
     .select(
-      'numero, data_assinatura, prazo_execucao, status, valor_total, desconto, valor_final, condicoes_pagamento, motivo_rescisao, detalhe_rescisao, pct_sinal, pct_fd, pct_entrega_material, pct_medicao_instalacao, obra:obras(codigo_obra, nome, cliente:clientes(nome)), proposta_origem:propostas(numero)',
+      'numero, data_assinatura, prazo_execucao, status, valor_total, desconto, valor_final, condicoes_pagamento, motivo_rescisao, detalhe_rescisao, pct_sinal, pct_fd, pct_entrega_material, pct_medicao_instalacao, obra:obras(codigo_obra, nome, cliente:clientes(nome)), proposta_origem:propostas!contratos_proposta_fk(numero)',
     )
     .order('data_assinatura', { ascending: false, nullsFirst: false })
     .order('numero', { ascending: false })

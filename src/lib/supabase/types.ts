@@ -1843,6 +1843,7 @@ export type Database = {
         Row: {
           anexos: Json | null
           condicoes_pagamento: string | null
+          contrato_aditivo_id: string | null
           created_at: string | null
           created_by: string | null
           data_decisao: string | null
@@ -1871,6 +1872,7 @@ export type Database = {
         Insert: {
           anexos?: Json | null
           condicoes_pagamento?: string | null
+          contrato_aditivo_id?: string | null
           created_at?: string | null
           created_by?: string | null
           data_decisao?: string | null
@@ -1899,6 +1901,7 @@ export type Database = {
         Update: {
           anexos?: Json | null
           condicoes_pagamento?: string | null
+          contrato_aditivo_id?: string | null
           created_at?: string | null
           created_by?: string | null
           data_decisao?: string | null

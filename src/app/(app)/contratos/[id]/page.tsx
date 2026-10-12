@@ -10,11 +10,12 @@ import Tabs from '@/components/Tabs'
 import ConferenciaAutomacao from '@/components/ConferenciaAutomacao'
 import { isContratoEditavel, type EntradaHistoricoContrato } from '@/lib/contratos'
 import { formatCurrency, formatDate } from '@/lib/format'
+import { STATUS_PROPOSTA_LABELS } from '@/lib/propostas'
 import { historicoOrdenado } from '@/lib/historico'
 import { formatPct, parcelasDaProposta } from '@/lib/propostas'
 import { getCurrentProfile } from '@/lib/supabase/profile'
 import { createClient } from '@/lib/supabase/server'
-import { MOTIVO_RESCISAO_LABELS, type Anexo, type Contrato, type Item } from '@/lib/types'
+import { MOTIVO_RESCISAO_LABELS, type Anexo, type Contrato, type Item, type PropostaStatus } from '@/lib/types'
 
 // A URL assinada não depende da entidade — é a mesma action da proposta.
 import { getAnexoUrl } from '../../propostas/[id]/actions'
@@ -45,7 +46,7 @@ export default async function ContratoDetalhePage({ params }: PageProps) {
     supabase
       .from('contratos')
       .select(
-        '*, obra:obras(codigo_obra, nome, cidade, cliente:clientes(nome, contato, telefone)), proposta_origem:propostas(id, numero)',
+        '*, obra:obras(codigo_obra, nome, cidade, cliente:clientes(nome, contato, telefone)), proposta_origem:propostas!contratos_proposta_fk(id, numero)',
       )
       .eq('id', params.id)
       .maybeSingle(),
@@ -83,6 +84,14 @@ export default async function ContratoDetalhePage({ params }: PageProps) {
     : { data: [] }
 
   const autores = new Map((perfis ?? []).map((p) => [p.id, p.nome]))
+
+  // Opção 1.a: propostas que se declaram aditivo deste contrato.
+  const { data: aditivosData } = await supabase
+    .from('propostas')
+    .select('id, numero, status, valor_total, valor_final')
+    .eq('contrato_aditivo_id', contrato.id)
+    .order('numero')
+  const aditivos = aditivosData ?? []
 
   // Automação: contrato criado pelo bot e ainda não conferido (aceitar ou não).
   const { data: docConferir } = await supabase
@@ -125,6 +134,7 @@ export default async function ContratoDetalhePage({ params }: PageProps) {
                 obra={obra}
                 propostaOrigem={proposta_origem}
                 qtdItens={itens.length}
+                aditivos={aditivos}
               />
             ),
           },
@@ -180,11 +190,13 @@ function DetailsTab({
   obra,
   propostaOrigem,
   qtdItens,
+  aditivos,
 }: {
   contrato: Contrato
   obra: ObraJoin
   propostaOrigem: PropostaOrigemJoin
   qtdItens: number
+  aditivos: { id: string; numero: string; status: string; valor_total: number; valor_final: number | null }[]
 }) {
   // Rateio em reais sobre o valor final — a mesma conta da aba Pagamento da proposta.
   const { parcelas, restante, valorRestante } = parcelasDaProposta(contrato)
@@ -215,6 +227,30 @@ function DetailsTab({
                 </Link>
               ) : (
                 'Contrato avulso'
+              )
+            }
+            className="md:col-span-2"
+          />
+          <DetailField
+            label="Aditivos"
+            value={
+              aditivos.length ? (
+                <span className="flex flex-col gap-0.5">
+                  {aditivos.map((a) => (
+                    <span key={a.id}>
+                      <Link href={`/propostas/${a.id}`} className="text-blue-700 hover:underline">
+                        {a.numero}
+                      </Link>
+                      <span className="text-gray-500">
+                        {' '}
+                        · {formatCurrency(a.valor_final ?? a.valor_total)} ·{' '}
+                        {STATUS_PROPOSTA_LABELS[a.status as PropostaStatus] ?? a.status}
+                      </span>
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                'Nenhum'
               )
             }
             className="md:col-span-2"

@@ -780,13 +780,14 @@
       "Adicionar anexos",
       "Editar</a>",
       "Mudar status",
-      "Histórico"
+      "Histórico",
+      "Aditivos"
     ],
     "naoEsperaHtml": [
       "Gerado da proposta",
       "Só contrato ativo é editável"
     ],
-    "nota": "bloco 6.4: detalhe do contrato ativo avulso — abas Detalhes, Itens (editável), Anexos e Financeiro (placeholder), com Editar. Bloco 6.5: \"Mudar status\" e a aba Histórico. Vazia e editável, a aba mostra \"Nenhum item ainda.\"; \"Este contrato não tem itens.\" é o texto da aba somente-leitura (visualizador)"
+    "nota": "bloco 6.4: detalhe do contrato ativo avulso — abas Detalhes, Itens (editável), Anexos e Financeiro (placeholder), com Editar. Bloco 6.5: \"Mudar status\" e a aba Histórico. Vazia e editável, a aba mostra \"Nenhum item ainda.\"; \"Este contrato não tem itens.\" é o texto da aba somente-leitura (visualizador); opção 1.a da automação: o campo Aditivos aparece no detalhe (com \"Nenhum\" quando não há)"
   },
   {
     "path": "/contratos/{contratoAtivo}",
