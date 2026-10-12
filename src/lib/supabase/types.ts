@@ -1929,6 +1929,20 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "propostas_contrato_aditivo_fk"
+            columns: ["contrato_aditivo_id", "empresa_id", "obra_id"]
+            isOneToOne: false
+            referencedRelation: "contratos"
+            referencedColumns: ["id", "empresa_id", "obra_id"]
+          },
+          {
+            foreignKeyName: "propostas_contrato_aditivo_fk"
+            columns: ["contrato_aditivo_id", "empresa_id", "obra_id"]
+            isOneToOne: false
+            referencedRelation: "contratos_financeiro"
+            referencedColumns: ["id", "empresa_id", "obra_id"]
+          },
+          {
             foreignKeyName: "propostas_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false

@@ -1146,11 +1146,10 @@ no documento de status do bloco e o que não rodou listado nominalmente.
 - **Workflow `SLA Gatilhos de Execução (5 dias)`:** estava inativo e foi **apagado** em 12/10.
   A cópia está em `~/gc-sistema-staging/n8n-backups/`. O alerta de prazo de execução, se
   voltar, é assunto da trilha de sprint (`/execucao`).
-- **Pendente com o Breno:**
-  - apagar a Credential "Telegram — ObraMinds Ingestão (teste)" no n8n e o bot de teste no
-    BotFather (`/deletebot`);
-  - descartar os 31 documentos de teste parados, que ficaram de fora porque a alteração em
-    lote precisa da autorização dele.
+- **Bot de teste:** a Credential "Telegram — ObraMinds Ingestão (teste)" saiu do n8n e o bot foi
+  apagado no BotFather pelo Breno em 12/10.
+- **31 documentos de teste parados:** descartados em 12/10, com autorização do Breno.
+- **Corte da Fase 8 concluído.**
 - **Workflows em uso:** `Processar Documento` e `Notificar`.
 
 ---

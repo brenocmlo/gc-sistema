@@ -703,4 +703,20 @@ Com as camadas da rodada 2 e esta reexecução, o aditivo (seção 14) fica **va
 - **Item 2, um contrato por obra na tela:** pela decisão do Breno (opção b), vai para a trilha
   de sprint. O levantamento está em `docs/tecnicos/regra-um-contrato-por-obra.md`, com o que
   quebra (seed, escrita, navegador e o "gerar duplicado" da 6.2) e o passo a passo.
-- **Ainda com o Breno:** apagar a Credential e o bot de teste.
+- **Bot de teste:** removido pelo Breno em 12/10. A Credential saiu do n8n e o bot foi apagado
+  no BotFather. Com isso, **o corte da Fase 8 está concluído**. No n8n ficam só
+  `Processar Documento` e `Notificar`, e no Telegram só o bot de produção
+  (@obraminds_ingestao_v2_bot).
+
+### 14.3 FK do aditivo aplicada — 12/10
+
+Depois do merge (`938fa0e`) e do deploy concluído na Vercel (19:08 UTC),
+`20261012110000_propostas_aditivo_fk.sql` foi aplicada no gc-dev e os types foram regenerados.
+
+**Conferido:**
+
+- A junção nomeada do código publicado funciona, e a nova (`contratos!propostas_contrato_aditivo_fk`)
+  também.
+- A FK **recusa** aditivo de contrato de outra obra (`23503`).
+- No site publicado, com sessão real: o detalhe do SEED-CT-001 abre (200, com "Aditivos") e a
+  exportação de contratos devolve a planilha (200).
