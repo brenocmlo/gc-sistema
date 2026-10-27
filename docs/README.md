@@ -159,19 +159,21 @@ Fechada em 2026-10-10, validada no 13.5. O 13.2 começou **adiantado**, em 2026-
 
 ## Sprint 14 — Migração da planilha e go-live · `sprint-14/`
 
-Aberta em 2026-10-12. A planilha "Gestão Contratos.xlsx" ainda não chegou; tudo roda sobre a planilha
-falsa até lá. As decisões do 14.1 foram tomadas por análise, por delegação do Breno. Em 26/10 o Breno
+**Sprint fechada em 2026-10-27.** Fora do alcance por decisão do Breno: a planilha real "Gestão Contratos.xlsx"
+(importação real e conferência contra os totais do card), o acesso aos 32 arquivos do Drive e o gc-prod.
+
+Aberta em 2026-10-12. Tudo rodou sobre a planilha falsa. As decisões do 14.1 foram tomadas por análise, por delegação do Breno. Em 26/10 o Breno
 decidiu que não se faz nada em gc-prod: o go-live e a infraestrutura (14.4 e 14.5) são ensaiados em
 gc-dev.
 
 | Bloco | Documento |
 |---|---|
-| 14.1 Decisões de mapeamento | `14.1-status-entrega.md` — **decidido em 2026-10-26, por análise, por delegação do Breno** (revisáveis): clientes, contratos (um por obra com proposta aprovada), regra da execução, Drive e data de corte (virada 13/11/2026, `--ate 2026-11-12`, reserva 27/11); aplicadas no código em 26/10 (importador 17/17, conciliação 41/41); **validado em 2026-10-27, sete camadas** |
-| 14.2 Script de importação | `14.2-status-entrega.md` — **validado em 2026-10-27, sete camadas** (ensaio 17/17 com as decisões do 14.1, escrita 529/529); aberto pela planilha real; importador em `scripts/importacao/` com simulação, idempotência, log de ignoradas e `--desfazer`; ensaio sobre planilha falsa (17 passos) na camada escrita; mapa de colunas provisório |
-| 14.3 Importar em gc-dev e conciliar | `14.3-status-entrega.md` — **preparado, aguarda a planilha real; validado em 2026-10-27 no que a planilha falsa alcança** (8 testes novos): comparação pura testada (`src/lib/conciliacao.ts`), `conciliar.mjs`, já integrada ao ensaio (41/41); nada importado nem conciliado de verdade |
+| 14.1 Decisões de mapeamento | `14.1-status-entrega.md` — **decidido em 2026-10-26, por análise, por delegação do Breno** (revisáveis): clientes, contratos (um por obra com proposta aprovada), regra da execução, Drive e data de corte (virada 13/11/2026, `--ate 2026-11-12`, reserva 27/11); aplicadas no código em 26/10 (importador 17/17, conciliação 41/41); **fechado em 2026-10-27**, validado nas sete camadas |
+| 14.2 Script de importação | `14.2-status-entrega.md` — **fechado em 2026-10-27**, validado nas sete camadas (ensaio 17/17 com as decisões do 14.1, escrita 529/529); importação real fora do alcance (decisão do Breno, 27/10); importador em `scripts/importacao/` com simulação, idempotência, log de ignoradas e `--desfazer`; ensaio sobre planilha falsa (17 passos) na camada escrita; mapa de colunas provisório |
+| 14.3 Importar em gc-dev e conciliar | `14.3-status-entrega.md` — **fechado em 2026-10-27**, validado no que a planilha falsa alcança (8 testes novos): comparação pura testada (`src/lib/conciliacao.ts`), `conciliar.mjs`, já integrada ao ensaio (41/41); importação e conciliação reais fora do alcance (decisão do Breno, 27/10) |
 | 14.4 Go-live | `14.4-status-entrega.md` — **ensaio da virada executado em gc-dev (26/10); rodada completa de 27/10 passou**; procedimento em `tecnicos/runbook-producao.md`; gc-prod fora do escopo por decisão do Breno (26/10) |
 | 14.5 Infraestrutura | `14.5-status-entrega.md` — **ensaio executado em gc-dev (26/10); rodada completa de 27/10 passou**: backup e teste de restauração; domínio, Vercel de prod e backup do plano pago ficam como registro |
-| 14.6 Documentos do Google Drive | `14.6-status-entrega.md` — **preparado** (`baixar-drive.mjs`, simulação sobre a planilha falsa); decisão tomada: link na importação e os 32 arquivos depois do go-live, comprovantes primeiro; download e gravação não rodaram |
+| 14.6 Documentos do Google Drive | `14.6-status-entrega.md` — **fechado em 2026-10-27** (`baixar-drive.mjs`, simulação sobre a planilha falsa); links continuam como texto na observação (decisão 4); download real fora do alcance (decisão do Breno, 27/10) |
 | Fora de bloco: "Esqueci minha senha" | `esqueci-minha-senha-status-entrega.md` — **validado em 2026-10-19: as sete camadas passam** (unitário 409, build 65, runtime 319/319, dados 63/63, escrita 520/520, navegador 266/266); o pedido vai ao admin, sem e-mail; migration `20261019100000` |
 | Fora de bloco: "Meu perfil" | `meu-perfil-status-entrega.md` — **validado em 2026-10-27: as sete camadas passam** (unitário 432, build 66, runtime 327/327 + 348 células, dados 65/65, escrita 529/529, navegador 281/281); aba `/configuracoes/perfil` para todos os perfis: nome, telefone e troca de senha conferindo a atual; sem migration |
 | Fora de bloco: progresso da obra | `progresso-obra-status-entrega.md` — **validado em 2026-10-27** (migration `20261026100000`: `progresso_itens_pct` só conta itens contratados; 7 testes e 1 checagem de dados novos; sete camadas passam) |
@@ -179,14 +181,15 @@ gc-dev.
 
 ## Sprint 15 — Treinamento e estabilização · `sprint-15/`
 
-Aberta em 2026-10-26. Material preparado; o sistema roda em gc-dev e o go-live foi ensaiado lá. A execução
-depende da agenda da equipe e, para dados reais, da planilha real e de um ambiente de produção (fora do escopo).
+**Sprint fechada em 2026-10-27.** Fora do alcance por decisão do Breno: o treinamento presencial e o uso real.
+
+Aberta em 2026-10-26. Material preparado; o sistema roda em gc-dev e o go-live foi ensaiado lá.
 
 | Bloco | Documento |
 |---|---|
 | 15.1 Manuais por perfil | `15.1-status-entrega.md`; guias em `tecnicos/manual-admin.md`, `manual-comercial.md`, `manual-financeiro.md` e `manual-producao-medicao.md` — **escritos, com as telas da rodada de 27/10 embutidas no PDF** (20, 15, 23 e 15); pendente: leitura por usuário real e publicação |
-| 15.2 Treinamento presencial por perfil | `15.2-status-entrega.md` e `15.2-roteiro-treinamento.md` — **roteiro preparado**; nenhuma sessão aconteceu; ponto focal pendente |
-| 15.3 Correção de bugs do uso real | `15.3-status-entrega.md` e `15.3-processo-bugs.md` — **processo preparado**; canal ainda não criado; nenhum report recebido |
+| 15.2 Treinamento presencial por perfil | `15.2-status-entrega.md` e `15.2-roteiro-treinamento.md` — **fechado em 2026-10-27** com o roteiro preparado; sessões fora do alcance (decisão do Breno, 27/10) |
+| 15.3 Correção de bugs do uso real | `15.3-status-entrega.md` e `15.3-processo-bugs.md` — **fechado em 2026-10-27** com o processo preparado; uso real fora do alcance (decisão do Breno, 27/10) |
 
 ## Sprints 7 a 13 — pastas por sprint
 
