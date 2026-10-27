@@ -113,6 +113,8 @@ dados     queries reais da aplicação contra gc-dev, sob RLS (scripts/validacao
 escrita   Server Actions chamadas por HTTP, contra gc-dev (scripts/validacao/validar-escrita.mjs).
           Prova criar, editar, mudar status, histórico, anexo e excluir, com as
           regras de perfil. Limpa o que cria. NÃO prova o clique.
+          Inclui o ensaio do importador da planilha legada (validar-importacao.mjs),
+          sobre uma planilha falsa: prova o mecanismo, NÃO o mapa da planilha real.
 navegador Chrome headless dirigido por CDP sobre o `next dev`
           (scripts/validacao/validar-navegador.mjs). Prova o que só roda no cliente: zod
           do formulário, cálculo ao vivo, diálogo condicional, toast, navegação
@@ -334,6 +336,10 @@ camada_escrita() {
   local r=0
   env "${env_n8n[@]+"${env_n8n[@]}"}" BASE_URL="$BASE_URL" \
     node --env-file=.env.local scripts/validacao/validar-escrita.mjs || r=$?
+  # Ensaio do importador da planilha legada (14.2): não precisa do servidor.
+  if [[ $r -eq 0 ]]; then
+    node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file=.env.local scripts/validacao/validar-importacao.mjs || r=$?
+  fi
   derrubar_servidor "$PORTA"
   [[ -n "$RECEPTOR_PID" ]] && kill "$RECEPTOR_PID" 2>/dev/null || true
   RECEPTOR_PID=""

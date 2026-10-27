@@ -10,7 +10,7 @@ import ContatosPanel from './contatos-panel'
 export default async function ContatosPage() {
   const profile = await getCurrentProfile()
   if (!profile) redirect('/login')
-  // Layout-guard já bloqueia não-admin; defesa em profundidade.
+  // O layout só exige sessão (Meu perfil é de todos): o guard de admin é daqui.
   if (profile.perfil !== 'admin') redirect('/')
 
   const supabase = createClient()

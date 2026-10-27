@@ -1,6 +1,7 @@
 'use client'
 
-import { ChevronDown, LogOut, Menu } from 'lucide-react'
+import { ChevronDown, LogOut, Menu, UserCircle } from 'lucide-react'
+import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 
@@ -84,6 +85,14 @@ export default function Header({ title, user, onAbrirMenu }: HeaderProps) {
               </p>
               <p className="text-xs text-gray-500 truncate">{user.email}</p>
             </div>
+            <Link
+              href="/configuracoes/perfil"
+              onClick={() => setOpen(false)}
+              className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+            >
+              <UserCircle size={14} />
+              Meu perfil
+            </Link>
             <button
               type="button"
               onClick={handleSignOut}

@@ -93,12 +93,15 @@ export function tipoDeLinkValido(v: unknown): v is TipoDeLink {
 
 export const SENHA_MIN = 8
 
-export const senhaSchema = z
-  .object({
-    senha: z.string().min(SENHA_MIN, `A senha precisa ter ao menos ${SENHA_MIN} caracteres`).max(72, 'Máximo 72 caracteres'),
-    confirmacao: z.string(),
-  })
-  .refine((v) => v.senha === v.confirmacao, { message: 'As senhas não conferem', path: ['confirmacao'] })
+const senhaCampos = z.object({
+  senha: z.string().min(SENHA_MIN, `A senha precisa ter ao menos ${SENHA_MIN} caracteres`).max(72, 'Máximo 72 caracteres'),
+  confirmacao: z.string(),
+})
+
+export const senhaSchema = senhaCampos.refine((v) => v.senha === v.confirmacao, {
+  message: 'As senhas não conferem',
+  path: ['confirmacao'],
+})
 
 export type SenhaFormValues = z.input<typeof senhaSchema>
 
@@ -110,4 +113,62 @@ export function mensagemDeErroUsuario(raw: string): string {
   if (/already (been )?registered|already exists|email_exists/i.test(raw)) return 'Esse e-mail já tem acesso ao sistema'
   if (raw.includes('profiles_email_format')) return 'E-mail inválido'
   return mensagemDeErroBanco(raw)
+}
+
+// ------------------------------------------------------------------
+// "Esqueci minha senha": o pedido vai para o administrador (19/10)
+// ------------------------------------------------------------------
+
+export const esqueciSchema = z.object({
+  email: z.string().trim().min(1, 'Informe o e-mail').email('E-mail inválido').transform((v) => v.toLowerCase()),
+})
+
+export type EsqueciFormValues = z.input<typeof esqueciSchema>
+
+/** A resposta é a mesma com e-mail cadastrado ou não: a tela não revela quem tem conta. */
+export const MENSAGEM_PEDIDO_ENVIADO =
+  'Pedido enviado. Se o e-mail tiver acesso ao sistema, o administrador vai te mandar um link para criar uma senha nova.'
+
+/** Intervalo mínimo entre dois pedidos da mesma pessoa: o segundo clique não vira outro pedido. */
+export const INTERVALO_ENTRE_PEDIDOS_MS = 10 * 60 * 1000
+
+export function deveRegistrarPedido(ultimoPedidoEm: string | null, agora: Date = new Date()): boolean {
+  if (!ultimoPedidoEm) return true
+  const t = new Date(ultimoPedidoEm).getTime()
+  if (Number.isNaN(t)) return true
+  return agora.getTime() - t >= INTERVALO_ENTRE_PEDIDOS_MS
+}
+
+// ------------------------------------------------------------------
+// Meu perfil: a pessoa edita os próprios dados e troca a senha (s14)
+// ------------------------------------------------------------------
+
+/**
+ * Só nome e telefone. Perfil, situação e e-mail são do admin: o trigger
+ * profiles_proteger recusa, e o schema nem os aceita (z.object descarta chave
+ * desconhecida, então um `perfil` no payload some antes do update).
+ */
+export const meuPerfilSchema = usuarioSchema.pick({ nome: true, telefone: true })
+
+export type MeuPerfilFormValues = z.input<typeof meuPerfilSchema>
+
+export function meuPerfilPayload(v: z.output<typeof meuPerfilSchema>): { nome: string; telefone: string | null } {
+  return { nome: v.nome, telefone: v.telefone === '' ? null : v.telefone }
+}
+
+/** A senha atual é conferida no servidor antes da troca: sessão aberta esquecida não basta. */
+export const trocaSenhaSchema = senhaCampos
+  .extend({ senhaAtual: z.string().min(1, 'Informe a senha atual') })
+  .refine((v) => v.senha === v.confirmacao, { message: 'As senhas não conferem', path: ['confirmacao'] })
+  .refine((v) => v.senha !== v.senhaAtual, { message: 'A nova senha precisa ser diferente da atual', path: ['senha'] })
+
+export type TrocaSenhaFormValues = z.input<typeof trocaSenhaSchema>
+
+/** Erro do Auth na troca de senha → mensagem de quem está trocando. */
+export function mensagemDeErroSenha(raw: string): string {
+  if (/invalid login credentials/i.test(raw)) return 'Senha atual incorreta'
+  if (/different from the old|same_password/i.test(raw)) return 'A nova senha precisa ser diferente da anterior'
+  if (/weak_password|password should/i.test(raw)) return 'Senha fraca: use letras e números'
+  if (/rate limit|too many/i.test(raw)) return 'Muitas tentativas. Espere alguns minutos e tente de novo'
+  return raw
 }

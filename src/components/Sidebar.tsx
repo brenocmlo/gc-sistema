@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect } from 'react'
 
-import { getMenuItemsForPerfil, itemAtivo, SETTINGS_ITEM, type MenuItem } from '@/lib/nav'
+import { getMenuItemsForPerfil, itemAtivo, PERFIL_ITEM, SETTINGS_ITEM, type MenuItem } from '@/lib/nav'
 import type { Perfil } from '@/lib/types'
 
 type SidebarProps = {
@@ -83,11 +83,9 @@ function Conteudo({ perfil }: { perfil: Perfil }) {
         ))}
       </nav>
 
-      {perfil === 'admin' && (
-        <div className="px-3 py-3 border-t border-gray-200">
-          <NavLink item={SETTINGS_ITEM} pathname={pathname} />
-        </div>
-      )}
+      <div className="px-3 py-3 border-t border-gray-200">
+        <NavLink item={perfil === 'admin' ? SETTINGS_ITEM : PERFIL_ITEM} pathname={pathname} />
+      </div>
     </>
   )
 }

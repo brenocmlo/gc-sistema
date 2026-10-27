@@ -9,7 +9,9 @@ import type { ObraListItem } from '@/lib/types'
 /**
  * Progresso = % de itens medidos sobre total contratado.
  * Vem pré-calculado pela view `obras_com_valores` (coluna
- * `progresso_itens_pct`). NULL quando obra não tem itens.
+ * `progresso_itens_pct`). "Contratado" = itens de contrato não rescindido
+ * e de proposta aprovada ainda sem contrato (a regra de
+ * `src/lib/progresso-obra.ts`). NULL quando não há contratado.
  */
 function computeProgress(obra: ObraListItem): number | null {
   if (obra.status === 'concluida') return 100

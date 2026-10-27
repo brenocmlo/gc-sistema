@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   ScrollText,
   Settings,
+  UserCircle,
   Users,
   Wallet,
   Wrench,
@@ -115,12 +116,21 @@ export const SETTINGS_ITEM: MenuItem = {
   perfis: ['admin'],
 }
 
+/** Meu perfil: quem não é admin chega por aqui; o admin, pela aba de Configurações. */
+export const PERFIL_ITEM: MenuItem = {
+  label: 'Meu perfil',
+  href: '/configuracoes/perfil',
+  icon: UserCircle,
+  perfis: TODOS,
+}
+
 export function getMenuItemsForPerfil(perfil: Perfil): MenuItem[] {
   return MENU_ITEMS.filter((item) => item.perfis.includes(perfil))
 }
 
 export function getTitleForPathname(pathname: string): string {
-  const all = [...MENU_ITEMS, SETTINGS_ITEM]
+  // PERFIL_ITEM antes de SETTINGS_ITEM: /configuracoes/perfil também casa com /configuracoes.
+  const all = [...MENU_ITEMS, PERFIL_ITEM, SETTINGS_ITEM]
   const match = all.find(
     (item) => itemAtivo(item, pathname),
   )

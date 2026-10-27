@@ -94,6 +94,8 @@ export type ContagensDePendencia = {
   atrasosDeExecucao: readonly AtrasoDaObra[]
   documentosFinanceirosVencidos: number
   fdsVencidos: number
+  /** Pedidos de "Esqueci minha senha" esperando o link de acesso (só o admin vê). */
+  pedidosDeAcesso?: number
 }
 
 /**
@@ -130,6 +132,9 @@ export function pendenciasDoPerfil(perfil: Perfil, c: ContagensDePendencia): Pen
       { chave: 'vencidos', rotulo: 'NFs e parcelas vencidas', quantidade: c.documentosFinanceirosVencidos, href: '/financeiro/visao-geral' },
       { chave: 'fd', rotulo: 'FDs vencidos sem pagamento', quantidade: c.fdsVencidos, href: '/fd?status=vencido' },
     )
+  }
+  if (age(['admin'])) {
+    lista.push({ chave: 'acesso', rotulo: 'Pedidos de novo acesso', quantidade: c.pedidosDeAcesso ?? 0, href: '/configuracoes/usuarios' })
   }
   return lista.filter((p) => p.quantidade > 0)
 }

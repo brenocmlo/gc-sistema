@@ -556,6 +556,7 @@
       "/configuracoes/usuarios": [
         "admin"
       ],
+      "/configuracoes/perfil": "todos",
       "/api/export/obras": "todos",
       "/api/template/itens": "todos",
       "/api/export/orcamentos": [

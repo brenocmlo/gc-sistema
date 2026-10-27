@@ -224,6 +224,72 @@ const CHECKS = [
     // com 42702 (ambiguidade de valor_total dentro da função).
   },
   {
+    // Correção de 26/10 (docs/sprint-14/progresso-obra-status-entrega.md): o
+    // progresso_itens_pct somava itens de proposta E de contrato no
+    // denominador, e o contrato copia os itens da proposta — obra com contrato
+    // parava em 50%. Compara a view, com o select da listagem
+    // (obras/(lista)/page.tsx), à conta manual de src/lib/progresso-obra.ts.
+    // Com a view antiga falha: OBRA-2025-03 dava 10.53 contra 18.18 manual.
+    nome: 'obras_com_valores: progresso_itens_pct = medido / contratado (sem dobrar o item copiado)',
+    bloco: '14 (correção)',
+    query: async (sb) => {
+      const { progressoItensDaObra } = await import('../../src/lib/progresso-obra.ts')
+      const todas = async (pagina) => {
+        const linhas = []
+        for (let de = 0; ; de += 1000) {
+          const { data, error } = await pagina(de, de + 999)
+          if (error) throw new Error(error.message)
+          linhas.push(...(data ?? []))
+          if ((data ?? []).length < 1000) return linhas
+        }
+      }
+      try {
+        const [obras, itens, contratos, propostas, execucoes] = await Promise.all([
+          todas((de, ate) =>
+            sb
+              .from('obras_com_valores')
+              .select(
+                'id, empresa_id, codigo_obra, nome, cliente_id, cidade, status, valor_final_calculado, data_inicio, data_prevista_fim, data_real_fim, created_at, updated_at, desconto_calculado, valor_total_calculado, pct_sinal_calculado, pct_fd_calculado, pct_entrega_material_calculado, pct_medicao_instalacao_calculado, progresso_itens_pct, cliente:clientes(nome)',
+              )
+              .order('id')
+              .range(de, ate),
+          ),
+          todas((de, ate) => sb.from('itens').select('id, obra_id, quantidade, proposta_id, contrato_id').order('id').range(de, ate)),
+          todas((de, ate) => sb.from('contratos').select('id, obra_id, status, proposta_origem_id').order('id').range(de, ate)),
+          todas((de, ate) => sb.from('propostas').select('id, obra_id, status').order('id').range(de, ate)),
+          todas((de, ate) => sb.from('execucao').select('item_id, med_qtd').order('id').range(de, ate)),
+        ])
+        const daObra = (lista, id) => lista.filter((x) => x.obra_id === id)
+        const linhas = obras.map((o) => {
+          const its = daObra(itens, o.id)
+          const ids = new Set(its.map((i) => i.id))
+          const meds = execucoes.filter((e) => ids.has(e.item_id))
+          // A conta do defeito (todos os itens), só pra saber se a obra discrimina.
+          const qtdTodos = its.reduce((s, i) => s + Number(i.quantidade ?? 0), 0)
+          const medTodos = meds.reduce((s, e) => s + Number(e.med_qtd ?? 0), 0)
+          return {
+            codigo: o.codigo_obra,
+            view: o.progresso_itens_pct == null ? null : Number(o.progresso_itens_pct),
+            manual: progressoItensDaObra(its, daObra(contratos, o.id), daObra(propostas, o.id), meds),
+            defeito: qtdTodos > 0 ? Math.round((medTodos / qtdTodos) * 10000) / 100 : null,
+          }
+        })
+        return { data: linhas, error: null }
+      } catch (e) {
+        return { error: { message: e.message } }
+      }
+    },
+    valida: (r) => {
+      for (const l of r.data ?? []) {
+        const igual = l.view === null || l.manual === null ? l.view === l.manual : Math.abs(l.view - l.manual) <= 0.01
+        if (!igual) return `progresso de ${l.codigo}: view ${l.view}, manual ${l.manual} (conta do defeito: ${l.defeito})`
+      }
+      const discrimina = (r.data ?? []).filter((l) => l.defeito !== l.manual)
+      if (discrimina.length === 0) return 'não exercitada: nenhuma obra em que a conta do defeito difere da regra'
+      return null
+    },
+  },
+  {
     nome: 'calcular_valores_obra: o ramo com contrato/proposta aprovada',
     bloco: '4.x (regressão)',
     query: async (sb) => {
@@ -1839,6 +1905,56 @@ const CHECKS = [
       const d = r.data[0]
       if (d.lidas.length > 0) return `anon leu: ${d.lidas.join(', ')}`
       if (d.rpcNf !== '42501' || d.rpcParcela !== '42501') return `RPC por id sem recusa de permissão: nf ${d.rpcNf}, parcela ${d.rpcParcela}`
+      return null
+    },
+  },
+  {
+    // "Esqueci minha senha" (19/10): a consulta da página de Usuários e do
+    // Dashboard do admin. Volta vazia na maior parte das rodadas (ninguém
+    // pediu); a prova é a query rodar como admin e o comercial não ver nada.
+    nome: 'pedidos_de_acesso_pendentes: o admin consulta; o comercial recebe lista vazia',
+    bloco: '19/10',
+    query: async (sb) => {
+      const adm = await sb.rpc('pedidos_de_acesso_pendentes')
+      if (adm.error) return adm
+      const { session } = await sessaoDePerfil('comercial')
+      const c = createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+      await c.auth.setSession(session)
+      const com = await c.rpc('pedidos_de_acesso_pendentes')
+      if (com.error) return com
+      return { data: [{ admin: adm.data.length, comercial: com.data.length }] }
+    },
+    valida: (r) => (r.data[0].comercial === 0 ? null : `o comercial viu ${r.data[0].comercial} pedido(s)`),
+  },
+  {
+    // Meu perfil (s14): a query de configuracoes/perfil/page.tsx, copiada, como
+    // admin e como comercial. Cada um lê a própria linha pelo próprio id, com o
+    // e-mail de login certo. O admin enxerga a linha do comercial pela RLS
+    // (mesma empresa); quem restringe à própria linha é o .eq('id', profile.id)
+    // da page, e é ele que esta checagem prova.
+    nome: 'profiles: Meu perfil lê a própria linha (admin e comercial)',
+    bloco: 's14 meu perfil',
+    query: async (sb) => {
+      const lerMeuPerfil = (cliente, id) =>
+        cliente.from('profiles').select('nome, email, telefone, perfil').eq('id', id).maybeSingle()
+      const { data: { user: admin } } = await sb.auth.getUser()
+      const a = await lerMeuPerfil(sb, admin.id)
+      if (a.error) return a
+      const { session, user: comercial } = await sessaoDePerfil('comercial')
+      const c = createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+      await c.auth.setSession(session)
+      const k = await lerMeuPerfil(c, comercial.id)
+      if (k.error) return k
+      return { data: [{ admin: a.data, comercial: k.data }] }
+    },
+    valida: (r) => {
+      const { admin, comercial } = r.data[0]
+      if (!admin) return 'o admin não leu a própria linha'
+      if (admin.email !== EMAIL) return `o admin leu o e-mail ${admin.email}, esperado ${EMAIL}`
+      if (admin.perfil !== 'admin') return `o admin leu o perfil ${admin.perfil}`
+      if (!comercial) return 'o comercial não leu a própria linha'
+      if (comercial.email !== 'comercial@teste.com') return `o comercial leu o e-mail ${comercial.email}, esperado comercial@teste.com`
+      if (comercial.perfil !== 'comercial') return `o comercial leu o perfil ${comercial.perfil}`
       return null
     },
   },

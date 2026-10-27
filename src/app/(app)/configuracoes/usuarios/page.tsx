@@ -17,13 +17,16 @@ export type UsuarioListItem = {
   situacao: SituacaoUsuario
   ultimoAcesso: string | null
   criadoEm: string | null
+  /** "Esqueci minha senha" esperando o link de acesso (19/10). */
+  pedidoDeAcessoEm: string | null
   euMesmo: boolean
 }
 
-/** Usuários da empresa (13.1). Só admin: o layout de /configuracoes já barra os outros perfis. */
+/** Usuários da empresa (13.1). Só admin: o layout de /configuracoes só exige sessão, o guard é daqui. */
 export default async function UsuariosPage() {
   const profile = await getCurrentProfile()
   if (!profile) redirect('/login')
+  if (profile.perfil !== 'admin') redirect('/')
 
   const supabase = createClient()
   const { data: perfis, error } = await supabase
@@ -43,6 +46,9 @@ export default async function UsuariosPage() {
     avisoAuth = e instanceof Error ? e.message : String(e)
   }
 
+  const { data: pedidos } = await supabase.rpc('pedidos_de_acesso_pendentes')
+  const pedidoDe = new Map((pedidos ?? []).map((x) => [x.profile_id, x.pedido_em]))
+
   const usuarios: UsuarioListItem[] = (perfis ?? []).map((p) => {
     const a = doAuth.get(p.id)
     return {
@@ -54,6 +60,7 @@ export default async function UsuariosPage() {
       situacao: situacaoDoUsuario({ ativo: p.ativo, ultimo_acesso: a?.ultimo ?? null, email_confirmado: a?.confirmado ?? true }),
       ultimoAcesso: a?.ultimo ?? null,
       criadoEm: p.created_at,
+      pedidoDeAcessoEm: pedidoDe.get(p.id) ?? null,
       euMesmo: p.id === profile.id,
     }
   })

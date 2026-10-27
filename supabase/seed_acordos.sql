@@ -56,6 +56,20 @@ select ac.empresa_id, ac.id, ac.obra_id, d.n, current_date + d.vence_em, d.valor
   ) as d(descricao, n, vence_em, valor, status) on d.descricao = ac.descricao
  where not exists (select 1 from acordo_parcelas p where p.acordo_id = ac.id and p.numero_parcela = d.n);
 
+-- Vencimentos relativos a HOJE, também quando a parcela já existe (s14, como o
+-- seed de NF no 14.2): o "where not exists" deixava as datas do dia em que o
+-- seed foi aplicado, e em 26/10 a parcela 2 do SEED-AC-004, que vencia "em 23
+-- dias", tinha vencido. Reaplicar o seed realinha. Só as pendentes dos acordos
+-- abertos sem pagamento: as do SEED-AC-002 são quitadas pelos pagamentos abaixo.
+update acordo_parcelas p
+   set data_vencimento = current_date + d.vence_em
+  from acordos_pagamento ac,
+       (values ('SEED-AC-004 Troca emergencial', 1, -7), ('SEED-AC-004 Troca emergencial', 2, 23),
+               ('SEED-AC-005 Sinal convertido', 1, -20), ('SEED-AC-005 Sinal convertido', 2, 10)) as d(descricao, n, vence_em)
+ where ac.id = p.acordo_id and ac.descricao = d.descricao and p.numero_parcela = d.n
+   and p.observacao like '[SEED-TESTE]%' and p.status = 'pendente'
+   and p.data_vencimento is distinct from current_date + d.vence_em;
+
 -- As duas parcelas do SEED-AC-002 pagas por inteiro: o trigger põe as parcelas
 -- e o acordo como quitado (data_encerramento, hoje).
 insert into pagamentos (empresa_id, obra_id, parcela_acordo_id, origem, valor, data_pagamento, forma, observacao)

@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 
 import { createClient } from '@/lib/supabase/client'
-import { SENHA_MIN, senhaSchema, type SenhaFormValues } from '@/lib/usuarios'
+import { mensagemDeErroSenha, SENHA_MIN, senhaSchema, type SenhaFormValues } from '@/lib/usuarios'
 
 type Props = { nome: string; email: string; convite: boolean }
 
@@ -23,7 +23,7 @@ export default function DefinirSenha({ nome, email, convite }: Props) {
     setErro(null)
     const { error } = await createClient().auth.updateUser({ password: values.senha })
     if (error) {
-      setErro(/different from the old/i.test(error.message) ? 'A nova senha precisa ser diferente da anterior' : error.message)
+      setErro(mensagemDeErroSenha(error.message))
       return
     }
     router.replace('/')

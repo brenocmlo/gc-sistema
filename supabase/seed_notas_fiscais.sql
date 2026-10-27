@@ -47,6 +47,21 @@ select a.empresa_id, a.obra_id,
  ) as d(numero, serie, chave, emitida_ha, vence_em, tipo, valor, status, motivo, contrato)
 on conflict do nothing;
 
+-- Datas relativas a HOJE, também quando a NF já existe (14.2): o "on conflict
+-- do nothing" deixava as datas do dia em que o seed foi aplicado, e o tempo
+-- mudava a situação (em 14/10 a 003, que vencia "em 15 dias", venceu e o
+-- export de vencidas do 9.6 passou a trazê-la). Reaplicar o seed realinha.
+-- A cancelada fica de fora: é imutável (trigger nf_cancelada_imutavel).
+update notas_fiscais n
+   set data_emissao = current_date - d.emitida_ha,
+       data_vencimento = case when d.vence_em is null then null else current_date + d.vence_em end
+  from (values ('SEED-NF-001', '1', 10, 20), ('SEED-NF-002', '1', 40, -5), ('SEED-NF-003', '1', 30, 15),
+               ('SEED-NF-004', null, 60, -30), ('SEED-NF-006', '2', 5, null)) as d(numero, serie, emitida_ha, vence_em)
+ where n.numero = d.numero and coalesce(n.serie, '') = coalesce(d.serie, '')
+   and n.observacao like '[SEED-TESTE]%' and n.status <> 'cancelada'
+   and (n.data_emissao, n.data_vencimento) is distinct from
+       (current_date - d.emitida_ha, case when d.vence_em is null then null else current_date + d.vence_em end);
+
 -- Pagamentos: 40% da 003 e 100% da 004 em duas vezes. Só se a NF ainda não
 -- tem pagamento (reaplicar não duplica).
 insert into pagamentos (empresa_id, obra_id, nota_id, origem, valor, data_pagamento, forma, observacao)

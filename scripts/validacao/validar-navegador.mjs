@@ -66,7 +66,9 @@ try {
   await b.preencher('#email', EMAIL)
   await b.preencher('#password', SENHA)
   await b.clicar('button[type="submit"]')
-  await b.esperar('location.pathname !== "/login"', { rotulo: 'sair do /login', ms: 20000 })
+  // 60 s: depois do login vem a primeira compilação do Dashboard no next dev,
+  // que passa de 20 s com a máquina carregada (19/10).
+  await b.esperar('location.pathname !== "/login"', { rotulo: 'sair do /login', ms: 60000 })
   checar('login pela tela funciona', !(await b.url()).startsWith('/login'), await b.url())
 
   // 3. Listagem
@@ -2762,6 +2764,175 @@ try {
     } finally {
       const { data: criado } = await svc.from('profiles').select('id').eq('email', emailNovo).maybeSingle()
       if (criado) await svc.auth.admin.deleteUser(criado.id)
+    }
+  }
+
+  // 53. "Esqueci minha senha" (19/10): sem sessão, a pessoa pede; o admin vê
+  //     o pedido no Dashboard e na linha dela em Usuários.
+  {
+    const { createClient } = await import('@supabase/supabase-js')
+    const svc = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY ?? '', { auth: { persistSession: false } })
+    const { data: alvo } = await svc.from('profiles').select('id').eq('email', 'medicao@teste.com').single()
+    const desde = new Date().toISOString()
+    try {
+      await b.limparSessao()
+      await b.ir(`${BASE}/login`)
+      await b.esperar('document.querySelector("#password")', { rotulo: 'tela de login', ms: 25000 })
+      await b.clicar('button', { texto: 'Esqueci minha senha' })
+      await b.esperar('document.querySelector("#email-esqueci")', { rotulo: 'pedido de senha nova', ms: 10000 })
+      await b.preencher('#email-esqueci', '')
+      await b.clicar('button[type="submit"]', { texto: 'Pedir novo acesso' })
+      await b.esperar('document.body.innerText.includes("Informe o e-mail")', { rotulo: 'zod do pedido', ms: 8000 })
+      checar('esqueci a senha: o link abre o pedido, e o zod barra o e-mail vazio na tela', true)
+      await b.preencher('#email-esqueci', 'medicao@teste.com')
+      await b.clicar('button[type="submit"]', { texto: 'Pedir novo acesso' })
+      await b.esperar('document.querySelector("[role=status]")?.innerText.includes("Pedido enviado")', { rotulo: 'pedido enviado', ms: 25000 })
+      await b.screenshot(`${SHOTS}/53-esqueci-senha.png`)
+      checar('esqueci a senha: o pedido é aceito e a tela diz que o administrador vai mandar o link',
+        (await svc.from('pedidos_acesso').select('id', { count: 'exact', head: true }).eq('profile_id', alvo.id).gte('pedido_em', desde)).count === 1)
+
+      await b.ir(`${BASE}/login`)
+      await b.preencher('#email', EMAIL)
+      await b.preencher('#password', SENHA)
+      await b.clicar('button[type="submit"]')
+      await b.esperar('location.pathname === "/" && document.querySelector(\'section[aria-label="Pendências"]\')', { rotulo: 'dashboard do admin', ms: 30000 })
+      checar('esqueci a senha: o Dashboard do admin mostra "Pedidos de novo acesso", com o link para Usuários',
+        await b.avaliar('Array.from(document.querySelectorAll(\'a[href="/configuracoes/usuarios"]\')).some((a) => a.innerText.includes("Pedidos de novo acesso"))'))
+      await b.ir(`${BASE}/configuracoes/usuarios`)
+      await b.esperar('document.querySelector(\'table[aria-label="Usuários da empresa"]\')', { rotulo: 'lista de usuários', ms: 30000 })
+      checar('esqueci a senha: a linha da pessoa em Usuários mostra "Pediu novo acesso"',
+        await b.avaliar('Array.from(document.querySelectorAll("tbody tr")).some((tr) => tr.innerText.includes("medicao@teste.com") && tr.innerText.includes("Pediu novo acesso"))'))
+      await b.screenshot(`${SHOTS}/53-pedido-em-usuarios.png`)
+    } finally {
+      await svc.from('pedidos_acesso').delete().eq('profile_id', alvo.id).gte('pedido_em', desde)
+    }
+  }
+
+  // 54. Meu perfil (s14 meu perfil): um usuário descartável (comercial, criado
+  //     pela chave de serviço) entra pela tela de login, abre o menu do header
+  //     e vai a /configuracoes/perfil; só a aba "Meu perfil" aparece e a sidebar
+  //     mostra "Meu perfil" no lugar de Configurações. O zod barra o nome
+  //     vazio; nome e telefone salvam e o nome novo aparece no header. Na senha,
+  //     o zod barra a confirmação diferente, o servidor recusa a atual errada
+  //     no campo, a troca válida passa e a pessoa entra com a senha nova.
+  //     Nunca a senha do admin nem das contas @teste.com do sessao-dev: o
+  //     usuário nasce aqui e é apagado no finally (o profile sai em cascata, e
+  //     os eventos de auditoria dele saem no limparAuditoria do fim).
+  {
+    const { createClient } = await import('@supabase/supabase-js')
+    const svc = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY ?? '', { auth: { persistSession: false } })
+    const sb = await clienteSupabase()
+    const emailPerfil = `valida-perfil-${Date.now()}@teste.com`
+    const nomeInicial = 'Perfil Navegador'
+    const nomeNovo = 'Perfil Navegador Editado'
+    const senhaInicial = 'SenhaPerfilInicial123'
+    const senhaNova = 'SenhaPerfilNova456'
+    let idPerfil = null
+    try {
+      const { data: { user: adminUser } } = await sb.auth.getUser()
+      const { data: adminPerfil } = await sb.from('profiles').select('empresa_id').eq('id', adminUser.id).single()
+      const { data: criado, error: eCriar } = await svc.auth.admin.createUser({
+        email: emailPerfil, password: senhaInicial, email_confirm: true, user_metadata: { nome: nomeInicial },
+      })
+      if (eCriar || !criado?.user) throw new Error(`usuário descartável do passo 54: ${eCriar?.message ?? 'sem usuário'}`)
+      idPerfil = criado.user.id
+      const { error: eProf } = await svc.from('profiles').insert({
+        id: idPerfil, empresa_id: adminPerfil.empresa_id, email: emailPerfil, nome: nomeInicial, perfil: 'comercial', ativo: true,
+      })
+      if (eProf) throw new Error(`profile do usuário descartável do passo 54: ${eProf.message}`)
+
+      // Entra pela tela de login, como a pessoa entraria.
+      await b.limparSessao()
+      await b.ir(`${BASE}/login`)
+      await b.esperar('document.querySelector("#password")', { rotulo: 'tela de login', ms: 25000 })
+      await b.preencher('#email', emailPerfil)
+      await b.preencher('#password', senhaInicial)
+      await b.clicar('button[type="submit"]')
+      await b.esperar('location.pathname !== "/login"', { rotulo: 'entrar com o usuário descartável', ms: 60000 })
+      checar('meu perfil: o usuário descartável entra pela tela de login', !(await b.url()).startsWith('/login'), await b.url())
+
+      // Menu do usuário no header → "Meu perfil".
+      await b.esperar(`(document.querySelector("header")?.innerText ?? "").includes(${JSON.stringify(nomeInicial)})`, { rotulo: 'nome no header', ms: 30000 })
+      await b.clicar('header button', { texto: nomeInicial })
+      await b.esperar('document.querySelector(\'header a[href="/configuracoes/perfil"]\')', { rotulo: 'menu do header aberto', ms: 8000 })
+      checar('meu perfil: o menu do header tem o link "Meu perfil"',
+        await b.avaliar('(document.querySelector(\'header a[href="/configuracoes/perfil"]\')?.innerText ?? "").includes("Meu perfil")'))
+      await b.clicar('header a[href="/configuracoes/perfil"]')
+      await b.esperar('location.pathname === "/configuracoes/perfil" && document.querySelector("#nome")', { rotulo: '/configuracoes/perfil', ms: 60000 })
+      const tela = await b.avaliar(`({
+        abas: Array.from(document.querySelectorAll('nav[aria-label="Seções de configurações"] a')).map((a) => a.getAttribute('href')),
+        usuarios: Boolean(document.querySelector('a[href="/configuracoes/usuarios"]')),
+        sidebarPerfil: Array.from(document.querySelectorAll('aside a[href="/configuracoes/perfil"]')).some((a) => a.innerText.includes('Meu perfil')),
+        sidebarConfig: Boolean(document.querySelector('aside a[href="/configuracoes"]')),
+        texto: document.body.innerText,
+      })`)
+      checar('meu perfil: como comercial, só a aba "Meu perfil" aparece, sem link para Usuários',
+        JSON.stringify(tela.abas) === JSON.stringify(['/configuracoes/perfil']) && !tela.usuarios, JSON.stringify(tela.abas))
+      checar('meu perfil: a sidebar mostra "Meu perfil" no lugar de Configurações', tela.sidebarPerfil && !tela.sidebarConfig,
+        JSON.stringify({ perfil: tela.sidebarPerfil, config: tela.sidebarConfig }))
+      checar('meu perfil: a tela mostra o e-mail de login e o perfil',
+        tela.texto.includes('E-mail (login)') && tela.texto.includes(emailPerfil) && tela.texto.includes('Comercial'), tela.texto.slice(0, 300))
+      await b.screenshot(`${SHOTS}/54-meu-perfil.png`)
+      await b.screenshot(`${SHOTS}/54-meu-perfil-390.png`, { largura: 390, altura: 844 })
+      await b.viewport(1440, 900)
+
+      // Dados pessoais: o zod barra o nome vazio; depois nome e telefone salvam.
+      await b.preencher('#nome', '')
+      await b.clicar('button[type="submit"]', { texto: 'Salvar dados' })
+      await b.esperar('document.body.innerText.includes("Nome precisa ter ao menos 2 caracteres")', { rotulo: 'zod do nome', ms: 8000 })
+      checar('meu perfil: o zod barra o nome vazio na tela', true)
+      await b.preencher('#nome', nomeNovo)
+      await b.preencher('#telefone', '11987654321')
+      checar('meu perfil: o telefone ganha a máscara na tela',
+        (await b.avaliar('document.querySelector("#telefone").value')) === '(11) 98765-4321', await b.avaliar('document.querySelector("#telefone").value'))
+      await b.clicar('button[type="submit"]', { texto: 'Salvar dados' })
+      await b.esperar('document.body.innerText.includes("Dados atualizados")', { rotulo: 'toast Dados atualizados', ms: 25000 })
+      checar('meu perfil: salvar os dados mostra o toast "Dados atualizados"', true)
+      await b.esperar(`(document.querySelector("header")?.innerText ?? "").includes(${JSON.stringify(nomeNovo)})`, { rotulo: 'nome novo no header', ms: 25000 })
+      checar('meu perfil: o nome novo aparece no header', true)
+      const { data: gravado } = await svc.from('profiles').select('nome, telefone, perfil').eq('id', idPerfil).single()
+      checar('meu perfil: o banco tem o nome e o telefone novos, e o perfil continua comercial',
+        gravado?.nome === nomeNovo && gravado?.telefone === '(11) 98765-4321' && gravado?.perfil === 'comercial', JSON.stringify(gravado))
+
+      // Trocar senha: confirmação diferente (zod), atual errada (servidor), válida.
+      await b.preencher('#senhaAtual', senhaInicial)
+      await b.preencher('#senha', senhaNova)
+      await b.preencher('#confirmacao', `${senhaNova}x`)
+      await b.clicar('button[type="submit"]', { texto: 'Trocar senha' })
+      await b.esperar('document.body.innerText.includes("As senhas não conferem")', { rotulo: 'zod da confirmação', ms: 8000 })
+      checar('meu perfil: o zod barra a confirmação diferente na tela', true)
+      await b.screenshot(`${SHOTS}/54-meu-perfil-senha-zod.png`)
+      await b.preencher('#senhaAtual', 'SenhaErrada999')
+      await b.preencher('#confirmacao', senhaNova)
+      await b.clicar('button[type="submit"]', { texto: 'Trocar senha' })
+      await b.esperar('document.body.innerText.includes("Senha atual incorreta")', { rotulo: 'senha atual errada', ms: 25000 })
+      checar('meu perfil: com a senha atual errada, o servidor recusa e o erro sai no campo "Senha atual"',
+        await b.avaliar('(document.querySelector(\'label[for="senhaAtual"]\')?.parentElement?.innerText ?? "").includes("Senha atual incorreta")'))
+      await b.preencher('#senhaAtual', senhaInicial)
+      await b.clicar('button[type="submit"]', { texto: 'Trocar senha' })
+      await b.esperar('document.body.innerText.includes("Senha trocada")', { rotulo: 'toast Senha trocada', ms: 25000 })
+      checar('meu perfil: a troca válida mostra o toast "Senha trocada"', true)
+
+      // Sai e entra de novo com a senha nova.
+      await b.limparSessao()
+      await b.ir(`${BASE}/login`)
+      await b.esperar('document.querySelector("#password")', { rotulo: 'tela de login', ms: 25000 })
+      await b.preencher('#email', emailPerfil)
+      await b.preencher('#password', senhaNova)
+      await b.clicar('button[type="submit"]')
+      await b.esperar('location.pathname !== "/login"', { rotulo: 'entrar com a senha nova', ms: 60000 })
+      checar('meu perfil: a pessoa entra de novo com a senha nova', !(await b.url()).startsWith('/login'), await b.url())
+    } finally {
+      // O roteiro não volta à sessão do admin depois daqui: só falta a
+      // checagem de console, que não depende de sessão.
+      await b.limparSessao()
+      if (idPerfil) {
+        // Autor de eventos de auditoria: eles saem antes (auditoria_imutavel recusa o set null).
+        await svc.from('auditoria_eventos').delete().eq('autor_id', idPerfil)
+        const { error: eDel } = await svc.auth.admin.deleteUser(idPerfil)
+        const { data: sobra } = await svc.from('profiles').select('id').eq('id', idPerfil).maybeSingle()
+        checar('meu perfil: o usuário descartável e o profile dele saem no fim', !eDel && !sobra, eDel?.message ?? (sobra ? 'profile sobrou' : ''))
+      }
     }
   }
 

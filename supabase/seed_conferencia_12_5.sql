@@ -38,6 +38,9 @@ on conflict do nothing;
 --   SEED-DOC-CONF  documento da automação REGISTRADO e a conferir
 --                  (status APROVADO, conferencia pendente), sem registro
 --                  criado: um "Não aceitar" pela tela não apaga nada de seed
+--   SEED-DOC-REV   documento da automação em REVISAO_HUMANA (14.2): até 12/10
+--                  a pendência "Documentos em revisão humana" vinha de documento
+--                  real de teste, e o corte da automação os descartou
 --   SEED-FD-VENC   FD sem pagamento, vencido há 5 dias, na obra concluída
 --                  (OBRA-2027-01), que nenhuma checagem fixa
 do $$
@@ -53,6 +56,13 @@ begin
                                           motivo_revisao, etapa, conferencia, revisado_por, revisado_em)
     values (v_emp, 'PROPOSTA', 'seed://SEED-DOC-CONF.pdf', 'APROVADO', v_obra, 'SEED-DOC-CONF',
             '[SEED-TESTE] registrado pelo bot, a conferir (12.5)', 'CONCLUIDO', 'pendente', v_rev, now());
+  end if;
+
+  if not exists (select 1 from documentos_processamento where numero_contrato = 'SEED-DOC-REV') then
+    insert into documentos_processamento (empresa_id, tipo_documento, arquivo_url, status, obra_id, numero_contrato,
+                                          motivo_revisao, etapa)
+    values (v_emp, 'PROPOSTA', 'seed://SEED-DOC-REV.pdf', 'REVISAO_HUMANA', v_obra, 'SEED-DOC-REV',
+            '[SEED-TESTE] em revisão humana, para a pendência do dashboard (14.2)', 'REVISAO');
   end if;
 
   select id into v_obra2 from obras where empresa_id = v_emp and codigo_obra = 'OBRA-2027-01';

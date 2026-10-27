@@ -1247,7 +1247,7 @@
     "path": "/configuracoes/contatos",
     "perfil": "comercial",
     "esperaStatus": 307,
-    "nota": "o layout de /configuracoes só libera admin"
+    "nota": "o guard de admin fica na page (o layout de /configuracoes só exige sessão desde Meu perfil, s14)"
   },
   {
     "path": "/configuracoes/contatos",
@@ -3243,5 +3243,140 @@
       "data-skeleton=\"listagem\""
     ],
     "nota": "13.4: a listagem manda o skeleton (loading.tsx) antes dos dados"
+  },
+  {
+    "path": "/configuracoes/perfil",
+    "esperaHtml": [
+      "Meu perfil",
+      "Dados pessoais",
+      "id=\"nome\"",
+      "id=\"telefone\"",
+      "Salvar dados",
+      "Trocar senha",
+      "id=\"senhaAtual\"",
+      "id=\"confirmacao\"",
+      "E-mail (login)",
+      "breno@obraminds.com",
+      "Admin",
+      "href=\"/configuracoes/usuarios\""
+    ],
+    "nota": "s14 meu perfil: o admin abre a própria tela, com o e-mail de login e as abas de admin (Usuários continua lá). Trechos sem atravessar {valor} de JSX: o e-mail e o label do perfil estão sozinhos no <dd>"
+  },
+  {
+    "path": "/configuracoes/perfil",
+    "perfil": "comercial",
+    "esperaHtml": [
+      "Meu perfil",
+      "Dados pessoais",
+      "id=\"nome\"",
+      "id=\"telefone\"",
+      "Salvar dados",
+      "Trocar senha",
+      "id=\"senhaAtual\"",
+      "id=\"confirmacao\"",
+      "E-mail (login)",
+      "comercial@teste.com",
+      "Comercial"
+    ],
+    "naoEsperaHtml": [
+      "href=\"/configuracoes/usuarios\""
+    ],
+    "nota": "s14 meu perfil: comercial abre a própria tela (200, o layout de /configuracoes só exige sessão) e lê o próprio e-mail; sem aba nem menu de Usuários"
+  },
+  {
+    "path": "/configuracoes/perfil",
+    "perfil": "producao",
+    "esperaHtml": [
+      "Meu perfil",
+      "Dados pessoais",
+      "id=\"nome\"",
+      "id=\"telefone\"",
+      "Salvar dados",
+      "Trocar senha",
+      "id=\"senhaAtual\"",
+      "id=\"confirmacao\"",
+      "E-mail (login)",
+      "producao@teste.com",
+      "Produção"
+    ],
+    "naoEsperaHtml": [
+      "href=\"/configuracoes/usuarios\""
+    ],
+    "nota": "s14 meu perfil: producao abre a própria tela (200, o layout de /configuracoes só exige sessão) e lê o próprio e-mail; sem aba nem menu de Usuários"
+  },
+  {
+    "path": "/configuracoes/perfil",
+    "perfil": "medicao",
+    "esperaHtml": [
+      "Meu perfil",
+      "Dados pessoais",
+      "id=\"nome\"",
+      "id=\"telefone\"",
+      "Salvar dados",
+      "Trocar senha",
+      "id=\"senhaAtual\"",
+      "id=\"confirmacao\"",
+      "E-mail (login)",
+      "medicao@teste.com",
+      "Medição"
+    ],
+    "naoEsperaHtml": [
+      "href=\"/configuracoes/usuarios\""
+    ],
+    "nota": "s14 meu perfil: medicao abre a própria tela (200, o layout de /configuracoes só exige sessão) e lê o próprio e-mail; sem aba nem menu de Usuários"
+  },
+  {
+    "path": "/configuracoes/perfil",
+    "perfil": "financeiro",
+    "esperaHtml": [
+      "Meu perfil",
+      "Dados pessoais",
+      "id=\"nome\"",
+      "id=\"telefone\"",
+      "Salvar dados",
+      "Trocar senha",
+      "id=\"senhaAtual\"",
+      "id=\"confirmacao\"",
+      "E-mail (login)",
+      "financeiro@teste.com",
+      "Financeiro"
+    ],
+    "naoEsperaHtml": [
+      "href=\"/configuracoes/usuarios\""
+    ],
+    "nota": "s14 meu perfil: financeiro abre a própria tela (200, o layout de /configuracoes só exige sessão) e lê o próprio e-mail; sem aba nem menu de Usuários"
+  },
+  {
+    "path": "/configuracoes/perfil",
+    "perfil": "visualizador",
+    "esperaHtml": [
+      "Meu perfil",
+      "Dados pessoais",
+      "id=\"nome\"",
+      "id=\"telefone\"",
+      "Salvar dados",
+      "Trocar senha",
+      "id=\"senhaAtual\"",
+      "id=\"confirmacao\"",
+      "E-mail (login)",
+      "visualizador@teste.com",
+      "Visualizador"
+    ],
+    "naoEsperaHtml": [
+      "href=\"/configuracoes/usuarios\""
+    ],
+    "nota": "s14 meu perfil: visualizador abre a própria tela (200, o layout de /configuracoes só exige sessão) e lê o próprio e-mail; sem aba nem menu de Usuários"
+  },
+  {
+    "path": "/configuracoes",
+    "perfil": "comercial",
+    "esperaStatus": 307,
+    "nota": "s14 meu perfil: o guard de admin desceu do layout pra page; comercial continua redirecionado"
+  },
+  {
+    "path": "/configuracoes",
+    "perfil": "visualizador",
+    "esperaStatus": 307,
+    "nota": "s14 meu perfil: o guard de admin desceu do layout pra page; visualizador continua redirecionado"
   }
 ]

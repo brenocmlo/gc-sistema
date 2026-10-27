@@ -157,15 +157,45 @@ Fechada em 2026-10-10, validada no 13.5. O 13.2 começou **adiantado**, em 2026-
 | 13.4 Tratamento de erro, loading e estados vazios | `13.4-status-entrega.md` — **validado em 2026-10-10: as sete camadas passam** (unitário 397, build 65, runtime 319/319, dados 60/60, escrita 506/506, navegador 260/260); error/not-found globais e por detalhe, skeleton em 13 telas (grupo `(lista)` para não atrasar os redirects de perfil), erro do Postgres traduzido (`src/lib/erro-banco.ts`), "Limpar filtros" e toasts padronizados |
 | 13.5 Testes automatizados de fumaça | `13.5-status-entrega.md` — **fechamento da sprint: as sete camadas passam** (unitário 397, build 65, runtime 319/319, dados 60/60, escrita 506/506, navegador 260/260); `validar.sh fumaca` com os 4 caminhos críticos (22/22, ~1min30), sem Playwright por decisão do Breno; CI em `.github/workflows/validar.yml` (não está no GitHub ainda) |
 
-## Sprints 7 a 15 — planejadas
+## Sprint 14 — Migração da planilha e go-live · `sprint-14/`
+
+Aberta em 2026-10-12. A planilha "Gestão Contratos.xlsx" ainda não chegou; tudo roda sobre a planilha
+falsa até lá. As decisões do 14.1 foram tomadas por análise, por delegação do Breno. Em 26/10 o Breno
+decidiu que não se faz nada em gc-prod: o go-live e a infraestrutura (14.4 e 14.5) são ensaiados em
+gc-dev.
+
+| Bloco | Documento |
+|---|---|
+| 14.1 Decisões de mapeamento | `14.1-status-entrega.md` — **decidido em 2026-10-26, por análise, por delegação do Breno** (revisáveis): clientes, contratos (um por obra com proposta aprovada), regra da execução, Drive e data de corte (virada 13/11/2026, `--ate 2026-11-12`, reserva 27/11); aplicadas no código em 26/10 (importador 17/17, conciliação 41/41); **validado em 2026-10-27, sete camadas** |
+| 14.2 Script de importação | `14.2-status-entrega.md` — **validado em 2026-10-27, sete camadas** (ensaio 17/17 com as decisões do 14.1, escrita 529/529); aberto pela planilha real; importador em `scripts/importacao/` com simulação, idempotência, log de ignoradas e `--desfazer`; ensaio sobre planilha falsa (17 passos) na camada escrita; mapa de colunas provisório |
+| 14.3 Importar em gc-dev e conciliar | `14.3-status-entrega.md` — **preparado, aguarda a planilha real; validado em 2026-10-27 no que a planilha falsa alcança** (8 testes novos): comparação pura testada (`src/lib/conciliacao.ts`), `conciliar.mjs`, já integrada ao ensaio (41/41); nada importado nem conciliado de verdade |
+| 14.4 Go-live | `14.4-status-entrega.md` — **ensaio da virada executado em gc-dev (26/10); rodada completa de 27/10 passou**; procedimento em `tecnicos/runbook-producao.md`; gc-prod fora do escopo por decisão do Breno (26/10) |
+| 14.5 Infraestrutura | `14.5-status-entrega.md` — **ensaio executado em gc-dev (26/10); rodada completa de 27/10 passou**: backup e teste de restauração; domínio, Vercel de prod e backup do plano pago ficam como registro |
+| 14.6 Documentos do Google Drive | `14.6-status-entrega.md` — **preparado** (`baixar-drive.mjs`, simulação sobre a planilha falsa); decisão tomada: link na importação e os 32 arquivos depois do go-live, comprovantes primeiro; download e gravação não rodaram |
+| Fora de bloco: "Esqueci minha senha" | `esqueci-minha-senha-status-entrega.md` — **validado em 2026-10-19: as sete camadas passam** (unitário 409, build 65, runtime 319/319, dados 63/63, escrita 520/520, navegador 266/266); o pedido vai ao admin, sem e-mail; migration `20261019100000` |
+| Fora de bloco: "Meu perfil" | `meu-perfil-status-entrega.md` — **validado em 2026-10-27: as sete camadas passam** (unitário 432, build 66, runtime 327/327 + 348 células, dados 65/65, escrita 529/529, navegador 281/281); aba `/configuracoes/perfil` para todos os perfis: nome, telefone e troca de senha conferindo a atual; sem migration |
+| Fora de bloco: progresso da obra | `progresso-obra-status-entrega.md` — **validado em 2026-10-27** (migration `20261026100000`: `progresso_itens_pct` só conta itens contratados; 7 testes e 1 checagem de dados novos; sete camadas passam) |
+| Fora de bloco: perguntas à equipe | `perguntas-para-a-equipe.md` e a versão curta `perguntas-para-a-equipe-curta.md` — o que falta para começar a sprint |
+
+## Sprint 15 — Treinamento e estabilização · `sprint-15/`
+
+Aberta em 2026-10-26. Material preparado; o sistema roda em gc-dev e o go-live foi ensaiado lá. A execução
+depende da agenda da equipe e, para dados reais, da planilha real e de um ambiente de produção (fora do escopo).
+
+| Bloco | Documento |
+|---|---|
+| 15.1 Manuais por perfil | `15.1-status-entrega.md`; guias em `tecnicos/manual-admin.md`, `manual-comercial.md`, `manual-financeiro.md` e `manual-producao-medicao.md` — **escritos, com as telas da rodada de 27/10 embutidas no PDF** (20, 15, 23 e 15); pendente: leitura por usuário real e publicação |
+| 15.2 Treinamento presencial por perfil | `15.2-status-entrega.md` e `15.2-roteiro-treinamento.md` — **roteiro preparado**; nenhuma sessão aconteceu; ponto focal pendente |
+| 15.3 Correção de bugs do uso real | `15.3-status-entrega.md` e `15.3-processo-bugs.md` — **processo preparado**; canal ainda não criado; nenhum report recebido |
+
+## Sprints 7 a 13 — pastas por sprint
 
 Execução: estrutura e apontamento (7) · Execução: evidências e visão
 consolidada (8) · Financeiro: Notas Fiscais (9) · Financeiro: Pagamentos (10) ·
 Financeiro: Acordos e parcelas (11) · Painel financeiro e Dashboard (12) · Administração,
-qualidade e segurança (13) · Migração da planilha e go-live (14) · Treinamento e
-estabilização (15).
+qualidade e segurança (13). As sprints 14 e 15 já estão abertas, nas seções acima.
 
-Cada uma ganha `docs/sprint-<N>/` ao abrir o primeiro bloco.
+Cada sprint ganha `docs/sprint-<N>/` ao abrir o primeiro bloco.
 
 ## Automação · `automacao/`
 
@@ -195,4 +225,9 @@ Trilha separada, com **numeração própria de 1 a 8** na lista do ClickUp — n
 | `correcoes-listagens-e-obras.md` | Os três bugs achados ao fechar as lacunas do bloco 4.3 |
 | `exportacoes-xlsx.md` | O padrão visual das planilhas de `/api/export/*` (o gerador compartilhado) e o que mudou no FD |
 | `regra-um-contrato-por-obra.md` | Levantamento da regra "uma obra, um contrato vigente" na tela: o que quebra (seed, testes, 6.2) e o passo a passo para a trilha de sprint |
+| `runbook-producao.md` | O go-live e a operação do gc-prod, como registro (gc-prod fora do escopo por decisão do Breno em 26/10); o ensaio é feito em gc-dev nos blocos 14.4 e 14.5 |
+| `manual-admin.md` | Manual do perfil admin (bloco 15.1) |
+| `manual-comercial.md` | Manual do perfil comercial (bloco 15.1) |
+| `manual-financeiro.md` | Manual do perfil financeiro (bloco 15.1) |
+| `manual-producao-medicao.md` | Manual dos perfis de produção e medição (bloco 15.1) |
 | `README.md` | Índice da pasta |

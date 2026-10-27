@@ -179,6 +179,14 @@ export default function UsuariosPanel({ usuarios, erro, avisoAuth }: Props) {
                       <span className={`inline-flex px-2 py-0.5 rounded border text-xs font-medium whitespace-nowrap ${SELO[u.situacao]}`}>
                         {SITUACAO_USUARIO_LABELS[u.situacao]}
                       </span>
+                      {u.pedidoDeAcessoEm && (
+                        <span
+                          className="ml-1.5 inline-flex px-2 py-0.5 rounded border text-xs font-medium whitespace-nowrap bg-amber-50 text-amber-800 border-amber-200"
+                          title="Use a chave da linha para gerar o link de acesso e mande à pessoa."
+                        >
+                          Pediu novo acesso em {formatDateTime(u.pedidoDeAcessoEm)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-2 text-gray-600 tabular-nums whitespace-nowrap">{u.ultimoAcesso ? formatDateTime(u.ultimoAcesso) : '—'}</td>
                     <td className="px-4 py-2">

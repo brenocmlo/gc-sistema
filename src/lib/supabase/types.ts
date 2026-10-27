@@ -1795,6 +1795,42 @@ export type Database = {
           },
         ]
       }
+      pedidos_acesso: {
+        Row: {
+          empresa_id: string
+          id: string
+          pedido_em: string
+          profile_id: string
+        }
+        Insert: {
+          empresa_id: string
+          id?: string
+          pedido_em?: string
+          profile_id: string
+        }
+        Update: {
+          empresa_id?: string
+          id?: string
+          pedido_em?: string
+          profile_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pedidos_acesso_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pedidos_acesso_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           ativo: boolean | null
@@ -2654,6 +2690,13 @@ export type Database = {
         Returns: string
       }
       has_perfil: { Args: { perfis: string[] }; Returns: boolean }
+      pedidos_de_acesso_pendentes: {
+        Args: never
+        Returns: {
+          pedido_em: string
+          profile_id: string
+        }[]
+      }
       registrar_evento: {
         Args: {
           p_acao: string

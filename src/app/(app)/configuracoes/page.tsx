@@ -10,7 +10,7 @@ import { empresaToFormValues } from './empresa-form-helpers'
 export default async function ConfiguracoesPage() {
   const profile = await getCurrentProfile()
   if (!profile) redirect('/login')
-  // Layout-guard já bloqueia não-admin, mas defesa em profundidade:
+  // O layout só exige sessão (Meu perfil é de todos): o guard de admin é daqui.
   if (profile.perfil !== 'admin') redirect('/')
 
   const supabase = createClient()

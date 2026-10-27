@@ -91,13 +91,15 @@ test('pendências: só as do que o perfil faz, só com quantidade, com o link fi
     atrasosDeExecucao: [{ obraId: 'x', codigo: 'OBRA-x', nome: 'Obra x', execucoes: 3 }],
     documentosFinanceirosVencidos: 4,
     fdsVencidos: 1,
+    pedidosDeAcesso: 2,
   }
   const chaves = (p: Parameters<typeof pendenciasDoPerfil>[0]) => pendenciasDoPerfil(p, c).map((x) => x.chave)
   assert.deepEqual(chaves('comercial'), ['orcamentos', 'revisao'])
   assert.deepEqual(chaves('producao'), ['execucao-x'])
   assert.deepEqual(chaves('medicao'), ['execucao-x'])
   assert.deepEqual(chaves('financeiro'), ['vencidos', 'fd'])
-  assert.deepEqual(chaves('admin'), ['orcamentos', 'revisao', 'execucao-x', 'vencidos', 'fd'])
+  assert.deepEqual(chaves('admin'), ['orcamentos', 'revisao', 'execucao-x', 'vencidos', 'fd', 'acesso'])
+  assert.equal(pendenciasDoPerfil('admin', c).at(-1)?.href, '/configuracoes/usuarios')
   assert.deepEqual(chaves('visualizador'), [])
   const exec = pendenciasDoPerfil('producao', c)[0]
   assert.equal(exec.href, '/execucao?obra=x&atrasados=1')

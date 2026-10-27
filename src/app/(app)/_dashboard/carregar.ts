@@ -41,7 +41,7 @@ export async function carregarDashboard(supabase: Supabase, perfil: Perfil, hoje
   const documentos = () => supabase.from('documentos_processamento').select('id', so)
 
   const inicio12 = `${ultimos12Meses(hoje)[0]}-01`
-  const [comercial, operacao, financeiro, receita, pendComercial, fdsVencidos] = await Promise.all([
+  const [comercial, operacao, financeiro, receita, pendComercial, fdsVencidos, pedidosDeAcesso] = await Promise.all([
     ve('comercial')
       ? Promise.all([
           contar(orcamentos().in('status', ORCAMENTO_EM_ABERTO)),
@@ -95,6 +95,8 @@ export async function carregarDashboard(supabase: Supabase, perfil: Perfil, hoje
         ])
       : [0, 0, 0, 0],
     age(['admin', 'financeiro']) ? contar(supabase.from('fd').select('id', so).is('data_pagamento', null).lt('data_vencimento', hoje)) : 0,
+    // "Esqueci minha senha" esperando o link de acesso (19/10).
+    age(['admin']) ? supabase.rpc('pedidos_de_acesso_pendentes').then((r) => (r.data ?? []).length) : 0,
   ])
 
   const [orcamentosPendentes, propostasVencidas, documentosEmRevisao, documentosAConferir] = pendComercial
@@ -106,6 +108,7 @@ export async function carregarDashboard(supabase: Supabase, perfil: Perfil, hoje
     atrasosDeExecucao: operacao?.atrasos ?? [],
     documentosFinanceirosVencidos: financeiro?.faixas.vencidas.quantidade ?? 0,
     fdsVencidos,
+    pedidosDeAcesso,
   })
 
   return {

@@ -148,6 +148,11 @@ const NECESSARIAS = [
   'gerarLinkDeAcesso',
   'atualizarUsuario',
   'definirAtivo',
+  // "Esqueci minha senha" (19/10)
+  'pedirNovoAcesso',
+  // s14 meu perfil (/configuracoes/perfil)
+  'atualizarMeuPerfil',
+  'trocarMinhaSenha',
 ]
 
 exigirActions(ACTIONS, NECESSARIAS)
@@ -3138,6 +3143,129 @@ try {
         const { error } = await svc.auth.admin.deleteUser(usuarioId)
         const { count } = await svc.from('profiles').select('id', { count: 'exact', head: true }).eq('id', usuarioId)
         checar('13.1: limpeza do usuário de teste (Auth e perfil)', !error && count === 0, error?.message ?? `perfis restantes: ${count}`)
+      }
+    }
+  }
+
+  // ============================================================
+  // "Esqueci minha senha" (19/10): o pedido vai para o admin, sem e-mail
+  // ============================================================
+  {
+    const INICIO_PEDIDOS = new Date().toISOString()
+    const { data: vis } = await svc.from('profiles').select('id, email').eq('email', 'visualizador@teste.com').single()
+    const pedidosDoVis = async () => (await svc.from('pedidos_acesso').select('id', { count: 'exact', head: true }).eq('profile_id', vis.id).gte('pedido_em', INICIO_PEDIDOS)).count
+    const pendentesComoAdmin = async () => ((await supabase.rpc('pedidos_de_acesso_pendentes')).data ?? []).map((x) => x.profile_id)
+    const pedir = (email) => chamar('pedirNovoAcesso', [{ email }], { rota: '/login', cookie: '' })
+    try {
+      const invalido = await pedir('nao-e-email')
+      checar('esqueci a senha: e-mail inválido é recusado no servidor (zod), sem sessão', invalido.ok === false && /inválido/i.test(invalido.error ?? ''), JSON.stringify(invalido))
+      const { count: antes } = await svc.from('pedidos_acesso').select('id', { count: 'exact', head: true })
+      const desconhecido = await pedir(`ninguem-${Date.now()}@exemplo.com`)
+      const { count: depois } = await svc.from('pedidos_acesso').select('id', { count: 'exact', head: true })
+      const v1 = await pedir('  Visualizador@Teste.com ')
+      checar('esqueci a senha: e-mail sem conta e e-mail com conta recebem a mesma resposta; só o com conta grava o pedido',
+        desconhecido.ok && v1.ok && desconhecido.mensagem === v1.mensagem && depois === antes && (await pedidosDoVis()) === 1,
+        JSON.stringify({ desconhecido, v1, antes, depois }))
+      checar('esqueci a senha: o admin vê o pedido pendente (pedidos_de_acesso_pendentes)', (await pendentesComoAdmin()).includes(vis.id))
+      const v2 = await pedir('visualizador@teste.com')
+      checar('esqueci a senha: pedir de novo em menos de 10 minutos não vira outro pedido', v2.ok && (await pedidosDoVis()) === 1, `${await pedidosDoVis()} pedido(s)`)
+      const sbCom = createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } })
+      await sbCom.auth.setSession((await sessaoDePerfil('comercial')).session)
+      const comRpc = await sbCom.rpc('pedidos_de_acesso_pendentes')
+      const comTabela = await sbCom.from('pedidos_acesso').select('id')
+      checar('esqueci a senha: o comercial não vê pedido nenhum, nem pela função nem pela tabela',
+        (comRpc.data ?? []).length === 0 && (comTabela.data ?? []).length === 0, JSON.stringify({ rpc: comRpc.data, tabela: comTabela.data }))
+      // A pessoa entra de novo (um login de verdade, que atualiza o último acesso): o pedido some.
+      const { data: link } = await svc.auth.admin.generateLink({ type: 'magiclink', email: vis.email })
+      const entrou = await createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } }).auth.verifyOtp({ type: 'magiclink', token_hash: link.properties.hashed_token })
+      checar('esqueci a senha: depois que a pessoa entra de novo, o pedido sai das pendências', !entrou.error && !(await pendentesComoAdmin()).includes(vis.id), entrou.error?.message ?? 'continua pendente')
+    } catch (e) {
+      checar('esqueci a senha: roteiro', false, e.message)
+    } finally {
+      const { error } = await svc.from('pedidos_acesso').delete().gte('pedido_em', INICIO_PEDIDOS).eq('profile_id', vis.id)
+      checar('esqueci a senha: limpeza dos pedidos de teste', !error, error?.message)
+    }
+  }
+
+  // ============================================================
+  // s14 meu perfil (/configuracoes/perfil): nome e telefone pela própria
+  // sessão, o perfil que não escala, e a troca de senha conferindo a atual.
+  // Sobre um usuário descartável: nunca a senha do admin nem dos @teste.com.
+  // ============================================================
+  {
+    const ROTA_MP = '/configuracoes/perfil'
+    const EMAIL_MP = `valida-perfil-${Date.now()}@teste.com`
+    const SENHA_MP = 'SenhaDoPerfil123'
+    const SENHA_MP_NOVA = 'SenhaNovaDoPerfil456'
+    let usuarioMpId = null
+    const entrarMp = (senha) => createClient(URL_SUPABASE, ANON, { auth: { persistSession: false } }).auth.signInWithPassword({ email: EMAIL_MP, password: senha })
+    const perfilMp = async () => (await svc.from('profiles').select('nome, telefone, perfil, empresa_id').eq('id', usuarioMpId).single()).data
+    try {
+      // O usuário nasce pela service role, com senha e e-mail confirmado, na empresa do admin.
+      const { data: doAdmin } = await svc.from('profiles').select('empresa_id').eq('id', admin.userId).single()
+      const { data: criadoMp, error: eCriaMp } = await svc.auth.admin.createUser({ email: EMAIL_MP, password: SENHA_MP, email_confirm: true })
+      usuarioMpId = criadoMp?.user?.id ?? null
+      const { error: ePerfilMp } = usuarioMpId
+        ? await svc.from('profiles').insert({ id: usuarioMpId, empresa_id: doAdmin.empresa_id, nome: 'Validação Perfil', email: EMAIL_MP, perfil: 'comercial', ativo: true })
+        : { error: { message: 'sem usuário' } }
+      const login0 = usuarioMpId && !ePerfilMp ? await entrarMp(SENHA_MP) : { error: { message: 'não criado' } }
+      checar('meu perfil: usuário descartável comercial criado e logado por senha', !eCriaMp && !ePerfilMp && !login0.error,
+        eCriaMp?.message ?? ePerfilMp?.message ?? login0.error?.message)
+      if (login0.error) throw new Error('sem sessão do usuário descartável')
+      const cookieMp = cookieDeSessao(login0.data.session)
+
+      // atualizarMeuPerfil
+      const nomeVazio = await chamar('atualizarMeuPerfil', [{ nome: '', telefone: '' }], { rota: ROTA_MP, cookie: cookieMp })
+      checar('meu perfil: nome vazio é recusado no servidor (zod)', nomeVazio.ok === false && /ao menos 2 caracteres/.test(nomeVazio.error ?? ''), JSON.stringify(nomeVazio))
+      const salvo = await chamar('atualizarMeuPerfil', [{ nome: 'Validação Perfil Editado', telefone: '(85) 98888-7777' }], { rota: ROTA_MP, cookie: cookieMp })
+      const p1 = await perfilMp()
+      checar('meu perfil: nome e telefone válidos gravam, e o perfil continua comercial',
+        salvo.ok === true && p1?.nome === 'Validação Perfil Editado' && p1?.telefone === '(85) 98888-7777' && p1?.perfil === 'comercial',
+        JSON.stringify({ salvo, p1 }))
+      const escalaMp = await chamar('atualizarMeuPerfil', [{ nome: 'Validação Perfil', telefone: '', perfil: 'admin' }], { rota: ROTA_MP, cookie: cookieMp })
+      const p2 = await perfilMp()
+      checar('meu perfil: payload com perfil admin não escala (o zod descarta a chave; continua comercial)',
+        p2?.perfil === 'comercial' && (escalaMp.ok !== true || (p2?.nome === 'Validação Perfil' && p2?.telefone === null)),
+        JSON.stringify({ escalaMp, p2 }))
+      // Sem sessão: o middleware barra antes (redirect ao /login) ou a action responde 'Não autenticado'.
+      const semSessaoMp = await fetch(BASE + ROTA_MP, {
+        method: 'POST',
+        headers: { cookie: '', 'Next-Action': ACTIONS.atualizarMeuPerfil, 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify([{ nome: 'Sem Sessão', telefone: '' }]),
+        redirect: 'manual',
+      })
+      const corpoSemSessao = semSessaoMp.status === 200 ? resultadoDoFlight(await semSessaoMp.text()) : null
+      const p3 = await perfilMp()
+      checar('meu perfil: sem sessão é recusado e nada grava',
+        p3?.nome !== 'Sem Sessão' &&
+          ((semSessaoMp.status >= 300 && semSessaoMp.status < 400 && /\/login/.test(semSessaoMp.headers.get('location') ?? '')) ||
+            (corpoSemSessao?.ok === false && /Não autenticado/.test(corpoSemSessao.error ?? ''))),
+        JSON.stringify({ status: semSessaoMp.status, location: semSessaoMp.headers.get('location'), corpoSemSessao, nome: p3?.nome }))
+
+      // trocarMinhaSenha
+      const curta = await chamar('trocarMinhaSenha', [{ senhaAtual: SENHA_MP, senha: 'curta', confirmacao: 'curta' }], { rota: ROTA_MP, cookie: cookieMp })
+      checar('meu perfil: senha nova curta é recusada no servidor (zod)', curta.ok === false && /ao menos 8 caracteres/.test(curta.error ?? ''), JSON.stringify(curta))
+      const atualErrada = await chamar('trocarMinhaSenha', [{ senhaAtual: 'NaoEhAAtual999', senha: SENHA_MP_NOVA, confirmacao: SENHA_MP_NOVA }], { rota: ROTA_MP, cookie: cookieMp })
+      const aindaAntiga = await entrarMp(SENHA_MP)
+      checar("meu perfil: senha atual errada é recusada com 'Senha atual incorreta' e a senha não muda",
+        atualErrada.ok === false && atualErrada.error === 'Senha atual incorreta' && !aindaAntiga.error,
+        JSON.stringify({ atualErrada, antiga: aindaAntiga.error?.message ?? 'entra' }))
+      const trocada = await chamar('trocarMinhaSenha', [{ senhaAtual: SENHA_MP, senha: SENHA_MP_NOVA, confirmacao: SENHA_MP_NOVA }], { rota: ROTA_MP, cookie: cookieMp })
+      const comNova = await entrarMp(SENHA_MP_NOVA)
+      const comAntiga = await entrarMp(SENHA_MP)
+      checar('meu perfil: troca válida — entra com a nova e a antiga é recusada',
+        trocada.ok === true && !comNova.error && Boolean(comAntiga.error),
+        JSON.stringify({ trocada, nova: comNova.error?.message ?? 'entra', antiga: comAntiga.error?.message ?? 'entrou' }))
+    } catch (e) {
+      checar('meu perfil: roteiro', false, e.message)
+    } finally {
+      // Os eventos que o próprio usuário gerou (ele é o autor) saem antes dele: apagar o
+      // profile faria o "on delete set null" do autor_id esbarrar na auditoria_imutavel.
+      if (usuarioMpId) {
+        await svc.from('auditoria_eventos').delete().eq('autor_id', usuarioMpId)
+        const { error } = await svc.auth.admin.deleteUser(usuarioMpId)
+        const { count } = await svc.from('profiles').select('id', { count: 'exact', head: true }).eq('id', usuarioMpId)
+        checar('meu perfil: limpeza do usuário descartável (Auth e perfil)', !error && count === 0, error?.message ?? `perfis restantes: ${count}`)
       }
     }
   }

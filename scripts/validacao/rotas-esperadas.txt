@@ -21,6 +21,7 @@
 /clientes/novo
 /configuracoes
 /configuracoes/contatos
+/configuracoes/perfil
 /configuracoes/usuarios
 /contratos
 /contratos/[id]

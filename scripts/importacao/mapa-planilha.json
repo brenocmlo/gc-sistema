@@ -1,0 +1,137 @@
+{
+  "_leia": "Mapa da planilha legada 'Gestão Contratos.xlsx' para o banco (sprint 14). PROVISÓRIO: os nomes de aba e de coluna abaixo são o que se espera pela descrição do ClickUp; a planilha real ainda não chegou. Cada campo aceita uma LISTA de cabeçalhos possíveis, comparados sem acento e sem caixa. Ao receber a planilha, ajuste só este arquivo: o script acha a linha de cabeçalho sozinho. Campo com 'obrigatorio: true' que não achar coluna aborta a leitura daquela aba com o motivo.",
+  "data_corte": "2026-11-12",
+  "_data_corte": "Decisão 5 do 14.1: fim do dia útil anterior à virada (sexta 13/11/2026). Se a virada for para 27/11, \"2026-11-26\". O --ate da linha de comando vence este valor nos ensaios.",
+  "clientes": {
+    "_leia": "Decisão 1 do 14.1. Chave = nome que vai para o banco (a razão social; copiar a grafia exata da NF real antes do go-live); valor = as variações da planilha que são o mesmo cliente. Caixa e acento já se juntam sozinhos.",
+    "equivalencias": { "EF Empreendimentos Imobiliários": ["Estação Fashion"] }
+  },
+  "contratos": {
+    "_leia": "Decisão 2 do 14.1: um contrato por obra com proposta aprovada, gerado da principal (ordem de 'principal'), com os itens dela copiados e a execução nos itens do contrato; as outras aprovadas da obra viram aditivos. Número: coluna 'contrato' da aba de propostas, ou prefixo_numero + nº da proposta.",
+    "gerar": "um_por_obra",
+    "prefixo_numero": "CT-",
+    "principal": ["data_emissao_asc", "valor_desc", "numero_asc"]
+  },
+  "abas": {
+    "obras": {
+      "nomes": ["Obras", "Cadastro de Obras"],
+      "campos": {
+        "codigo_obra": ["Código", "Codigo da Obra", "Cód. Obra", "Obra ID"],
+        "nome": { "colunas": ["Obra", "Nome da Obra", "Nome"], "obrigatorio": true },
+        "cliente": { "colunas": ["Cliente", "Construtora", "Contratante"], "obrigatorio": true },
+        "cidade": ["Cidade"],
+        "endereco": ["Endereço", "Local"],
+        "status": ["Status", "Situação"],
+        "data_inicio": ["Início", "Data de Início"]
+      }
+    },
+    "propostas": {
+      "nomes": ["Propostas", "Orçamentos e Propostas"],
+      "campos": {
+        "numero": { "colunas": ["Proposta", "Nº Proposta", "Número", "N°"], "obrigatorio": true },
+        "obra": { "colunas": ["Obra", "Código da Obra"], "obrigatorio": true },
+        "cliente": ["Cliente"],
+        "descricao": ["Descrição", "Escopo"],
+        "data_emissao": ["Data", "Data de Emissão", "Emissão"],
+        "valor_total": { "colunas": ["Valor", "Valor Total", "Total"], "obrigatorio": true },
+        "desconto": ["Desconto"],
+        "status": ["Status", "Situação"],
+        "condicoes_pagamento": ["Condições", "Condições de Pagamento", "Forma de Pagamento"],
+        "link": ["Documento", "Link", "Arquivo", "Drive"],
+        "contrato": ["Contrato", "Nº Contrato"]
+      }
+    },
+    "itens": {
+      "nomes": ["Itens", "Itens da Proposta", "Esquadrias"],
+      "campos": {
+        "proposta": { "colunas": ["Proposta", "Nº Proposta"], "obrigatorio": true },
+        "numero": { "colunas": ["Item", "Nº Item", "Número"], "obrigatorio": true },
+        "tipo": ["Tipo"],
+        "descricao": ["Descrição"],
+        "linha": ["Linha"],
+        "acabamento": ["Acabamento", "Cor"],
+        "largura": ["Largura", "L"],
+        "altura": ["Altura", "H"],
+        "quantidade": { "colunas": ["Quantidade", "Qtd", "Qtde"], "obrigatorio": true },
+        "unidade": ["Unidade", "Un"],
+        "valor_unit": { "colunas": ["Valor Unitário", "Valor Unit", "Preço Unitário"], "obrigatorio": true },
+        "localizacao": ["Localização", "Local", "Pavimento"],
+        "vidros": ["Vidro", "Vidros"]
+      }
+    },
+    "execucao": {
+      "nomes": ["Controle de Execução", "Execução"],
+      "campos": {
+        "proposta": { "colunas": ["Proposta", "Nº Proposta"], "obrigatorio": true },
+        "item": { "colunas": ["Item", "Nº Item"], "obrigatorio": true },
+        "quantidade": ["Quantidade", "Qtd", "Qtd Total"],
+        "fabricada": ["Qtd Fabricada", "Fabricada"],
+        "entregue": ["Qtd Entregue", "Entregue"],
+        "instalada": ["Qtd Instalada", "Instalada"],
+        "medida": ["Qtd Medida", "Medida"],
+        "localizacao": ["Localização", "Local", "Pavimento"],
+        "responsavel": ["Responsável", "Equipe"],
+        "observacao": ["Observação", "Obs"]
+      }
+    },
+    "notas_fiscais": {
+      "nomes": ["Notas Fiscais", "NF", "NFs"],
+      "campos": {
+        "numero": { "colunas": ["NF", "Nº NF", "Número", "Nota"], "obrigatorio": true },
+        "serie": ["Série"],
+        "obra": { "colunas": ["Obra"], "obrigatorio": true },
+        "proposta": ["Proposta"],
+        "tipo": ["Tipo", "Referente"],
+        "data_emissao": { "colunas": ["Emissão", "Data de Emissão", "Data"], "obrigatorio": true },
+        "data_vencimento": ["Vencimento"],
+        "valor_total": { "colunas": ["Valor", "Valor Total"], "obrigatorio": true },
+        "status": ["Status", "Situação"],
+        "chave_nfe": ["Chave", "Chave NF-e"]
+      }
+    },
+    "pagamentos": {
+      "nomes": ["Pagamentos", "Extrato", "Recebimentos"],
+      "campos": {
+        "nf": { "colunas": ["NF", "Nº NF", "Nota"], "obrigatorio": true },
+        "serie": ["Série"],
+        "data_pagamento": { "colunas": ["Data", "Data do Pagamento", "Recebido em"], "obrigatorio": true },
+        "valor": { "colunas": ["Valor", "Valor Recebido"], "obrigatorio": true },
+        "forma": ["Forma", "Forma de Pagamento", "Meio"],
+        "observacao": ["Observação", "Obs", "Histórico"],
+        "link": ["Comprovante", "Link", "Drive"]
+      }
+    },
+    "fd": {
+      "nomes": ["FD", "Faturamento Direto", "Lançamentos FD"],
+      "campos": {
+        "obra": { "colunas": ["Obra"], "obrigatorio": true },
+        "fornecedor": { "colunas": ["Fornecedor"], "obrigatorio": true },
+        "data_lancamento": ["Data", "Data de Lançamento", "Lançamento"],
+        "codigo": ["Código"],
+        "especificacao": ["Especificação", "Descrição", "Material"],
+        "quantidade": ["Quantidade", "Qtd"],
+        "unidade": ["Unidade", "Un"],
+        "preco_unitario": ["Preço Unitário", "Valor Unitário"],
+        "valor": { "colunas": ["Valor", "Valor Total"], "obrigatorio": true },
+        "valor_descontar": ["A Descontar", "Valor a Descontar", "Descontar"],
+        "data_vencimento": ["Vencimento"],
+        "data_pagamento": ["Pagamento", "Data de Pagamento", "Pago em"],
+        "pedido_documento": ["Pedido", "Nota", "Documento"],
+        "item_parcela": ["Item/Parcela", "Parcela"],
+        "observacao": ["Observação", "Obs"],
+        "link": ["Link", "Drive", "Nota (link)"]
+      }
+    }
+  },
+  "tipos_nf": {
+    "_leia": "Texto da coluna Tipo da NF → tipo do sistema. O que não casar vira 'outro'.",
+    "sinal": "sinal",
+    "entrada": "sinal",
+    "entrega": "entrega_material",
+    "material": "entrega_material",
+    "medicao": "medicao",
+    "instalacao": "instalacao",
+    "fd": "fat_direto",
+    "faturamento direto": "fat_direto"
+  }
+}
