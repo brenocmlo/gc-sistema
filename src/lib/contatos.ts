@@ -75,6 +75,7 @@ export type ContatoListItem = {
   telegram_chat_id: string | null
   telefone: string | null
   obra_id: string | null
+  ativo: boolean
   created_at: string | null
   obra: { codigo_obra: string | null; nome: string | null } | null
 }

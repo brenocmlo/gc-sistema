@@ -1215,10 +1215,10 @@ try {
   {
     const CODIGO_NAV = String(8_000_000_000 + (Date.now() % 1_000_000_000))
     await b.ir(`${BASE}/configuracoes`)
-    await b.clicar('a', { texto: 'Contatos do bot' })
-    await b.esperar('location.pathname === "/configuracoes/contatos"', { rotulo: '/configuracoes/contatos' })
+    await b.clicar('nav[aria-label="Seções de configurações"] a', { texto: 'Bot' })
+    await b.esperar('location.pathname === "/configuracoes/bot"', { rotulo: '/configuracoes/bot' })
     await b.esperar('document.body.innerText.includes("Novo contato")', { rotulo: 'botão Novo contato' })
-    checar('aba "Contatos do bot" navega a partir de Configurações', (await b.url()) === '/configuracoes/contatos')
+    checar('aba "Bot" navega a partir de Configurações', (await b.url()) === '/configuracoes/bot')
 
     await b.clicar('button', { texto: 'Novo contato' })
     await b.esperar('document.querySelector("#telegram_chat_id")', { rotulo: 'modal do contato' })
@@ -1240,7 +1240,69 @@ try {
     await b.esperar('document.body.innerText.includes("deixa de poder mandar propostas")', { rotulo: 'ConfirmDialog do contato' })
     await b.clicar('[role="dialog"] button', { texto: 'Excluir' })
     await b.esperar(`!document.body.innerText.includes(${JSON.stringify(CODIGO_NAV)})`, { rotulo: 'contato sumir', ms: 15000 })
+
     checar('contato excluído pela tela some da tabela', !(await b.texto()).includes(`${NUMERO} contato`))
+
+    // Desativar → toast e a coluna Situação muda (contato de fixture pela chave de serviço).
+    const { createClient } = await import('@supabase/supabase-js')
+    const svcBot = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY ?? '', { auth: { persistSession: false } })
+    const sbBot = await clienteSupabase()
+    const { data: perfilBot } = await sbBot.from('profiles').select('empresa_id').limit(1).maybeSingle()
+    const empresaBot = perfilBot?.empresa_id
+    const RUN_BOT = Date.now()
+    const NOME_CT = `VALIDA-BOT-${RUN_BOT} contato`
+    const NOME_PED = `VALIDA-BOT-${RUN_BOT} pedido`
+    const NOME_GRP = `VALIDA-BOT-${RUN_BOT} grupo`
+    const uidPedido = String(6_100_000_000 + (RUN_BOT % 900_000_000))
+    const codigoCt = String(8_100_000_000 + (RUN_BOT % 900_000_000))
+    const idsGrupo = []
+    const idsPedido = []
+    try {
+      await svcBot.from('contatos_whatsapp').insert({ empresa_id: empresaBot, canal: 'TELEGRAM', telegram_chat_id: codigoCt, nome: NOME_CT })
+      await b.ir(`${BASE}/configuracoes/bot`)
+      await b.esperar(`document.body.innerText.includes(${JSON.stringify(NOME_CT)})`, { rotulo: 'contato de fixture na tabela' })
+      await b.clicar(`button[aria-label="Desativar ${NOME_CT}"]`)
+      await b.esperar('document.body.innerText.includes("Contato desativado")', { rotulo: 'toast Contato desativado' })
+      await b.esperar(`Array.from(document.querySelectorAll('tr')).some(tr => tr.innerText.includes(${JSON.stringify(NOME_CT)}) && tr.innerText.includes('Desativado'))`, { rotulo: 'situação Desativado', ms: 15000 })
+      checar('Desativar mostra o toast e a coluna Situação passa a Desativado', true)
+
+      // Pedidos de acesso: o selo mostra o número e Permitir faz ele diminuir.
+      const { data: grpPed } = await svcBot.from('bot_grupos').insert({ empresa_id: empresaBot, telegram_chat_id: `-100${4_000_000_000 + (RUN_BOT % 900_000_000)}`, nome: NOME_GRP, status: 'PENDENTE' }).select('id').single()
+      if (grpPed) idsGrupo.push(grpPed.id)
+      const { data: ped } = await svcBot.from('bot_pedidos_acesso').insert({ empresa_id: empresaBot, telegram_user_id: uidPedido, nome: NOME_PED, grupo_id: grpPed?.id ?? null }).select('id').single()
+      if (ped) idsPedido.push(ped.id)
+      await b.ir(`${BASE}/configuracoes/bot/pedidos`)
+      await b.esperar(`document.body.innerText.includes(${JSON.stringify(NOME_PED)})`, { rotulo: 'pedido de fixture' })
+      const seloAntes = Number(await b.avaliar(`(document.querySelector('[aria-label$="pedidos pendentes"]')?.innerText ?? '0')`))
+      checar('o selo da aba Pedidos de acesso mostra o número de pendentes', seloAntes >= 1, String(seloAntes))
+      await b.screenshot(`${SHOTS}/25c-pedidos.png`)
+      await b.clicar(`button[aria-label="Permitir ${NOME_PED}"]`)
+      await b.esperar('document.body.innerText.includes("Acesso permitido")', { rotulo: 'toast Acesso permitido' })
+      await b.esperar(`Number(document.querySelector('[aria-label$="pedidos pendentes"]')?.innerText ?? '0') === ${seloAntes - 1}`, { rotulo: 'selo diminuir', ms: 15000 })
+      checar('Permitir mostra o toast e o selo diminui', true)
+
+      // Grupos: Liberar → toast; Bloquear → ConfirmDialog → toast.
+      await b.ir(`${BASE}/configuracoes/bot/grupos`)
+      await b.esperar(`document.body.innerText.includes(${JSON.stringify(NOME_GRP)})`, { rotulo: 'grupo de fixture' })
+      await b.screenshot(`${SHOTS}/25d-grupos.png`)
+      await b.clicar(`button[aria-label="Liberar ${NOME_GRP}"]`)
+      await b.esperar('document.body.innerText.includes("Grupo liberado")', { rotulo: 'toast Grupo liberado' })
+      await b.esperar(`Array.from(document.querySelectorAll('tr')).some(tr => tr.innerText.includes(${JSON.stringify(NOME_GRP)}) && tr.innerText.includes('Liberado'))`, { rotulo: 'situação Liberado', ms: 15000 })
+      await b.clicar(`button[aria-label="Bloquear ${NOME_GRP}"]`)
+      await b.esperar('document.body.innerText.includes("até ele ser liberado de novo")', { rotulo: 'ConfirmDialog Bloquear grupo' })
+      await b.clicar('[role="dialog"] button', { texto: 'Bloquear' })
+      await b.esperar('document.body.innerText.includes("Grupo bloqueado")', { rotulo: 'toast Grupo bloqueado' })
+      checar('Liberar e Bloquear (com ConfirmDialog) do grupo mostram os toasts', true)
+
+      // A aba antiga redireciona para a nova.
+      await b.ir(`${BASE}/configuracoes/contatos`)
+      await b.esperar('location.pathname === "/configuracoes/bot"', { rotulo: 'redirect de /configuracoes/contatos' })
+      checar('/configuracoes/contatos cai em /configuracoes/bot', (await b.url()) === '/configuracoes/bot')
+    } finally {
+      if (idsPedido.length) await svcBot.from('bot_pedidos_acesso').delete().in('id', idsPedido)
+      if (idsGrupo.length) await svcBot.from('bot_grupos').delete().in('id', idsGrupo)
+      await svcBot.from('contatos_whatsapp').delete().in('telegram_chat_id', [codigoCt, uidPedido])
+    }
   }
 
   // 26. Várias execuções por item (7.4), sobre a Fachada do seed (10 un, Torre

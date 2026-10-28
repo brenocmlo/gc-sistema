@@ -218,6 +218,7 @@ Trilha separada, com **numeração própria de 1 a 8** na lista do ClickUp — n
 | `fase-6-rota-ingestao-status-entrega.md` | Fase 6: rota `/api/ingestao/proposta` pronta; até ela ser alcançável, o n8n grava proposta e itens com a mesma regra (decisão 21) |
 | `fase-7-painel-status-entrega.md` | Fase 7: `/configuracoes/contatos` e `/documentos` (lista, detalhe, envio pela tela) implementadas, validação pendente |
 | `contratos-revisao-e-rotas-status-entrega.md` | Contratos pelo bot, revisão pela tela, n8n pelas rotas e obra lida do PDF (decisão 27) |
+| `envio-pelo-grupo-status-entrega.md` | Envio de PDF pelo grupo do Telegram: pessoas liberadas pelo admin, pedidos de acesso, triagem no sistema; sete camadas passam em gc-dev, teste real (Fase 0) e n8n pendentes |
 
 ## Técnicos · `tecnicos/`
 

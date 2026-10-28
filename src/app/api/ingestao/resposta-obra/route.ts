@@ -35,7 +35,7 @@ export async function POST(req: Request) {
     return resposta(401, { ok: false, error: 'Token de ingestão inválido' })
   }
 
-  let corpo: { empresaId?: unknown; chatId?: unknown; texto?: unknown }
+  let corpo: { empresaId?: unknown; chatId?: unknown; remetenteId?: unknown; texto?: unknown }
   try {
     corpo = await req.json()
   } catch {
@@ -45,17 +45,24 @@ export async function POST(req: Request) {
   const chatId = corpo.chatId === undefined || corpo.chatId === null ? '' : String(corpo.chatId)
   if (!empresaId || !chatId) return resposta(422, { ok: false, error: 'empresaId e chatId são obrigatórios' })
 
+  // No grupo a pergunta é de uma pessoa: só ela responde. Sem remetenteId
+  // (n8n antigo) ou na conversa privada (remetente = chat), vale o chat.
+  const remetenteId = corpo.remetenteId === undefined || corpo.remetenteId === null ? '' : String(corpo.remetenteId)
+  const filtraRemetente = remetenteId !== '' && remetenteId !== chatId
+
   const supabase = createClient<Database>(url, serviceRole, { auth: { persistSession: false } })
   const desde = new Date(Date.now() - VALIDADE_PERGUNTA_DIAS * 86400e3).toISOString()
-  const { data: doc, error: erroDoc } = await supabase
+  let consulta = supabase
     .from('documentos_processamento')
-    .select('id, empresa_id, tipo_documento, arquivo_url, opcoes_obra, motivo_revisao')
+    .select('id, empresa_id, tipo_documento, arquivo_url, opcoes_obra, motivo_revisao, canal_remetente_id, canal_mensagem_id')
     .eq('empresa_id', empresaId)
     .eq('canal', 'TELEGRAM')
     .eq('canal_chat_id', chatId)
     .eq('status', 'REVISAO_HUMANA')
     .not('opcoes_obra', 'is', null)
     .gte('created_at', desde)
+  if (filtraRemetente) consulta = consulta.eq('canal_remetente_id', remetenteId)
+  const { data: doc, error: erroDoc } = await consulta
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -108,6 +115,8 @@ export async function POST(req: Request) {
       canal: 'TELEGRAM',
       chat_id: chatId,
       tipo_documento: doc.tipo_documento,
+      remetente_id: doc.canal_remetente_id,
+      mensagem_id: doc.canal_mensagem_id,
     },
   })
 }

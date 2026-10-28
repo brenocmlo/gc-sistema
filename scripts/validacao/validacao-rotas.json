@@ -1235,22 +1235,61 @@
     "nota": "visualizador abre as etapas só para ler"
   },
   {
-    "path": "/configuracoes/contatos",
+    "path": "/configuracoes/bot",
     "esperaHtml": [
-      "Contatos do bot",
+      "Usuários permitidos",
       "Novo contato",
-      "Código"
+      "Situação"
     ],
-    "nota": "Fase 7 da automação: cadastro de contatos do bot (admin)"
+    "nota": "Configurações → Bot: usuários permitidos (admin)"
+  },
+  {
+    "path": "/configuracoes/bot/pedidos",
+    "esperaHtml": [
+      "Pedidos de acesso"
+    ],
+    "nota": "lista de pedidos de acesso ao bot (vazia ou não)"
+  },
+  {
+    "path": "/configuracoes/bot/grupos",
+    "esperaHtml": [
+      "Grupos do Telegram em que o bot aceita documentos"
+    ],
+    "nota": "lista de grupos do bot (vazia ou não)"
   },
   {
     "path": "/configuracoes/contatos",
+    "esperaStatus": 307,
+    "nota": "a aba antiga só redireciona para /configuracoes/bot"
+  },
+  {
+    "path": "/configuracoes/bot",
     "perfil": "comercial",
     "esperaStatus": 307,
-    "nota": "o guard de admin fica na page (o layout de /configuracoes só exige sessão desde Meu perfil, s14)"
+    "nota": "o guard de admin fica no layout e na page (o layout de /configuracoes só exige sessão)"
   },
   {
-    "path": "/configuracoes/contatos",
+    "path": "/configuracoes/bot/pedidos",
+    "perfil": "comercial",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/configuracoes/bot/grupos",
+    "perfil": "comercial",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/configuracoes/bot",
+    "perfil": "visualizador",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/configuracoes/bot/pedidos",
+    "perfil": "visualizador",
+    "esperaStatus": 307
+  },
+  {
+    "path": "/configuracoes/bot/grupos",
     "perfil": "visualizador",
     "esperaStatus": 307
   },

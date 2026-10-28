@@ -1,43 +1,13 @@
 import { redirect } from 'next/navigation'
 
-import type { ContatoListItem } from '@/lib/contatos'
 import { getCurrentProfile } from '@/lib/supabase/profile'
-import { createClient } from '@/lib/supabase/server'
 
-import ContatosPanel from './contatos-panel'
-
-// Contatos autorizados a mandar propostas pelo bot do Telegram (Fase 7).
+// A aba "Contatos do bot" virou "Bot → Usuários permitidos". O guard vem antes
+// do redirect, como nas outras abas de admin: quem não é admin vai para "/" e
+// não fica sabendo do caminho novo (a matriz de rotas confere isso).
 export default async function ContatosPage() {
   const profile = await getCurrentProfile()
   if (!profile) redirect('/login')
-  // O layout só exige sessão (Meu perfil é de todos): o guard de admin é daqui.
   if (profile.perfil !== 'admin') redirect('/')
-
-  const supabase = createClient()
-  const { data: contatos, error } = await supabase
-    .from('contatos_whatsapp')
-    .select('id, nome, canal, telegram_chat_id, telefone, obra_id, created_at, obra:obras(codigo_obra, nome)')
-    .order('created_at', { ascending: false })
-
-  if (error) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4 text-sm text-red-700">
-        Não foi possível carregar os contatos: {error.message}
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="max-w-5xl mx-auto">
-        <h1 className="text-xl font-semibold text-gray-900">Contatos do bot</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Funcionários e administradores que podem mandar propostas e contratos pelo Telegram.
-          Quem não está cadastrado recebe do bot um código; cadastre esse código aqui. A obra de
-          cada documento o sistema identifica lendo o próprio PDF.
-        </p>
-      </div>
-      <ContatosPanel contatos={(contatos ?? []) as ContatoListItem[]} />
-    </div>
-  )
+  redirect('/configuracoes/bot')
 }

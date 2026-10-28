@@ -652,6 +652,43 @@ lista de 7 workflows. Onde uma fase abaixo contradisser uma delas, vale a decis�
       a proposta entra como comum.
     - Na tela, a proposta mostra "Aditivo do contrato", com "alterar" para admin e comercial, e
       o contrato lista os aditivos.
+33. **Um grupo da equipe, não um grupo por obra** (decidida pelos agentes, 27/10).
+    - Grupo liberado não tem obra: a obra continua saindo do PDF (decisão 27), e a pergunta da
+      obra pelo bot (decisão 31) continua valendo quando o PDF não deixa claro.
+    - **Motivo:** um grupo por obra obrigaria a manter grupos sincronizados com as obras e criaria
+      uma segunda fonte de obra que pode contradizer o PDF.
+    - **Sem custo de mudar depois:** `bot_grupos` aceita vários grupos por empresa.
+34. **Liberar por pessoa, não o grupo todo** (27/10). O documento só é aceito se o grupo está
+    liberado **e** a pessoa está liberada.
+    - **Motivo:** quem controla os membros do grupo é quem o administra, não o admin do
+      gc-sistema. Liberar o grupo inteiro deixaria qualquer pessoa adicionada mandar PDF que vira
+      proposta ou contrato. A checagem do grupo fica para ninguém usar o bot num grupo qualquer.
+35. **Bot fora da administração do grupo, privacy ligado, envio chamando o bot** (27/10). No grupo
+    o PDF só conta com legenda `/enviar` (de preferência `/enviar@<bot>`), menção ao bot ou em
+    resposta a uma mensagem do bot. O resto do grupo é ignorado sem consultar o banco.
+    - **Motivo:** o limite de execuções do n8n já parou a automação mais de uma vez (decisão 22).
+      Com o privacy ligado a conversa do grupo não vira execução, e exigir a chamada protege
+      também se o bot virar admin.
+    - **A Fase 0 (o que o Telegram entrega em cada um dos três jeitos) é pendência do Breno.**
+      Se só a resposta a mensagem do bot chegar, muda a instrução às pessoas, não o código.
+36. **Quem é liberado vale no grupo e na conversa privada** (27/10).
+    - **Motivo:** na conversa privada `chat.id` é o id da pessoa, então o
+      `contatos_whatsapp.telegram_chat_id` que já existe é o id da pessoa. Uma permissão, um
+      lugar para revogar, e quem já era cadastrado vale no grupo sem migrar dado.
+37. **Técnica: a triagem roda no gc-sistema, não no n8n** (27/10). `triarMensagemTelegram` (pura,
+    testada) roda em `POST /api/ingestao/triagem-telegram`; o nó `Triar mensagem` do n8n vira
+    adaptador de poucas linhas.
+    - **Motivo:** padrão da decisão 26: a regra tem uma cópia só, coberta pelos testes e pelo
+      plano de validação, e o n8n já depende do deploy para gravar.
+38. **Técnica: o workflow do n8n não é alterado antes do deploy** (27/10). O workflow novo fica
+    num arquivo (`scripts/automacao/n8n-processar-documento-grupo.json`), validado com
+    `validate_workflow`, e o Breno o publica depois do deploy.
+    - **Motivo:** `thlKSZcBPX84Y51N` é o de produção. O nó novo chama uma rota que só existe
+      depois do deploy; publicar antes derruba o bot inteiro, inclusive a conversa privada, com
+      404. Salvar rascunho de workflow ativo também pode republicá-lo.
+    - **Ordem:** deploy, variável `TELEGRAM_BOT_USERNAME` na Vercel, publicar o arquivo, teste
+      da Fase 0. O código novo é compatível com o n8n de hoje, então o deploy pode ir antes.
+    - **Voltar atrás:** versão ativa antes da mudança `3598b2b4-a6fd-47d0-bdf7-eabb909cb686`.
 
 ---
 

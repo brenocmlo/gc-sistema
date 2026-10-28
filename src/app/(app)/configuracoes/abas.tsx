@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 
 const ABAS = [
   { href: '/configuracoes', label: 'Empresa', soAdmin: true },
-  { href: '/configuracoes/contatos', label: 'Contatos do bot', soAdmin: true },
+  { href: '/configuracoes/bot', label: 'Bot', soAdmin: true },
   { href: '/configuracoes/usuarios', label: 'Usuários', soAdmin: true },
   { href: '/configuracoes/perfil', label: 'Meu perfil', soAdmin: false },
 ] as const
@@ -16,7 +16,7 @@ export default function ConfiguracoesAbas({ admin }: { admin: boolean }) {
   return (
     <nav className="max-w-5xl mx-auto flex gap-4 border-b border-gray-200 text-sm overflow-x-auto" aria-label="Seções de configurações">
       {abas.map((aba) => {
-        const ativa = pathname === aba.href
+        const ativa = aba.href === '/configuracoes' ? pathname === aba.href : pathname.startsWith(aba.href)
         return (
           <Link
             key={aba.href}

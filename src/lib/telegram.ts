@@ -63,8 +63,17 @@ export function deveAlertar(
 
 export type ResultadoEnvio = { ok: true } | { ok: false; error: string; semConfiguracao?: boolean }
 
+/** Corpo do sendMessage. Com responderA, responde em citação e não falha se a mensagem sumiu. */
+export function corpoDoEnvio(chatId: string, texto: string, responderA?: number | null): Record<string, unknown> {
+  const corpo: Record<string, unknown> = { chat_id: chatId, text: texto.slice(0, 4000) }
+  if (typeof responderA === 'number' && Number.isFinite(responderA) && responderA > 0) {
+    corpo.reply_parameters = { message_id: responderA, allow_sending_without_reply: true }
+  }
+  return corpo
+}
+
 /** Manda uma mensagem pelo bot. Nunca lança: quem chama decide se a falha vira aviso. */
-export async function enviarTelegram(chatId: string, texto: string): Promise<ResultadoEnvio> {
+export async function enviarTelegram(chatId: string, texto: string, responderA?: number | null): Promise<ResultadoEnvio> {
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!token) return { ok: false, error: 'TELEGRAM_BOT_TOKEN não configurado', semConfiguracao: true }
   if (!chatIdValido(chatId)) return { ok: false, error: 'chat do Telegram inválido' }
@@ -72,7 +81,7 @@ export async function enviarTelegram(chatId: string, texto: string): Promise<Res
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: texto.slice(0, 4000) }),
+      body: JSON.stringify(corpoDoEnvio(chatId, texto, responderA)),
       signal: AbortSignal.timeout(5000),
     })
     if (res.ok) return { ok: true }

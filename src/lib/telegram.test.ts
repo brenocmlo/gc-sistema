@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { descreverErro } from './automacao.ts'
-import { alertaDeAutomacaoParada, avisoDeResolucao, chatIdValido, deveAlertar } from './telegram.ts'
+import { alertaDeAutomacaoParada, avisoDeResolucao, chatIdValido, corpoDoEnvio, deveAlertar } from './telegram.ts'
 
 test('chatIdValido aceita usuário e grupo, recusa o chat fictício dos testes', () => {
   assert.equal(chatIdValido('884349214'), true)
@@ -38,4 +38,18 @@ test('deveAlertar: um alerta por causa a cada 6 h', () => {
   assert.equal(deveAlertar([{ detalhe: 'N8N_LIMITE_EXECUCOES', criado_em: ha7h }], 'N8N_LIMITE_EXECUCOES', agora), true)
   // Outra causa avisa mesmo com alerta recente da primeira.
   assert.equal(deveAlertar([{ detalhe: 'N8N_LIMITE_EXECUCOES', criado_em: ha2h }], 'TOKEN_INVALIDO', agora), true)
+})
+
+test('corpoDoEnvio sem responderA não cita', () => {
+  assert.deepEqual(corpoDoEnvio('123456', 'oi'), { chat_id: '123456', text: 'oi' })
+  assert.deepEqual(corpoDoEnvio('123456', 'oi', null), { chat_id: '123456', text: 'oi' })
+})
+
+test('corpoDoEnvio com responderA cita sem falhar se a mensagem sumiu', () => {
+  assert.deepEqual(corpoDoEnvio('-1001234567', 'oi', 42), {
+    chat_id: '-1001234567',
+    text: 'oi',
+    reply_parameters: { message_id: 42, allow_sending_without_reply: true },
+  })
+  assert.equal(String(corpoDoEnvio('1', 'x'.repeat(5000)).text).length, 4000)
 })

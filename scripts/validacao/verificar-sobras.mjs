@@ -50,6 +50,12 @@ const TABELAS = [
   { tabela: 'acordos_pagamento', coluna: 'descricao' },
   // FD da planilha falsa da importação (14.2): a marca vai na observação.
   { tabela: 'fd', coluna: 'observacao' },
+  // Envio pelo grupo do Telegram: pedido aponta para grupo (sai antes); o
+  // contato criado pelo Permitir leva o nome do pedido (VALIDA-BOT-*), e o
+  // contato aponta para obra (sai antes das obras).
+  { tabela: 'bot_pedidos_acesso', coluna: 'nome' },
+  { tabela: 'bot_grupos', coluna: 'nome' },
+  { tabela: 'contatos_whatsapp', coluna: 'nome' },
   { tabela: 'obras', coluna: 'codigo_obra' },
   // Importação da planilha (14.2): obra sem código entra como LEGADO-<nome>, e
   // o nome da planilha falsa é que leva a marca; o cliente dela também.

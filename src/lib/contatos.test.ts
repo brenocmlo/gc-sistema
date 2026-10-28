@@ -53,7 +53,7 @@ test('formValuesToPayload: sempre Telegram, nome vazio vira null, telefone null'
 })
 
 test('ida e volta do formulário', () => {
-  const item = { id: '1', nome: 'Lúcio', canal: 'TELEGRAM', telegram_chat_id: '884349214', telefone: null, obra_id: 'o', created_at: null, obra: null }
+  const item = { id: '1', nome: 'Lúcio', canal: 'TELEGRAM', telegram_chat_id: '884349214', telefone: null, obra_id: 'o', ativo: true, created_at: null, obra: null }
   assert.deepEqual(contatoToFormValues(item), { nome: 'Lúcio', telegram_chat_id: '884349214' })
   assert.deepEqual(emptyContatoFormValues(), { nome: '', telegram_chat_id: '' })
 })

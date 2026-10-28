@@ -59,6 +59,8 @@ export const ENTIDADE_LABELS: Record<string, string> = {
   fd: 'Faturamento direto',
   documentos_processamento: 'Documento da automação',
   contatos_whatsapp: 'Contato da automação',
+  bot_grupos: 'Grupo do bot',
+  bot_pedidos_acesso: 'Pedido de acesso ao bot',
   profiles: 'Usuário',
 }
 

@@ -13,6 +13,7 @@
 /api/ingestao/contrato
 /api/ingestao/proposta
 /api/ingestao/resposta-obra
+/api/ingestao/triagem-telegram
 /api/relatorio/fd-conciliacao/[obraId]
 /api/relatorio/medicao/[obraId]
 /api/template/itens
@@ -20,6 +21,9 @@
 /clientes/[id]/editar
 /clientes/novo
 /configuracoes
+/configuracoes/bot
+/configuracoes/bot/grupos
+/configuracoes/bot/pedidos
 /configuracoes/contatos
 /configuracoes/perfil
 /configuracoes/usuarios

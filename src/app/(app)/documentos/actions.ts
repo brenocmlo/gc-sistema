@@ -435,7 +435,7 @@ async function avisarQuemEnviou(
 ): Promise<string | undefined> {
   const { data: d } = await supabase
     .from('documentos_processamento')
-    .select('canal, canal_chat_id, tipo_documento, dados_extraidos')
+    .select('canal, canal_chat_id, canal_mensagem_id, tipo_documento, dados_extraidos')
     .eq('id', documentoId)
     .maybeSingle()
   if (!d || d.canal !== 'TELEGRAM' || !chatIdValido(d.canal_chat_id)) return undefined
@@ -443,7 +443,7 @@ async function avisarQuemEnviou(
     { tipo: d.tipo_documento === 'CONTRATO' ? 'contrato' : 'proposta', numero: resumoDoDocumento(d.dados_extraidos).numero },
     resolucao,
   )
-  const envio = await enviarTelegram(d.canal_chat_id, texto)
+  const envio = await enviarTelegram(d.canal_chat_id, texto, d.canal_mensagem_id)
   if (envio.ok || envio.semConfiguracao) return undefined
   return `o aviso a quem enviou pelo Telegram não saiu (${envio.error})`
 }

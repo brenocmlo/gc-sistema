@@ -354,6 +354,95 @@ export type Database = {
           },
         ]
       }
+      bot_grupos: {
+        Row: {
+          created_at: string
+          empresa_id: string
+          id: string
+          nome: string | null
+          status: string
+          telegram_chat_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          empresa_id: string
+          id?: string
+          nome?: string | null
+          status?: string
+          telegram_chat_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          empresa_id?: string
+          id?: string
+          nome?: string | null
+          status?: string
+          telegram_chat_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bot_grupos_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bot_pedidos_acesso: {
+        Row: {
+          created_at: string
+          empresa_id: string
+          grupo_id: string | null
+          id: string
+          nome: string
+          status: string
+          telegram_user_id: string
+          telegram_username: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          empresa_id: string
+          grupo_id?: string | null
+          id?: string
+          nome: string
+          status?: string
+          telegram_user_id: string
+          telegram_username?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          empresa_id?: string
+          grupo_id?: string | null
+          id?: string
+          nome?: string
+          status?: string
+          telegram_user_id?: string
+          telegram_username?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bot_pedidos_acesso_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bot_pedidos_acesso_grupo_fk"
+            columns: ["grupo_id", "empresa_id"]
+            isOneToOne: false
+            referencedRelation: "bot_grupos"
+            referencedColumns: ["id", "empresa_id"]
+          },
+        ]
+      }
       clientes: {
         Row: {
           cep: string | null
@@ -422,6 +511,7 @@ export type Database = {
       }
       contatos_whatsapp: {
         Row: {
+          ativo: boolean
           canal: string
           created_at: string | null
           created_by: string | null
@@ -435,6 +525,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          ativo?: boolean
           canal?: string
           created_at?: string | null
           created_by?: string | null
@@ -448,6 +539,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          ativo?: boolean
           canal?: string
           created_at?: string | null
           created_by?: string | null
@@ -651,6 +743,8 @@ export type Database = {
           arquivo_url: string
           canal: string | null
           canal_chat_id: string | null
+          canal_mensagem_id: number | null
+          canal_remetente_id: string | null
           conferencia: string | null
           contrato_criado_id: string | null
           created_at: string | null
@@ -676,6 +770,8 @@ export type Database = {
           arquivo_url: string
           canal?: string | null
           canal_chat_id?: string | null
+          canal_mensagem_id?: number | null
+          canal_remetente_id?: string | null
           conferencia?: string | null
           contrato_criado_id?: string | null
           created_at?: string | null
@@ -701,6 +797,8 @@ export type Database = {
           arquivo_url?: string
           canal?: string | null
           canal_chat_id?: string | null
+          canal_mensagem_id?: number | null
+          canal_remetente_id?: string | null
           conferencia?: string | null
           contrato_criado_id?: string | null
           created_at?: string | null

@@ -128,10 +128,15 @@ const NECESSARIAS = [
   'registrarEvidencia',
   'excluirEvidencia',
   'urlsDasEvidencias',
-  // Automação, Fase 7: contatos do bot em /configuracoes/contatos
+  // Automação, Fase 7: contatos do bot em /configuracoes/bot (usuários permitidos, pedidos e grupos)
   'createContato',
   'updateContato',
   'deleteContato',
+  'definirContatoAtivo',
+  'permitirPedidoAcesso',
+  'recusarPedidoAcesso',
+  'liberarGrupoBot',
+  'bloquearGrupoBot',
   // Automação, Fase 7: envio de documento pela tela (/documentos)
   'registrarEnvioDocumento',
   // Automação: revisão pela tela (/documentos/[id])
@@ -261,8 +266,12 @@ const comprovantesDeTeste = []
 /** Fase 7 da automação: PDF de teste no bucket e documento do envio pela tela — apagados no finally. */
 let envioTesteCaminho = null
 let envioTesteDocId = null
-/** Fase 7 da automação: contato de teste criado em /configuracoes/contatos — apagado no finally. */
+/** Fase 7 da automação: contato de teste criado em /configuracoes/bot — apagado no finally. */
 let contatoTesteId = null
+/** Envio pelo grupo: grupos, pedidos e códigos de contato criados pelas fixtures de Configurações → Bot — apagados no finally. */
+const botGruposTeste = []
+const botPedidosTeste = []
+const botContatosCodigos = []
 /** Fase 6 da automação: proposta criada pela rota de ingestão e os documentos de teste — apagados no finally. */
 let propostaIngestaoId = null
 const documentosIngestao = []
@@ -2842,6 +2851,143 @@ try {
       checar('"0": fica em revisão, sem obra, pergunta fechada e o motivo diz que a obra não está cadastrada',
         nenhuma.json?.acao === 'nenhuma' && dNen?.status === 'REVISAO_HUMANA' && dNen?.obra_id === null && dNen?.opcoes_obra === null && /não está entre as cadastradas/.test(dNen?.motivo_revisao ?? ''),
         JSON.stringify({ nenhuma, dNen }))
+
+      // Envio pelo grupo (spec 5.2): no grupo, a pergunta da obra é de quem
+      // mandou o PDF; outra pessoa do grupo não responde por ela. Sem
+      // remetenteId (o n8n de hoje), a conversa privada segue como antes.
+      if (opcoesPerg.length > 0) {
+        const GRUPO_PERG = `-100${4_000_000_000 + (RUN % 900_000_000)}`
+        const REM_A = String(3_000_000_000 + (RUN % 900_000_000))
+        const REM_B = String(Number(REM_A) + 1)
+        const docGrupo = await novoDoc('REVISAO_HUMANA', {
+          canal_chat_id: GRUPO_PERG, canal_remetente_id: REM_A, canal_mensagem_id: 4242,
+          motivo_revisao: 'Obra não identificada', opcoes_obra: opcoesPerg,
+        })
+        const deB = await rota('/api/ingestao/resposta-obra', { empresaId: EMP, chatId: GRUPO_PERG, remetenteId: REM_B, texto: '1' })
+        checar('grupo: resposta de outra pessoa do grupo não enxerga a pergunta (sem_pergunta)', deB.json?.acao === 'sem_pergunta', JSON.stringify(deB))
+        const deA = await rota('/api/ingestao/resposta-obra', { empresaId: EMP, chatId: GRUPO_PERG, remetenteId: REM_A, texto: '1' })
+        checar('grupo: quem mandou o PDF responde, e o reprocesso leva remetente_id e mensagem_id',
+          deA.json?.acao === 'reprocessar' && deA.json?.entrada?.documento_id === docGrupo &&
+            deA.json?.entrada?.remetente_id === REM_A && Number(deA.json?.entrada?.mensagem_id) === 4242,
+          JSON.stringify(deA))
+        const CHAT_PRIV = String(Number(REM_A) + 2)
+        const docPriv = await novoDoc('REVISAO_HUMANA', { canal_chat_id: CHAT_PRIV, motivo_revisao: 'Obra não identificada', opcoes_obra: opcoesPerg })
+        const privObra = await rota('/api/ingestao/resposta-obra', { empresaId: EMP, chatId: CHAT_PRIV, texto: '1' })
+        checar('conversa privada sem remetenteId (o n8n de hoje) continua casando a pergunta',
+          privObra.json?.acao === 'reprocessar' && privObra.json?.entrada?.documento_id === docPriv && privObra.json?.entrada?.remetente_id === null,
+          JSON.stringify(privObra))
+      } else {
+        checar('resposta-obra no grupo: sem opções de obra para montar a pergunta (não exercitada)', false, 'opcoesPerg vazio')
+      }
+    }
+
+    // ============================================================
+    // Envio pelo grupo — POST /api/ingestao/triagem-telegram (spec 5.1 e 9).
+    // A rota não manda nada ao Telegram, só devolve os itens do n8n: por isso
+    // roda de verdade aqui. Tudo que ela grava leva VALIDA-BOT-<RUN> no nome
+    // e sai no finally (botGruposTeste, botPedidosTeste, botContatosCodigos).
+    // ============================================================
+    {
+      const T = '/api/ingestao/triagem-telegram'
+      // Mesma regra de botDoToken (src/lib/bot-acesso.ts): o id é o número antes do ':'.
+      const BOT_ID = /^(\d+):/.exec(process.env.TELEGRAM_BOT_TOKEN ?? '')?.[1] ?? null
+      const BOT_USER = { id: BOT_ID ? Number(BOT_ID) : 1, is_bot: true, first_name: 'Bot' }
+      const ADMIN_CHAT = process.env.TELEGRAM_ADMIN_CHAT_ID || '-5521155438'
+      const BASE_ID = 2_000_000_000 + (RUN % 900_000_000)
+      const PESSOA = { id: BASE_ID, is_bot: false, first_name: `VALIDA-BOT-${RUN}`, last_name: 'contato' }
+      const ESTRANHO = { id: BASE_ID + 1, is_bot: false, first_name: `VALIDA-BOT-${RUN}`, last_name: 'estranho', username: `valida_${RUN % 100000}` }
+      const GRUPO = { id: Number(`-100${BASE_ID}`), type: 'supergroup', title: `VALIDA-BOT-${RUN} grupo da triagem` }
+      const GRUPO_NOVO_ID = Number(`-100${BASE_ID + 5}`)
+      const PDF_T = { file_id: `valida-${RUN}`, file_name: 'Proposta VALIDA.pdf', mime_type: 'application/pdf', file_size: 1000 }
+      let seq = 0
+      const upd = (message) => {
+        seq += 1
+        return { update_id: (RUN % 1_000_000_000) + seq, message: { message_id: 100 + seq, date: 0, ...message } }
+      }
+      const grupoPorChat = async (chatId) =>
+        (await svc.from('bot_grupos').select('id, status').eq('telegram_chat_id', String(chatId))).data ?? []
+      const privado = (u) => ({ id: u.id, type: 'private', first_name: u.first_name })
+
+      botContatosCodigos.push(String(PESSOA.id), String(ESTRANHO.id))
+      const { error: eCt } = await supabase.from('contatos_whatsapp').insert({
+        empresa_id: EMP, canal: 'TELEGRAM', telegram_chat_id: String(PESSOA.id), telefone: null,
+        nome: `VALIDA-BOT-${RUN} triagem`, created_by: eu.id,
+      })
+      checar('triagem: contato de fixture criado', !eCt, eCt?.message)
+
+      const semToken = await rota(T, upd({ from: ESTRANHO, chat: privado(ESTRANHO), text: 'oi' }), null)
+      checar('triagem sem token → 401', semToken.status === 401, JSON.stringify(semToken))
+
+      const priv = await rota(T, upd({ from: ESTRANHO, chat: privado(ESTRANHO), text: 'oi' }))
+      const itPriv = priv.json?.itens ?? []
+      checar('conversa privada de desconhecido → 2 itens (CLIENTE com o código, ADMIN)',
+        priv.status === 200 && itPriv.length === 2 && itPriv[0].destino === 'CLIENTE' && itPriv[0].texto.includes(String(ESTRANHO.id)) && itPriv[1].destino === 'ADMIN',
+        JSON.stringify(priv))
+
+      const solto = await rota(T, upd({ from: PESSOA, chat: GRUPO, document: PDF_T, caption: 'segue a proposta' }))
+      checar('PDF sem chamar o bot no grupo → sem_chamada, 0 itens', solto.json?.motivo === 'sem_chamada' && (solto.json?.itens ?? []).length === 0, JSON.stringify(solto))
+
+      const adm = await rota(T, upd({ from: PESSOA, chat: { id: Number(ADMIN_CHAT), type: 'group', title: 'admin' }, document: PDF_T, caption: '/enviar' }))
+      checar('grupo de admin → grupo_admin', adm.json?.motivo === 'grupo_admin' && (adm.json?.itens ?? []).length === 0, JSON.stringify(adm))
+
+      const reg = await rota(T, upd({ from: PESSOA, chat: GRUPO, document: PDF_T, caption: '/enviar' }))
+      const gruposReg = await grupoPorChat(GRUPO.id)
+      for (const g of gruposReg) botGruposTeste.push(g.id)
+      checar('contato chama o bot num grupo novo → grupo PENDENTE criado e 2 itens',
+        reg.json?.acao === 'registrar_grupo' && (reg.json?.itens ?? []).length === 2 && gruposReg.length === 1 && gruposReg[0].status === 'PENDENTE',
+        JSON.stringify({ reg, gruposReg }))
+      const reg2 = await rota(T, upd({ from: PESSOA, chat: GRUPO, document: PDF_T, caption: '/enviar' }))
+      const it2 = reg2.json?.itens ?? []
+      checar('segunda chamada no grupo pendente → 1 item GRUPO_PENDENTE, nenhum grupo duplicado',
+        reg2.json?.acao === 'responder' && it2.length === 1 && /aguarda a liberação/.test(it2[0]?.texto ?? '') && (await grupoPorChat(GRUPO.id)).length === 1,
+        JSON.stringify(reg2))
+
+      if (gruposReg.length === 1) {
+        await svc.from('bot_grupos').update({ status: 'LIBERADO' }).eq('id', gruposReg[0].id)
+        const envio = upd({ from: PESSOA, chat: GRUPO, document: PDF_T, caption: '/enviar' })
+        const proc = await rota(T, envio)
+        const p0 = (proc.json?.itens ?? [])[0]
+        checar('grupo liberado, PDF do contato → processar com chat_id do grupo, remetente_id e mensagem_id',
+          proc.json?.acao === 'processar' && p0?.chat_id === String(GRUPO.id) && p0?.remetente_id === String(PESSOA.id) && p0?.mensagem_id === envio.message.message_id,
+          JSON.stringify(proc))
+
+        const resp = await rota(T, upd({ from: PESSOA, chat: GRUPO, text: '1', reply_to_message: { message_id: 1, from: BOT_USER } }))
+        const r0 = (resp.json?.itens ?? [])[0]
+        checar('grupo liberado, texto em resposta ao bot → item resposta com remetente_id',
+          resp.json?.acao === 'resposta_obra' && r0?.acao === 'resposta' && r0?.remetente_id === String(PESSOA.id), JSON.stringify(resp))
+
+        const ped = await rota(T, upd({ from: ESTRANHO, chat: GRUPO, document: PDF_T, caption: '/enviar' }))
+        const { data: pedidos } = await svc.from('bot_pedidos_acesso').select('id, status, grupo_id').eq('empresa_id', EMP).eq('telegram_user_id', String(ESTRANHO.id))
+        for (const p of pedidos ?? []) botPedidosTeste.push(p.id)
+        checar('desconhecido manda PDF no grupo liberado → pedido PENDENTE criado e 2 itens',
+          ped.json?.acao === 'pedir_acesso' && (ped.json?.itens ?? []).length === 2 && pedidos?.length === 1 && pedidos[0].status === 'PENDENTE' && pedidos[0].grupo_id === gruposReg[0].id,
+          JSON.stringify({ ped, pedidos }))
+        const ped2 = await rota(T, upd({ from: ESTRANHO, chat: GRUPO, document: PDF_T, caption: '/enviar' }))
+        checar('desconhecido de novo → pedido_pendente, 0 itens', ped2.json?.motivo === 'pedido_pendente' && (ped2.json?.itens ?? []).length === 0, JSON.stringify(ped2))
+
+        const anon = await rota(T, upd({ from: { id: 1087968824, is_bot: true, first_name: 'Group' }, sender_chat: { id: GRUPO.id, type: 'supergroup' }, chat: GRUPO, document: PDF_T, caption: '/enviar' }))
+        const a0 = (anon.json?.itens ?? [])[0]
+        checar('anônimo no grupo liberado → 1 item ANONIMO', anon.json?.acao === 'responder' && (anon.json?.itens ?? []).length === 1 && /anônima/.test(a0?.texto ?? ''), JSON.stringify(anon))
+
+        if (BOT_ID) {
+          const entrou = await rota(T, upd({ from: PESSOA, chat: GRUPO, new_chat_members: [BOT_USER] }))
+          checar('bot adicionado de novo a grupo já registrado → grupo_conhecido', entrou.json?.motivo === 'grupo_conhecido', JSON.stringify(entrou))
+        }
+
+        await svc.from('contatos_whatsapp').update({ ativo: false }).eq('canal', 'TELEGRAM').eq('telegram_chat_id', String(PESSOA.id))
+        const inativo = await rota(T, upd({ from: PESSOA, chat: GRUPO, document: PDF_T, caption: '/enviar' }))
+        checar('contato desativado no grupo → contato_inativo, 0 itens', inativo.json?.motivo === 'contato_inativo' && (inativo.json?.itens ?? []).length === 0, JSON.stringify(inativo))
+        const inativoPriv = await rota(T, upd({ from: PESSOA, chat: privado(PESSOA), document: PDF_T }))
+        checar('contato desativado na conversa privada → 1 item avisando que o envio está desativado',
+          inativoPriv.json?.acao === 'responder' && (inativoPriv.json?.itens ?? []).length === 1 && /desativado/.test(inativoPriv.json?.itens?.[0]?.texto ?? ''),
+          JSON.stringify(inativoPriv))
+
+        const mig = await rota(T, upd({ from: PESSOA, chat: { ...GRUPO, type: 'group' }, migrate_to_chat_id: GRUPO_NOVO_ID }))
+        const migrado = await grupoPorChat(GRUPO_NOVO_ID)
+        checar('migrate_to_chat_id → bot_grupos.telegram_chat_id atualizado',
+          mig.json?.acao === 'migrar_grupo' && migrado.length === 1 && migrado[0].id === gruposReg[0].id && (await grupoPorChat(GRUPO.id)).length === 0,
+          JSON.stringify({ mig, migrado }))
+      }
     }
 
     // Opção 1.a: proposta aditivo de contrato — pela rota (o bot) e à mão.
@@ -3003,10 +3149,10 @@ try {
   }
 
   // ============================================================
-  // Fase 7 da automação — contatos do bot (/configuracoes/contatos)
+  // Fase 7 da automação — contatos do bot (/configuracoes/bot)
   // ============================================================
   {
-    const ROTA_CT = '/configuracoes/contatos'
+    const ROTA_CT = '/configuracoes/bot'
     // Código fictício e único por rodada: o índice de chat_id é global.
     const CODIGO = String(9_000_000_000 + (Date.now() % 1_000_000_000))
 
@@ -3045,6 +3191,112 @@ try {
       checar('deleteContato exclui o contato', excluido.ok === true, excluido.error)
       if (excluido.ok) contatoTesteId = null
     }
+
+  // ============================================================
+  // Envio pelo grupo do Telegram — telas de Configurações → Bot:
+  // desativar/reativar contato, pedidos de acesso e grupos
+  // ============================================================
+  {
+    const ROTA_BOT = '/configuracoes/bot'
+    const RUN_BOT = Date.now()
+    const sessaoComBot = await sessaoDePerfil('comercial')
+    const cookieComBot = cookieDeSessao(sessaoComBot.session)
+    const { data: perfilBot } = await supabase.from('profiles').select('empresa_id').eq('id', admin.userId).maybeSingle()
+    const empresaBot = perfilBot?.empresa_id
+
+    // 1. definirContatoAtivo
+    const codigoAtivo = String(8_000_000_000 + (RUN_BOT % 900_000_000))
+    botContatosCodigos.push(codigoAtivo)
+    const ctAtivo = await chamar('createContato', [{ nome: `VALIDA-BOT-${RUN_BOT} ativo`, telegram_chat_id: codigoAtivo }], { rota: ROTA_BOT })
+    checar('definirContatoAtivo: contato de fixture criado', ctAtivo.ok === true, ctAtivo.error)
+    if (ctAtivo.ok) {
+      const lerAtivo = async () => (await supabase.from('contatos_whatsapp').select('ativo').eq('id', ctAtivo.id).single()).data?.ativo
+      checar('contato novo nasce ativo', (await lerAtivo()) === true)
+      const desativa = await chamar('definirContatoAtivo', [ctAtivo.id, false], { rota: ROTA_BOT })
+      checar('definirContatoAtivo(false) desativa o contato', desativa.ok === true && (await lerAtivo()) === false, JSON.stringify(desativa))
+      const comercialAtivo = await chamar('definirContatoAtivo', [ctAtivo.id, true], { rota: ROTA_BOT, cookie: cookieComBot })
+      checar('comercial não reativa contato (a action repete a regra de admin)', comercialAtivo.ok === false && (await lerAtivo()) === false, JSON.stringify(comercialAtivo))
+      const reativa = await chamar('definirContatoAtivo', [ctAtivo.id, true], { rota: ROTA_BOT })
+      checar('definirContatoAtivo(true) reativa o contato', reativa.ok === true && (await lerAtivo()) === true, JSON.stringify(reativa))
+      const inexistente = await chamar('definirContatoAtivo', ['00000000-0000-0000-0000-000000000000', false], { rota: ROTA_BOT })
+      checar('definirContatoAtivo de id inexistente devolve "não encontrado"', inexistente.ok === false && /não encontrado/i.test(inexistente.error ?? ''), JSON.stringify(inexistente))
+    }
+
+    // 2. Pedidos de acesso (grupo e pedidos criados pela chave de serviço: a rota de triagem é quem grava)
+    const { data: grupoPed } = await svc.from('bot_grupos')
+      .insert({ empresa_id: empresaBot, telegram_chat_id: `-100${7_000_000_000 + (RUN_BOT % 900_000_000)}`, nome: `VALIDA-BOT-${RUN_BOT} grupo pedidos`, status: 'LIBERADO' })
+      .select('id').single()
+    if (grupoPed) botGruposTeste.push(grupoPed.id)
+    const novoPedido = async (sufixo) => {
+      const uid = String(6_000_000_000 + ((RUN_BOT + sufixo) % 900_000_000))
+      const { data } = await svc.from('bot_pedidos_acesso')
+        .insert({ empresa_id: empresaBot, telegram_user_id: uid, nome: `VALIDA-BOT-${RUN_BOT} pedido ${sufixo}`, telegram_username: `valida_${sufixo}`, grupo_id: grupoPed?.id ?? null })
+        .select('id, telegram_user_id').single()
+      if (data) { botPedidosTeste.push(data.id); botContatosCodigos.push(data.telegram_user_id) }
+      return data
+    }
+    const pedRecusa = await novoPedido(1)
+    const pedPermite = await novoPedido(2)
+    checar('fixtures de pedido de acesso criadas', !!grupoPed && !!pedRecusa && !!pedPermite)
+    const statusPedido = async (id) => (await svc.from('bot_pedidos_acesso').select('status').eq('id', id).single()).data?.status
+
+    if (pedRecusa && pedPermite) {
+      const recusaCom = await chamar('recusarPedidoAcesso', [pedRecusa.id], { rota: ROTA_BOT, cookie: cookieComBot })
+      checar('comercial não recusa pedido de acesso', recusaCom.ok === false && (await statusPedido(pedRecusa.id)) === 'PENDENTE', JSON.stringify(recusaCom))
+      const permiteCom = await chamar('permitirPedidoAcesso', [pedPermite.id], { rota: ROTA_BOT, cookie: cookieComBot })
+      const { count: ctIndevido } = await svc.from('contatos_whatsapp').select('id', { count: 'exact', head: true }).eq('telegram_chat_id', pedPermite.telegram_user_id)
+      checar('comercial não permite pedido de acesso (nenhum contato criado)', permiteCom.ok === false && ctIndevido === 0, JSON.stringify(permiteCom))
+
+      const recusa = await chamar('recusarPedidoAcesso', [pedRecusa.id], { rota: ROTA_BOT })
+      checar('recusarPedidoAcesso deixa o pedido RECUSADO', recusa.ok === true && (await statusPedido(pedRecusa.id)) === 'RECUSADO', JSON.stringify(recusa))
+      const recusaDeNovo = await chamar('recusarPedidoAcesso', [pedRecusa.id], { rota: ROTA_BOT })
+      checar('recusar pedido já recusado devolve "não encontrado"', recusaDeNovo.ok === false, JSON.stringify(recusaDeNovo))
+
+      const permite = await chamar('permitirPedidoAcesso', [pedPermite.id], { rota: ROTA_BOT })
+      const { data: ctNovo } = await svc.from('contatos_whatsapp').select('id, canal, telegram_chat_id, ativo, nome, created_by').eq('telegram_chat_id', pedPermite.telegram_user_id).maybeSingle()
+      checar('permitirPedidoAcesso cria contato Telegram ativo com o código do pedido e devolve o id dele',
+        permite.ok === true && ctNovo?.id === permite.id && ctNovo?.canal === 'TELEGRAM' && ctNovo?.ativo === true && ctNovo?.created_by === admin.userId && /valida_2/.test(ctNovo?.nome ?? ''),
+        JSON.stringify({ permite, ctNovo }))
+      checar('permitirPedidoAcesso deixa o pedido APROVADO', (await statusPedido(pedPermite.id)) === 'APROVADO')
+      const { data: evPed } = await svc.from('auditoria_eventos').select('entidade, acao, autor_id, origem')
+        .gte('em', INICIO_AUDITORIA).eq('entidade', 'bot_pedidos_acesso').eq('acao', 'status').eq('autor_id', admin.userId)
+      checar('permitir grava evento bot_pedidos_acesso/status em auditoria_eventos com o admin como autor', (evPed ?? []).some((e) => e.origem === 'sistema'), JSON.stringify(evPed ?? null))
+
+      // Permitir um pedido RECUSADO de pessoa cujo contato já existe (desativado) reativa o contato.
+      await svc.from('contatos_whatsapp').update({ ativo: false }).eq('id', permite.id)
+      await svc.from('bot_pedidos_acesso').update({ status: 'RECUSADO' }).eq('id', pedPermite.id)
+      const repermite = await chamar('permitirPedidoAcesso', [pedPermite.id], { rota: ROTA_BOT })
+      const { data: ctReativo } = await svc.from('contatos_whatsapp').select('ativo').eq('id', permite.id).single()
+      checar('permitir pedido RECUSADO com contato já existente reativa o contato', repermite.ok === true && ctReativo?.ativo === true, JSON.stringify({ repermite, ctReativo }))
+      const aprovadoDeNovo = await chamar('permitirPedidoAcesso', [pedPermite.id], { rota: ROTA_BOT })
+      checar('permitir pedido já APROVADO devolve "não encontrado"', aprovadoDeNovo.ok === false, JSON.stringify(aprovadoDeNovo))
+    }
+
+    // 3. Grupos
+    const { data: grupoTr } = await svc.from('bot_grupos')
+      .insert({ empresa_id: empresaBot, telegram_chat_id: `-100${5_000_000_000 + (RUN_BOT % 900_000_000)}`, nome: `VALIDA-BOT-${RUN_BOT} grupo`, status: 'PENDENTE' })
+      .select('id').single()
+    if (grupoTr) botGruposTeste.push(grupoTr.id)
+    checar('fixture de grupo PENDENTE criada', !!grupoTr)
+    if (grupoTr) {
+      const statusGrupo = async () => (await svc.from('bot_grupos').select('status').eq('id', grupoTr.id).single()).data?.status
+      const libCom = await chamar('liberarGrupoBot', [grupoTr.id], { rota: `${ROTA_BOT}/grupos`, cookie: cookieComBot })
+      checar('comercial não libera grupo', libCom.ok === false && (await statusGrupo()) === 'PENDENTE', JSON.stringify(libCom))
+      const libera = await chamar('liberarGrupoBot', [grupoTr.id], { rota: `${ROTA_BOT}/grupos` })
+      checar('liberarGrupoBot: PENDENTE → LIBERADO', libera.ok === true && (await statusGrupo()) === 'LIBERADO', JSON.stringify(libera))
+      const liberaInvalido = await chamar('liberarGrupoBot', [grupoTr.id], { rota: `${ROTA_BOT}/grupos` })
+      checar('liberar grupo já LIBERADO é transição inválida (ok: false)', liberaInvalido.ok === false, JSON.stringify(liberaInvalido))
+      const bloqCom = await chamar('bloquearGrupoBot', [grupoTr.id], { rota: `${ROTA_BOT}/grupos`, cookie: cookieComBot })
+      checar('comercial não bloqueia grupo', bloqCom.ok === false && (await statusGrupo()) === 'LIBERADO', JSON.stringify(bloqCom))
+      const bloqueia = await chamar('bloquearGrupoBot', [grupoTr.id], { rota: `${ROTA_BOT}/grupos` })
+      checar('bloquearGrupoBot: LIBERADO → BLOQUEADO', bloqueia.ok === true && (await statusGrupo()) === 'BLOQUEADO', JSON.stringify(bloqueia))
+      const bloqueiaInvalido = await chamar('bloquearGrupoBot', [grupoTr.id], { rota: `${ROTA_BOT}/grupos` })
+      checar('bloquear grupo já BLOQUEADO é transição inválida (ok: false)', bloqueiaInvalido.ok === false, JSON.stringify(bloqueiaInvalido))
+      const reLibera = await chamar('liberarGrupoBot', [grupoTr.id], { rota: `${ROTA_BOT}/grupos` })
+      checar('liberarGrupoBot: BLOQUEADO → LIBERADO', reLibera.ok === true && (await statusGrupo()) === 'LIBERADO', JSON.stringify(reLibera))
+    }
+  }
+
   }
 
   // ============================================================
@@ -4439,6 +4691,18 @@ try {
   if (contatoTesteId) {
     const { error: ec } = await supabase.from('contatos_whatsapp').delete().eq('id', contatoTesteId)
     checar('contato de teste da Fase 7 apagado na limpeza', !ec, ec?.message)
+  }
+  if (botPedidosTeste.length > 0) {
+    const { error: ep } = await svc.from('bot_pedidos_acesso').delete().in('id', botPedidosTeste)
+    checar(`pedidos de acesso de teste apagados (${botPedidosTeste.length})`, !ep, ep?.message)
+  }
+  if (botGruposTeste.length > 0) {
+    const { error: eg } = await svc.from('bot_grupos').delete().in('id', botGruposTeste)
+    checar(`grupos de teste do bot apagados (${botGruposTeste.length})`, !eg, eg?.message)
+  }
+  if (botContatosCodigos.length > 0) {
+    const { error: ek } = await svc.from('contatos_whatsapp').delete().in('telegram_chat_id', botContatosCodigos)
+    checar(`contatos de teste do bot apagados (${botContatosCodigos.length} códigos)`, !ek, ek?.message)
   }
   // Fase 6: a proposta da ingestão sai com os itens pelo mesmo caminho da tela;
   // os documentos de teste saem depois (a FK de proposta_criada_id é set null).

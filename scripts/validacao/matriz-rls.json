@@ -279,6 +279,28 @@
       "insert": [],
       "update": [],
       "delete": []
+    },
+    "bot_grupos": {
+      "select": [
+        "admin"
+      ],
+      "insert": [],
+      "update": [
+        "admin"
+      ],
+      "delete": [],
+      "_nota": "escrita só pela rota de triagem (chave de serviço); o admin lê e muda o status (migration 20261027100000)"
+    },
+    "bot_pedidos_acesso": {
+      "select": [
+        "admin"
+      ],
+      "insert": [],
+      "update": [
+        "admin"
+      ],
+      "delete": [],
+      "_nota": "escrita só pela rota de triagem (chave de serviço); o admin lê e muda o status (migration 20261027100000)"
     }
   },
   "buckets": {
@@ -369,7 +391,8 @@
       "/sair",
       "/api/ingestao/contrato",
       "/api/ingestao/proposta",
-      "/api/ingestao/resposta-obra"
+      "/api/ingestao/resposta-obra",
+      "/api/ingestao/triagem-telegram"
     ],
     "acesso": {
       "/": "todos",
@@ -550,6 +573,15 @@
       "/configuracoes": [
         "admin"
       ],
+      "/configuracoes/bot": [
+        "admin"
+      ],
+      "/configuracoes/bot/pedidos": [
+        "admin"
+      ],
+      "/configuracoes/bot/grupos": [
+        "admin"
+      ],
       "/configuracoes/contatos": [
         "admin"
       ],
@@ -617,7 +649,8 @@
       ]
     },
     "redirecionaQuemPode": {
-      "/financeiro": "/financeiro/visao-geral"
+      "/financeiro": "/financeiro/visao-geral",
+      "/configuracoes/contatos": "/configuracoes/bot"
     }
   }
 }

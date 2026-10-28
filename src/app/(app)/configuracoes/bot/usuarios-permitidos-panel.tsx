@@ -20,15 +20,16 @@ import {
   type ContatoFormValues,
   type ContatoListItem,
 } from '@/lib/contatos'
+import { rotuloSituacaoContato } from '@/lib/bot-config'
 import { formatDate } from '@/lib/format'
 
-import { createContato, deleteContato, updateContato } from './actions'
+import { createContato, definirContatoAtivo, deleteContato, updateContato } from './actions'
 
 type Props = {
   contatos: ContatoListItem[]
 }
 
-export default function ContatosPanel({ contatos }: Props) {
+export default function UsuariosPermitidosPanel({ contatos }: Props) {
   const router = useRouter()
   // null = fechado; 'novo' = criando; item = editando
   const [editando, setEditando] = useState<ContatoListItem | 'novo' | null>(null)
@@ -60,6 +61,16 @@ export default function ContatosPanel({ contatos }: Props) {
     }
     toast.success(editando === 'novo' ? 'Contato cadastrado' : 'Contato atualizado')
     setEditando(null)
+    router.refresh()
+  }
+
+  async function alternarAtivo(c: ContatoListItem) {
+    const r = await definirContatoAtivo(c.id, !c.ativo)
+    if (!r.ok) {
+      toast.error(`Não foi possível alterar: ${r.error}`)
+      return
+    }
+    toast.success(c.ativo ? 'Contato desativado' : 'Contato reativado')
     router.refresh()
   }
 
@@ -104,6 +115,7 @@ export default function ContatosPanel({ contatos }: Props) {
               <th className="px-4 py-2">Nome</th>
               <th className="px-4 py-2">Código</th>
               <th className="px-4 py-2">Canal</th>
+              <th className="px-4 py-2">Situação</th>
               <th className="px-4 py-2">Cadastrado em</th>
               <th className="px-4 py-2 sr-only">Ações</th>
             </tr>
@@ -114,8 +126,19 @@ export default function ContatosPanel({ contatos }: Props) {
                 <td className="px-4 py-2 text-gray-900">{c.nome ?? <span className="text-gray-400">sem nome</span>}</td>
                 <td className="px-4 py-2 font-mono text-gray-700">{identificadorDoContato(c)}</td>
                 <td className="px-4 py-2 text-gray-600">{rotuloCanal(c.canal)}</td>
+                <td className="px-4 py-2"><span className={c.ativo ? "text-green-700" : "text-gray-500"}>{rotuloSituacaoContato(c.ativo)}</span></td>
                 <td className="px-4 py-2 text-gray-600 tabular-nums">{formatDate(c.created_at)}</td>
                 <td className="px-4 py-2">
+                    {c.canal === 'TELEGRAM' && (
+                      <button
+                        type="button"
+                        onClick={() => alternarAtivo(c)}
+                        className="px-2 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
+                        aria-label={`${c.ativo ? 'Desativar' : 'Reativar'} ${c.nome ?? identificadorDoContato(c)}`}
+                      >
+                        {c.ativo ? 'Desativar' : 'Reativar'}
+                      </button>
+                    )}
                   <div className="flex justify-end gap-1">
                     {c.canal === 'TELEGRAM' && (
                       <button

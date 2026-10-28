@@ -33,13 +33,15 @@ test('filtros da URL: só valores conhecidos passam', () => {
   assert.equal(isAcaoDoTrigger('constructor'), false)
 })
 
-test('a lista de entidades cobre as 15 tabelas do trigger', () => {
-  // Mesma lista do `foreach` da migration 019. Tabela nova no trigger sem
-  // rótulo aqui apareceria crua no filtro.
+test('a lista de entidades cobre as 17 tabelas do trigger', () => {
+  // Mesma lista do `foreach` da migration 019, mais as duas tabelas do bot
+  // (migration 20261027100000). Tabela nova no trigger sem rótulo aqui
+  // apareceria crua no filtro.
   assert.deepEqual(
     ENTIDADE_OPTIONS.map((o) => o.value).sort(),
     [
-      'acordo_parcelas', 'acordos_pagamento', 'clientes', 'contatos_whatsapp',
+      'acordo_parcelas', 'acordos_pagamento', 'bot_grupos', 'bot_pedidos_acesso',
+      'clientes', 'contatos_whatsapp',
       'contratos', 'documentos_processamento', 'execucao', 'fd', 'itens',
       'notas_fiscais', 'obras', 'orcamentos', 'pagamentos', 'profiles', 'propostas',
     ],

@@ -1,0 +1,1455 @@
+{
+  "name": "Obraminds - Processar Documento",
+  "nodes": [
+    {
+      "id": "p-trig",
+      "name": "Trigger - Documento recebido",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        304
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "p-norm",
+      "name": "Normalizar entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        304
+      ],
+      "parameters": {
+        "jsCode": "// Tres portas de entrada convergem aqui:\n// - Telegram (Fase 4): chega a URL assinada do PDF recem-guardado; o resto vem\n//   do 'Triar mensagem'.\n// - Execute Sub-workflow (testes): { empresa_id, obra_id, arquivo_url, canal,\n//   chat_id, numero_contrato? }.\n// obra_id pode faltar (contato sem obra): nao e erro aqui, vira REVISAO_HUMANA\n// em 'Analisar e decidir'. A proposta se liga a OBRA (decisao 16).\nlet e = $input.first().json ?? {};\n// - Webhook (Fase 7): envio pela tela /documentos. O corpo vem em .body; o\n//   documento ja foi gravado pela action (documento_id) e e reaproveitado.\nif (e.body && e.headers) e = e.body;\nif (e.signedURL) {\n  const t = $('Triar mensagem').first().json;\n  e = {\n    empresa_id: t.empresa_id,\n    obra_id: t.obra_id,\n    arquivo_url: 'https://gzbmhgnpoehormnidmgg.supabase.co/storage/v1' + e.signedURL,\n    canal: 'TELEGRAM',\n    chat_id: t.chat_id,\n    remetente_id: t.remetente_id ?? null,\n    mensagem_id: t.mensagem_id ?? null,\n  };\n}\nconst pelaTela = String(e.canal || '').toUpperCase() === 'SISTEMA';\n// Pela tela nao ha conversa: o aviso ao 'cliente' e pulado (Preparar envio\n// ignora destino sem chat_id); so o grupo de admin recebe.\nconst faltando = ['empresa_id', 'arquivo_url'].concat(pelaTela ? [] : ['chat_id']).filter((k) => !e[k]);\nif (faltando.length) throw new Error('Entrada incompleta: faltam ' + faltando.join(', '));\nreturn [{\n  json: {\n    empresa_id: e.empresa_id,\n    obra_id: e.obra_id || null,\n    arquivo_url: e.arquivo_url,\n    canal: String(e.canal || 'TELEGRAM').toUpperCase(),\n    chat_id: pelaTela ? null : String(e.chat_id),\n    remetente_id: e.remetente_id ?? null,\n    mensagem_id: e.mensagem_id ?? null,\n    documento_id: e.documento_id || null,\n    nome_arquivo: e.nome_arquivo || null,\n    numero_contrato: e.numero_contrato || null,\n    // Canal so de propostas (decisao 18): e o tipo provisorio ate o Gemini classificar.\n    tipo_documento: e.tipo_documento === 'CONTRATO' ? 'CONTRATO' : 'PROPOSTA',\n  },\n}];"
+      }
+    },
+    {
+      "id": "p-reg",
+      "name": "Supabase - Criar registro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueErrorOutput",
+      "position": [
+        448,
+        304
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://gzbmhgnpoehormnidmgg.supabase.co/rest/v1/documentos_processamento",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "return=representation,resolution=merge-duplicates"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify(Object.assign({ empresa_id: $json.empresa_id, obra_id: $json.obra_id, tipo_documento: $json.tipo_documento, arquivo_url: $json.arquivo_url, status: 'PENDENTE', etapa: 'LEITURA', etapa_detalhe: null }, $json.documento_id ? { id: $json.documento_id } : { canal: $json.canal === 'SISTEMA' ? null : $json.canal, canal_chat_id: $json.chat_id, canal_remetente_id: $json.remetente_id, canal_mensagem_id: $json.mensagem_id })) }}",
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "t6DCsidxPWw7kdQX",
+          "name": "Supabase — gc-dev (service)"
+        }
+      }
+    },
+    {
+      "id": "p-baixar",
+      "name": "Baixar PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueErrorOutput",
+      "position": [
+        672,
+        304
+      ],
+      "parameters": {
+        "url": "={{ $('Normalizar entrada').first().json.arquivo_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "p-b64",
+      "name": "PDF para base64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        304
+      ],
+      "parameters": {
+        "jsCode": "// Prompt de extracao: UM lugar so, usado pelo Gemini (principal) e pela Groq\n// (reserva). Mudou o prompt, mudou para os dois.\nconst PROMPT = \"Extraia deste documento (proposta ou contrato) um JSON com exatamente as chaves abaixo.\\nRegra geral: NUNCA invente valor. Campo que nao esta escrito no documento volta null. Nao preencha com o valor mais comum.\\n\\n- cliente_nome (string ou null)\\n- valor_total (number ou null): o total final do documento.\\n- condicoes_pagamento (string ou null)\\n- condicao_entrega (string ou null)\\n- numero_contrato (string ou null): numero de identificacao do PROPRIO documento, escrito como 'Proposta No', 'Contrato No' ou similar. Preencha tanto para propostas quanto para contratos. Se o documento e uma PROPOSTA, e o numero da propria proposta (ex: 'Proposta No', 'Numero da proposta', 'PROPOSTA COMERCIAL N.'), NUNCA o de um contrato citado como referencia ('Contrato de referencia', 'base do Contrato n.').\\n- proposta_referenciada (string ou null): numero da PROPOSTA COMERCIAL citada num CONTRATO como origem (ex: 'referente a proposta comercial no EB-25-08-0048'). null se o documento for uma proposta ou nao citar nenhuma.\\n- contrato_aditivo (string ou null): so para PROPOSTA que se declara ADITIVO ou COMPLEMENTAR a um contrato ja existente (ex: 'Proposta complementar (aditivo 1) ao Contrato n. CT-2026-0042', 'Aditivo ao contrato X'): devolva o numero desse contrato. Proposta que so cita o contrato como referencia ou origem ('base do Contrato n.', 'Contrato de referencia' sem dizer aditivo/complementar) volta null. Contrato volta null.\\n- tipo_documento ('PROPOSTA' ou 'CONTRATO'): decida pelo conteudo e pelo cabecalho no topo, nunca pelo nome do arquivo. Se aparecer 'Proposta' (ex: 'Proposta No', 'Proposta Comercial') ou 'Orcamento', e PROPOSTA; um numero de referencia como 'EB-25-08-0048' nao muda isso. Classifique como CONTRATO apenas se o cabecalho disser 'Contrato' ou houver clausulas contratuais formais ('CLAUSULA', 'CONTRATANTE'/'CONTRATADA', 'as partes resolvem celebrar o presente contrato') e/ou assinatura das partes. Sem certeza real, use CONTRATO.\\n- obra_codigo (string ou null): o codigo da obra como escrito no documento (ex: em 'Obra: EB-25-08-0044 - ESTACAO FASHION', devolva 'EB-25-08-0044'). null se nao houver codigo.\\n- obra_nome (string ou null): o nome da obra ou do empreendimento como escrito (ex: 'ESTACAO FASHION - FACHADA', 'Residencial Vista Verde - Bloco B'). Nao confunda com o nome do cliente nem com o da empresa que emitiu o documento.\\n- itens (array): TODOS os itens do documento, na ordem em que aparecem, cada um com exatamente estas chaves:\\n  numero: o numero escrito em 'Item: N', como string, exatamente como esta (ex: '1', '09', '1.1'). Nao e a posicao no array.\\n  tipo, linha, acabamento, localizacao: texto como esta escrito ('Tipo:', 'Linha:', 'Acabamento:', 'Localizacao:'), ou null.\\n  descricao: o texto descritivo do item, ou null.\\n  quantidade: number (01 vira 1), ou null.\\n  unidade: a unidade EXATAMENTE como escrita (ex: 'UN', 'PC', 'm2', 'ML'), sem converter. null se o item nao traz unidade.\\n  valor_unitario: number, ou null se o item nao traz 'Valor unit.' com numero. Atencao: em alguns itens o numero do valor unitario aparece na linha de baixo do rotulo 'Valor unit.:'; ele pertence ao valor unitario.\\n  valor_total: number. Volte SEMPRE o 'Valor total' do item quando o documento trouxer, mesmo sem valor unitario.\\n  largura, altura: number exatamente como escritos em 'Largura:'/'Altura:', sem converter unidade (ex: 950), ou null.\\n  vidros, observacao: texto, ou null.\\n\\nValores em formato brasileiro ('R$ 1.986,08') viram number (1986.08), nunca string.\";\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\nreturn [{ json: { pdfBase64: buffer.toString('base64'), prompt: PROMPT } }];"
+      }
+    },
+    {
+      "id": "p-gemini",
+      "name": "Gemini - Extrair dados",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "onError": "continueErrorOutput",
+      "position": [
+        1104,
+        304
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [ { parts: [ { text: $json.prompt }, { inline_data: { mime_type: 'application/pdf', data: $json.pdfBase64 } } ] } ], generationConfig: { response_mime_type: 'application/json' } }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "lPCfOdmksKJC1aTq",
+          "name": "Gemini — extração de documentos"
+        }
+      }
+    },
+    {
+      "id": "p-analisar",
+      "name": "Analisar e decidir",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        304
+      ],
+      "parameters": {
+        "jsCode": "// Junta o antigo 'Parsear Resposta da IA' e a antiga Triagem num lugar so.\n// Proposta e contrato entram (decisao 23, que revoga a 18); a gravacao e das\n// rotas do gc-sistema (decisao 26).\n// A proposta se liga a OBRA (decisao 16), que vem do contato.\nconst ent = $('Normalizar entrada').first().json;\nconst raw = $json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\nlet dados;\ntry { dados = JSON.parse(raw); } catch (err) { dados = {}; }\n\n// Fase 5: itens extraidos LITERAIS (numero e unidade como escritos). A traducao\n// para as colunas de itens e da Fase 6, com os helpers de src/lib/itens.ts\n// (numeroItemDoDocumento, normalizarUnidade, resolverValorUnit). Aqui so se\n// garante que numero em texto brasileiro vire number.\nconst num = (v) => {\n  if (v === null || v === undefined || v === '') return null;\n  if (typeof v === 'number') return Number.isFinite(v) ? v : null;\n  const s = String(v).replace(/R\\$/gi, '').replace(/\\s/g, '');\n  const t = /,\\d{1,2}$/.test(s) ? s.replace(/\\./g, '').replace(',', '.') : s.replace(/,/g, '');\n  const n = Number(t);\n  return Number.isFinite(n) ? n : null;\n};\nconst texto = (v) => (v === null || v === undefined || String(v).trim() === '' ? null : String(v).trim());\nconst itens = (Array.isArray(dados.itens) ? dados.itens : []).map((it) => ({\n  numero: texto(it?.numero),\n  tipo: texto(it?.tipo),\n  linha: texto(it?.linha),\n  acabamento: texto(it?.acabamento),\n  localizacao: texto(it?.localizacao),\n  descricao: texto(it?.descricao),\n  quantidade: num(it?.quantidade),\n  unidade: texto(it?.unidade),\n  valor_unitario: num(it?.valor_unitario),\n  valor_total: num(it?.valor_total),\n  largura: num(it?.largura),\n  altura: num(it?.altura),\n  vidros: texto(it?.vidros),\n  observacao: texto(it?.observacao),\n}));\n// Diagnostico, NAO bloqueia: os itens so sao gravados na Fase 6.\n// Decisao 10: item sem unitario tem o valor inferido de total/quantidade na\n// gravacao; item sem nenhum dos dois, ou sem quantidade, nao tem conserto.\nconst itensSemUnitario = itens.filter((it) => it.valor_unitario === null && it.valor_total !== null).map((it) => it.numero);\nconst itensSemConserto = itens.filter((it) => (it.valor_unitario === null && it.valor_total === null) || !it.quantidade).map((it) => it.numero);\nconst somaItens = itens.reduce((acc, it) => acc + (it.valor_total ?? (it.quantidade ?? 0) * (it.valor_unitario ?? 0)), 0);\nconst valorProposta = num(dados.valor_total) || 0;\n// Itens confiaveis? Numero de item repetido e o sinal de texto embaralhado:\n// o extrator de texto do n8n (usado pela reserva Groq) mistura as colunas de\n// PDF em duas colunas e o valor de um item cai no do vizinho (visto no\n// EB-25-08-0048, itens 6/7 e 8/9). Cabecalho segue confiavel; os itens nao.\nconst contagemNumeros = {};\nfor (const it of itens) if (it.numero) contagemNumeros[it.numero] = (contagemNumeros[it.numero] || 0) + 1;\nconst numerosRepetidos = Object.keys(contagemNumeros).filter((k) => contagemNumeros[k] > 1);\nconst divergeSoma = itens.length > 0 && valorProposta > 0 && Math.abs(somaItens - valorProposta) > 0.01 * valorProposta;\nconst tipoDocumento = String(dados.tipo_documento || '').toUpperCase() === 'PROPOSTA' ? 'PROPOSTA' : 'CONTRATO';\n\nconst camposFaltando = [];\nif (!dados.cliente_nome) camposFaltando.push('nome do cliente');\nif (!dados.valor_total) camposFaltando.push('valor total');\nif (!dados.condicoes_pagamento) camposFaltando.push('condições de pagamento');\nif (!dados.condicao_entrega) camposFaltando.push('condição de entrega');\n\n// Proposta: so o valor bloqueia; o resto se completa depois (reuniao de 12/08/2026).\nconst precisaComplementar = camposFaltando.length > 0;\n// Decisao 27: a obra sai do documento; a rota identifica pelas pistas. obraId\n// so vem quando alguem escolheu na tela (envio ou reprocesso).\nconst obraId = ent.obra_id || null;\nconst obraCodigo = dados.obra_codigo ? String(dados.obra_codigo).trim() : null;\nconst obraNome = dados.obra_nome ? String(dados.obra_nome).trim() : null;\nconst numero = dados.numero_contrato || ent.numero_contrato || null;\n\n// Decisão 23 (revoga a 18): contrato também entra. Mesma régua da proposta:\n// só o valor bloqueia; obra e número faltando vão para revisão.\nconst rotulo = tipoDocumento === 'PROPOSTA' ? 'a proposta' : 'o contrato';\nlet desfecho = tipoDocumento;\nlet motivo = null;\nif (!dados.valor_total) {\n  desfecho = 'ERRO_VALIDACAO';\n  motivo = 'Não conseguimos identificar o valor total no seu documento. Pode reenviar o documento completo ou nos passar o valor por aqui?';\n} else if (!numero) {\n  desfecho = 'REVISAO_HUMANA';\n  motivo = 'não encontramos o número d' + (tipoDocumento === 'PROPOSTA' ? 'a proposta' : 'o contrato') + ' no documento. Pode nos informar?';\n}\n\nreturn [{\n  json: {\n    ...dados,\n    itens,\n    tipoDocumento,\n    valorProposta,\n    somaItens,\n    divergeSoma,\n    itensSemUnitario,\n    itensSemConserto,\n    camposFaltando,\n    precisaComplementar,\n    obraId,\n    obraCodigo,\n    obraNome,\n    numero,\n    // Opção 1.a: número do contrato de que a proposta é aditivo.\n    contratoAditivo: tipoDocumento === 'PROPOSTA' && dados.contrato_aditivo ? String(dados.contrato_aditivo).trim() : null,\n    numerosRepetidos,\n    itensConfiaveis: numerosRepetidos.length === 0 && !divergeSoma,\n    // Qual IA extraiu (decisao 20): gemini, ou groq quando o Gemini falhou.\n    extrator: $json.extrator || 'gemini',\n    motivoGemini: $json.motivoGemini || null,\n    desfecho,\n    status: desfecho === 'PROPOSTA' || desfecho === 'CONTRATO' ? 'APROVADO' : desfecho,\n    motivo,\n  },\n}];"
+      }
+    },
+    {
+      "id": "p-aprov",
+      "name": "Supabase - Documento aprovado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueErrorOutput",
+      "position": [
+        2880,
+        128
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://gzbmhgnpoehormnidmgg.supabase.co/rest/v1/documentos_processamento?id=eq.' + $('Supabase - Criar registro').first(0).json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ etapa: 'CONCLUIDO', etapa_detalhe: $('Rota - Gravar no sistema').first(0).json.anexoErro ? 'PDF não anexado: ' + String($('Rota - Gravar no sistema').first(0).json.anexoErro).slice(0, 800) : null, dados_extraidos: $('Analisar e decidir').first().json }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "t6DCsidxPWw7kdQX",
+          "name": "Supabase — gc-dev (service)"
+        }
+      }
+    },
+    {
+      "id": "p-falha",
+      "name": "Registrar falha",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2448,
+        608
+      ],
+      "parameters": {
+        "jsCode": "// Recebe a saida de erro de qualquer etapa depois que o registro existe.\n// Documento com falha vai para REVISAO_HUMANA com motivo legivel, para nao\n// ficar preso em PENDENTE sem ninguem ver.\nconst etapa = $input.first().json.etapa || $prevNode.name;\nconst j = $input.first().json ?? {};\nconst erro = [j.error?.message, j.error?.description].filter(Boolean).join(' — ') || (typeof j.error === 'string' ? j.error : JSON.stringify(j).slice(0, 300));\nlet A = {};\ntry { A = $('Analisar e decidir').first().json; } catch (e) { A = {}; }\nlet motivoGemini = null;\ntry { motivoGemini = $('Reserva - PDF de volta').first().json.motivoGemini; } catch (e) { motivoGemini = null; }\n\n// Erros das rotas do gc-sistema: o n8n poe \"409 - {corpo}\" na mensagem.\nconst naRota = etapa === 'Rota - Gravar no sistema';\nconst statusRota = naRota ? Number((String(j.error?.message || '').match(/^(\\d{3})/) || [])[1] || 0) : 0;\nlet erroRota = null;\n// Decisão 31: obra não identificada vem com a pergunta pronta para o bot.\nlet perguntaRota = null;\nif (naRota) {\n  // O n8n poe o corpo como texto JSON, as vezes com as aspas escapadas\n  // (409 - \"{\\\"ok\\\":false,\\\"error\\\":\\\"...\\\"}\"). Le o objeto e pega .error.\n  const msg = String(j.error?.message || '') + ' ' + String(j.error?.description || '');\n  const ini = msg.indexOf('{');\n  const fim = msg.lastIndexOf('}');\n  if (ini >= 0 && fim > ini) {\n    const trecho = msg.slice(ini, fim + 1);\n    for (const tentativa of [trecho, trecho.replace(/\\\\\"/g, '\"')]) {\n      try { const o = JSON.parse(tentativa); if (o && typeof o.error === 'string') { erroRota = o.error; perguntaRota = typeof o.pergunta === 'string' ? o.pergunta.replace(/\\\\n/g, '\\n') : null; break; } } catch (e) {}\n    }\n  }\n  if (!erroRota) erroRota = erro;\n}\nconst tipo = A.desfecho === 'CONTRATO' ? 'contrato' : 'proposta';\nlet motivo;\nlet falha = true;\nif (naRota && statusRota === 409 && /obra já tem um contrato/i.test(erroRota || '')) {\n  // Regra do Breno (25/09): obra tem UM contrato vigente. Pode ser aditivo ou reenvio.\n  falha = false;\n  motivo = (erroRota || 'a obra já tem um contrato vigente').replace(/^A obra/, 'a obra') + '. Nossa equipe vai verificar se é um aditivo ou um reenvio.';\n} else if (naRota && statusRota === 409) {\n  // Numero repetido e resultado esperado (decisao 9), nao erro.\n  falha = false;\n  motivo = 'já existe ' + (tipo === 'contrato' ? 'um contrato' : 'uma proposta') + ' com o número ' + (A.numero || '(sem número)') + ' registrad' + (tipo === 'contrato' ? 'o' : 'a') + '. Nossa equipe vai revisar.';\n} else if (naRota && statusRota === 422) {\n  // Recusado pela regra (item sem conserto, obra de outra empresa): revisao.\n  falha = false;\n  motivo = 'não foi possível registrar automaticamente (' + erroRota + '). Nossa equipe vai revisar.';\n} else if (naRota && statusRota === 404) {\n  // Rota de contrato ainda nao publicada na Vercel (precisa do merge).\n  falha = false;\n  motivo = 'recebemos o documento e nossa equipe vai registrá-lo. (A entrada automática de ' + tipo + 's ainda não está publicada no sistema.)';\n} else {\n  motivo = 'falha técnica na etapa \"' + etapa + '\": ' + (erroRota || erro) + (motivoGemini && etapa !== 'Gemini - Extrair dados' ? ' (antes, o Gemini: ' + motivoGemini + ')' : '');\n}\nreturn [{ json: { ...A, status: 'REVISAO_HUMANA', falha, etapa, erro: erroRota || erro, motivo, pergunta: naRota && statusRota === 422 ? perguntaRota : null } }];"
+      }
+    },
+    {
+      "id": "p-status",
+      "name": "Supabase - Documento em revisão",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        2880,
+        480
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://gzbmhgnpoehormnidmgg.supabase.co/rest/v1/documentos_processamento?id=eq.' + $('Supabase - Criar registro').first().json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status: $json.status, tipo_documento: $json.tipoDocumento || $('Normalizar entrada').first().json.tipo_documento, motivo_revisao: $json.motivo, etapa: $json.falha ? 'ERRO' : 'REVISAO', etapa_detalhe: String(($json.falha ? $json.erro : $json.motivo) || '').slice(0, 1000), dados_extraidos: $json }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "t6DCsidxPWw7kdQX",
+          "name": "Supabase — gc-dev (service)"
+        }
+      }
+    },
+    {
+      "id": "p-avisos",
+      "name": "Montar avisos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3104,
+        304
+      ],
+      "parameters": {
+        "jsCode": "// Um lugar so para todos os textos: cliente e grupo de admin. Sai em 2 itens,\n// e o Notificar envia os dois.\n// Referencias LITERAIS de proposito: o executor de codigo do n8n 2.x so envia ao\n// Code node os dados dos nos citados pelo nome no texto. $(variavel) chega vazio.\nconst ent = $('Normalizar entrada').first().json;\nlet A = {};\ntry { A = $('Analisar e decidir').first().json; } catch (e) { A = {}; }\nlet F = null;\ntry { F = $('Registrar falha').first().json; } catch (e) { F = null; }\n// first(0): o 'Criar registro' tem a saida de ERRO ligada direto aqui, e sem o\n// indice o n8n le esse ramo (vazio). A saida 0 e a do registro criado.\nlet reg = null;\ntry { reg = $('Supabase - Criar registro').first(0).json; } catch (e) { reg = null; }\nconst docId = reg?.id ?? null;\nconst etapaAnterior = $prevNode.name;\nconst brl = (v) => 'R$ ' + Number(v || 0).toFixed(2);\nconst num = A.numero ? ' nº ' + A.numero : '';\n\nlet cliente;\nlet admin;\nif (etapaAnterior === 'Supabase - Criar registro') {\n  const erro = $json.error?.message || JSON.stringify($json).slice(0, 300);\n  cliente = 'Tivemos um problema ao receber seu documento. Nossa equipe já foi avisada e vai te retornar em breve.';\n  admin = '[ERRO] Não foi possível registrar o documento recebido.\\nErro: ' + erro;\n} else if (F && F.falha) {\n  cliente = 'Tivemos um problema processando seu documento. Nossa equipe já foi avisada e vai te retornar em breve.';\n  admin = '[ERRO] Documento ' + docId + '\\nEtapa: ' + F.etapa + '\\nErro: ' + F.erro;\n} else if (F && F.pergunta && ent.chat_id) {\n  // Decisão 31: em vez de só revisão, pergunta a obra a quem enviou.\n  cliente = 'Recebemos seu documento, mas não encontramos a obra dele no sistema.\\n\\n' + F.pergunta + (String(ent.chat_id).startsWith('-') ? '\\n\\nResponda a esta mensagem com o número da obra.' : '');\n  admin = '[PERGUNTA DE OBRA] Documento ' + docId + ' · ' + (A.desfecho === 'CONTRATO' ? 'contrato' : 'proposta') + num + '\\n' + F.motivo + '\\nPerguntamos a obra a quem enviou; se a resposta for \"nenhuma\", fica para revisão.';\n} else if (F) {\n  cliente = 'Recebemos seu documento, mas ' + F.motivo;\n  admin = '[REVISÃO] Documento ' + docId + ' · ' + (A.desfecho === 'CONTRATO' ? 'contrato' : 'proposta') + num + '\\n' + F.motivo;\n} else if (A.desfecho === 'ERRO_VALIDACAO') {\n  cliente = A.motivo;\n  admin = '[ERRO DE VALIDAÇÃO] Documento ' + docId + ' · sem valor total';\n} else if (A.desfecho === 'REVISAO_HUMANA') {\n  cliente = 'Recebemos seu documento, mas ' + A.motivo;\n  admin = '[REVISÃO] Documento ' + docId + ' · ' + (A.tipoDocumento === 'PROPOSTA' ? 'proposta' : 'contrato') + num + '\\n' + A.motivo;\n} else {\n  // Registrado pela rota (proposta ou contrato).\n  let R = {};\n  try { R = $('Rota - Gravar no sistema').first(0).json; } catch (e) { R = {}; }\n  let P = {};\n  try { P = $('Montar pedido da rota').first().json; } catch (e) { P = {}; }\n  const ehContrato = P.tipo === 'contrato';\n  const oQue = ehContrato ? 'Seu contrato' : 'Sua proposta';\n  cliente = oQue + num + ' foi registrad' + (ehContrato ? 'o' : 'a') + ' no sistema.' + (A.precisaComplementar ? ' Só pra completar, quando puder nos passe: ' + A.camposFaltando.join(', ') + '.' : '');\n  let resumo = (A.itens || []).length + ' itens lidos · ' + (R.itens ?? 0) + ' gravados';\n  if (P.itensDescartados) resumo += ' · itens NÃO gravados: leitura não confiável';\n  for (const a of R.avisos || []) resumo += ' · ' + a;\n  const COMO = { codigo: 'pelo código', nome: 'pelo nome', cliente: 'pelo cliente' };\n  if (R.obraIdentificadaComo) resumo += ' · obra identificada ' + (COMO[R.obraIdentificadaComo] || R.obraIdentificadaComo) + ' no documento';\n  if (!ehContrato && R.contratoAditivoId) resumo += ' · aditivo do contrato ' + (A.contratoAditivo || '');\n  if (ehContrato) resumo += R.propostaOrigemId ? ' · ligado à proposta ' + (A.proposta_referenciada || '') : (A.proposta_referenciada ? '' : ' · sem proposta citada');\n  // A rota anexa o PDF ela mesma (01/10) e diz como foi.\n  const anexoFalhou = R.anexoErro || null;\n  resumo += anexoFalhou ? ' · ATENÇÃO: PDF NÃO anexado (' + String(anexoFalhou).slice(0, 120) + ')' : ' · PDF anexado';\n  admin = (ehContrato ? '[CONTRATO REGISTRADO]' : '[PROPOSTA REGISTRADA]') + num + ' · ' + brl(A.valorProposta) + ' · cliente: ' + (A.cliente_nome || '—') + '\\n' + resumo + '\\nDocumento ' + docId;\n}\n\nif (A.extrator === 'groq') admin += '\\n[extraído pela Groq; Gemini indisponível: ' + String(A.motivoGemini || 'falhou').slice(0, 160) + ']';\n\nconst contexto = { documentoId: docId, empresaId: ent.empresa_id, origem: 'processar-documento' };\nreturn [\n  { json: { destino: 'CLIENTE', canal: ent.canal, chat_id: ent.chat_id, texto: cliente, reply_to: ent.mensagem_id ?? null, opcoes: null, contexto } },\n  { json: { destino: 'ADMIN', canal: 'TELEGRAM', chat_id: null, texto: admin, opcoes: null, contexto } },\n];"
+      }
+    },
+    {
+      "id": "p-nota",
+      "name": "Nota - Como usar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -128
+      ],
+      "parameters": {
+        "content": "## Obraminds - Processar Documento\n\nTrês entradas: **Telegram Trigger** (bot), **Webhook - Envio pela tela** (`/documentos`) e Execute Sub-workflow (testes).\n\nLeitura: Gemini, com Groq de reserva (decisão 20). **Proposta e contrato** entram (decisão 23); a gravação é do gc-sistema, pelas rotas `/api/ingestao/proposta` e `/contrato` (decisão 26).\n\nFalha em qualquer etapa → `REVISAO_HUMANA` com o motivo. Avisos: **Montar avisos** → **Preparar envio** → **Telegram - Enviar**. Segredos só em Credential.\n\nBot no grupo: **Rota - Triagem do Telegram** (`/api/ingestao/triagem-telegram`) decide quem pode enviar; **Responder em citação?** responde ao PDF original quando há `reply_to`.",
+        "height": 260,
+        "width": 900
+      }
+    },
+    {
+      "id": "tg-trig",
+      "name": "Telegram Trigger",
+      "webhookId": "1c35c598-5d8f-48a9-9ca2-1cba19cfb19e",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        768
+      ],
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {
+          "download": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "wtbObcZ5ituuVNek",
+          "name": "Telegram — ObraMinds Ingestão (produção)"
+        }
+      }
+    },
+    {
+      "id": "tg-triar",
+      "name": "Triar mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        768
+      ],
+      "parameters": {
+        "jsCode": "// Adaptador: a regra mora em POST /api/ingestao/triagem-telegram (src/lib/bot-acesso.ts).\nconst u = $('Telegram Trigger').first().json ?? {};\nconst m = u.message ?? {};\nconst r = $('Rota - Triagem do Telegram').first().json ?? {};\nif (r.ok === true) return (r.itens ?? []).map((json) => ({ json }));\n// Rota fora do ar ou erro.\nconst privado = m.chat?.type === 'private';\nconst temDoc = !!m.document;\nconst erro = String(r.error ?? r.message ?? JSON.stringify(r)).slice(0, 300);\nconst ctx = { documentoId: null, empresaId: null, origem: 'telegram-entrada' };\nconst saida = [];\nif (privado) saida.push({ json: { acao: 'responder', destino: 'CLIENTE', canal: 'TELEGRAM', chat_id: String(m.chat.id), reply_to: null, texto: 'Tivemos um problema ao receber sua mensagem. Tente de novo em alguns minutos.', opcoes: null, contexto: ctx } });\nif (privado || temDoc) saida.push({ json: { acao: 'responder', destino: 'ADMIN', canal: 'TELEGRAM', chat_id: null, reply_to: null, texto: '[ERRO NA TRIAGEM] chat ' + (m.chat?.id ?? '?') + '\\nErro: ' + erro, opcoes: null, contexto: ctx } });\nreturn saida;"
+      }
+    },
+    {
+      "id": "tg-if",
+      "name": "Processar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        768
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-proc",
+              "leftValue": "={{ $json.acao }}",
+              "rightValue": "processar",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "tg-baixar",
+      "name": "Telegram - Baixar arquivo",
+      "webhookId": "1477fc94-63b8-43f6-9cb2-5d52c6b93322",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "onError": "continueErrorOutput",
+      "position": [
+        880,
+        688
+      ],
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $json.file_id }}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "wtbObcZ5ituuVNek",
+          "name": "Telegram — ObraMinds Ingestão (produção)"
+        }
+      }
+    },
+    {
+      "id": "tg-guardar",
+      "name": "Supabase - Guardar PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueErrorOutput",
+      "position": [
+        992,
+        944
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://gzbmhgnpoehormnidmgg.supabase.co/storage/v1/object/documentos-processamento/' + $('Triar mensagem').first().json.caminho }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/pdf"
+            },
+            {
+              "name": "x-upsert",
+              "value": "false"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "t6DCsidxPWw7kdQX",
+          "name": "Supabase — gc-dev (service)"
+        }
+      }
+    },
+    {
+      "id": "tg-assinar",
+      "name": "Supabase - Assinar URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueErrorOutput",
+      "position": [
+        1104,
+        1200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://gzbmhgnpoehormnidmgg.supabase.co/storage/v1/object/sign/documentos-processamento/' + $('Triar mensagem').first().json.caminho }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ expiresIn: 31536000 }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "t6DCsidxPWw7kdQX",
+          "name": "Supabase — gc-dev (service)"
+        }
+      }
+    },
+    {
+      "id": "tg-falha",
+      "name": "Falha na recepção",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        896
+      ],
+      "parameters": {
+        "jsCode": "// Falha antes de o documento existir no banco: baixar do Telegram, guardar no\n// storage ou assinar a URL.\nconst etapa = $prevNode.name;\nconst j = $input.first().json ?? {};\nconst bruto = JSON.stringify(j);\n// Reentrega do mesmo update pelo Telegram: o arquivo ja esta no storage (409).\n// Ja foi processado na primeira vez; descartar em silencio.\nif (etapa === 'Supabase - Guardar PDF' && /409|Duplicate|already exists/i.test(bruto)) return [];\nconst t = $('Triar mensagem').first().json;\nconst erro = [j.error?.message, j.error?.description].filter(Boolean).join(' — ') || bruto.slice(0, 300);\nconst ctx = { documentoId: null, empresaId: t.empresa_id, origem: 'telegram-entrada' };\nreturn [\n  { json: { destino: 'CLIENTE', canal: 'TELEGRAM', chat_id: t.chat_id, reply_to: t.mensagem_id ?? null, texto: 'Tivemos um problema ao receber seu arquivo. Nossa equipe já foi avisada e vai te retornar em breve.', opcoes: null, contexto: ctx } },\n  { json: { destino: 'ADMIN', canal: 'TELEGRAM', chat_id: null, texto: '[ERRO NA RECEPÇÃO] ' + t.nome_arquivo + ' (chat ' + t.chat_id + ', remetente ' + t.remetente_id + ')\\nEtapa: ' + etapa + '\\nErro: ' + erro, opcoes: null, contexto: ctx } },\n];"
+      }
+    },
+    {
+      "id": "rsv-pdf",
+      "name": "Reserva - PDF de volta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        560
+      ],
+      "parameters": {
+        "jsCode": "// Reserva (decisao 20): o Gemini falhou (cota, 503, erro). A Groq nao le PDF,\n// so texto: o PDF volta a ser arquivo para o 'Extrair texto do PDF'.\nconst j = $input.first().json ?? {};\nconst motivoGemini = [j.error?.message, j.error?.description].filter(Boolean).join(' — ') || 'falha sem mensagem';\nconst b64 = $('PDF para base64').first().json.pdfBase64;\nconst binario = await this.helpers.prepareBinaryData(Buffer.from(b64, 'base64'), 'documento.pdf', 'application/pdf');\nreturn [{ json: { motivoGemini }, binary: { data: binario } }];"
+      }
+    },
+    {
+      "id": "rsv-txt",
+      "name": "Extrair texto do PDF",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "onError": "continueErrorOutput",
+      "position": [
+        1312,
+        528
+      ],
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      }
+    },
+    {
+      "id": "rsv-ped",
+      "name": "Preparar pedido Groq",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "onError": "continueErrorOutput",
+      "position": [
+        1552,
+        560
+      ],
+      "parameters": {
+        "jsCode": "// A Groq so extrai de PDF com texto (gerado por sistema). PDF escaneado ou\n// foto em PDF nao tem texto: sem o Gemini, nao ha como ler.\nconst texto = String($input.first().json.text ?? '').trim();\nif (texto.replace(/\\s+/g, '').length < 40) {\n  throw new Error('PDF sem texto legivel (provavelmente escaneado ou foto). Com o Gemini indisponivel, a reserva so le PDF com texto. Envie o PDF original gerado pelo sistema.');\n}\nreturn [{ json: { texto, prompt: $('PDF para base64').first().json.prompt + '\\n\\nResponda SOMENTE com o objeto JSON, sem texto antes ou depois e sem bloco de codigo.' } }];"
+      }
+    },
+    {
+      "id": "rsv-groq",
+      "name": "Groq - Extrair dados",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "onError": "continueErrorOutput",
+      "position": [
+        1760,
+        560
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "groqApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'openai/gpt-oss-120b', reasoning_effort: 'low', temperature: 0, max_completion_tokens: 4500, messages: [ { role: 'system', content: $json.prompt }, { role: 'user', content: 'Texto extraído do PDF:\\n\\n' + $json.texto } ] }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "credentials": {
+        "groqApi": {
+          "id": "Zzs75Rx6S260C0Ci",
+          "name": "Groq OCR"
+        }
+      }
+    },
+    {
+      "id": "rsv-norm",
+      "name": "Groq no formato do Gemini",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "onError": "continueErrorOutput",
+      "position": [
+        1776,
+        1104
+      ],
+      "parameters": {
+        "jsCode": "// Devolve a resposta da Groq no mesmo formato do Gemini, para o 'Analisar e\n// decidir' nao saber de onde veio. Sem modo JSON estrito: com o documento de\n// 16 itens a Groq recusava ('Failed to generate JSON'); o JSON e recortado aqui.\nlet c = String($input.first().json.choices?.[0]?.message?.content ?? '');\nc = c.replace(/<think>[\\s\\S]*?<\\/think>/g, '');\nconst a = c.indexOf('{');\nconst b = c.lastIndexOf('}');\nif (a < 0 || b <= a) throw new Error('Groq nao devolveu JSON: ' + c.slice(0, 200));\nconst texto = c.slice(a, b + 1);\nJSON.parse(texto);\nreturn [{ json: {\n  candidates: [{ content: { parts: [{ text: texto }] } }],\n  extrator: 'groq',\n  motivoGemini: $('Reserva - PDF de volta').first().json.motivoGemini,\n} }];"
+      }
+    },
+    {
+      "id": "preparar-envio",
+      "name": "Preparar envio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3328,
+        304
+      ],
+      "parameters": {
+        "jsCode": "// Envio dentro deste workflow (antes era o sub-workflow Notificar): 1 execucao\n// por documento em vez de 2. O Notificar ficou so com o alerta de erro de sistema.\n// chat_id do grupo de admin (decisao 5). ATENCAO: o mesmo numero esta no no\n// 'Resolver destino' do Notificar — mudou o grupo, mude nos dois.\nconst ADMIN_CHAT_ID = '-5521155438';\nconst saida = [];\nfor (const item of $input.all()) {\n  const e = item.json ?? {};\n  const destino = String(e.destino ?? '').toUpperCase();\n  const texto = typeof e.texto === 'string' ? e.texto.trim() : '';\n  const chat_id = destino === 'ADMIN' ? ADMIN_CHAT_ID : (e.chat_id != null && String(e.chat_id).trim() !== '' ? String(e.chat_id).trim() : null);\n  if (!texto || !chat_id || (destino !== 'ADMIN' && destino !== 'CLIENTE')) continue;\n  saida.push({ json: { destino, chat_id, texto, reply_to: destino === 'CLIENTE' ? (Number(e.reply_to) || null) : null, contexto: e.contexto ?? null } });\n}\nreturn saida;"
+      }
+    },
+    {
+      "id": "telegram---enviar",
+      "name": "Telegram - Enviar",
+      "webhookId": "7a2c91e4-3b5d-4f0a-9d61-2e8b4c7f1a39",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        3664,
+        400
+      ],
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.texto }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "wtbObcZ5ituuVNek",
+          "name": "Telegram — ObraMinds Ingestão (produção)"
+        }
+      }
+    },
+    {
+      "id": "wh-tela",
+      "name": "Webhook - Envio pela tela",
+      "webhookId": "5d0c8e2a-7b41-4f93-a6d2-1e9c3b7f4a58",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1072
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "obraminds/documento",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ylCphychBDVYGTBt",
+          "name": "Webhook — envio de documento pela tela"
+        }
+      }
+    },
+    {
+      "id": "reg-if",
+      "name": "Registrar no sistema?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1552,
+        304
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-p",
+              "leftValue": "={{ $json.desfecho }}",
+              "rightValue": "PROPOSTA",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "c-c",
+              "leftValue": "={{ $json.desfecho }}",
+              "rightValue": "CONTRATO",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "rota-ped",
+      "name": "Montar pedido da rota",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        80
+      ],
+      "parameters": {
+        "jsCode": "// Decisao 26: a gravacao e do gc-sistema, pelas rotas POST /api/ingestao/\n// proposta e /contrato (a regra de src/lib/ingestao.ts, com teste). Aqui so se\n// monta o corpo. Leitura nao confiavel: a proposta/contrato entra sem itens.\nconst BASE = 'https://gc-sistema-nine.vercel.app';\nconst A = $input.first().json;\nconst ent = $('Normalizar entrada').first().json;\nconst reg = $('Supabase - Criar registro').first(0).json;\nconst contrato = A.desfecho === 'CONTRATO';\nconst itensOk = A.itensConfiaveis !== false;\nconst corpo = {\n  documentoId: reg.id,\n  empresaId: ent.empresa_id,\n  obraId: A.obraId || null,\n  // Decisao 27: sem obraId, a rota identifica a obra por estas pistas.\n  obra: { codigo: A.obraCodigo, nome: A.obraNome, cliente: A.cliente_nome },\n  numero: A.numero,\n  valorTotal: A.valorProposta,\n  condicoesPagamento: A.condicoes_pagamento,\n  observacao: 'Cliente: ' + (A.cliente_nome || '—') + (A.condicao_entrega ? ' | Entrega: ' + A.condicao_entrega : ''),\n  itens: itensOk ? A.itens : [],\n  origem: { canal: ent.canal === 'SISTEMA' ? 'tela' : ent.canal, chatId: ent.chat_id },\n};\nif (contrato) corpo.propostaReferenciada = A.proposta_referenciada || null;\nelse corpo.contratoAditivo = A.contratoAditivo || null;\nreturn [{ json: { url: BASE + '/api/ingestao/' + (contrato ? 'contrato' : 'proposta'), corpo, tipo: contrato ? 'contrato' : 'proposta', itensDescartados: itensOk ? 0 : (A.itens || []).length } }];"
+      }
+    },
+    {
+      "id": "rota-http",
+      "name": "Rota - Gravar no sistema",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "onError": "continueErrorOutput",
+      "position": [
+        1984,
+        80
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.corpo) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5Kf5wOUxCNenfQkd",
+          "name": "gc-sistema — rota de ingestão"
+        }
+      }
+    },
+    {
+      "id": "etapa---reserva-groq",
+      "name": "Etapa - Reserva Groq",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        1312,
+        400
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://gzbmhgnpoehormnidmgg.supabase.co/rest/v1/documentos_processamento?id=eq.' + $('Supabase - Criar registro').first(0).json.id + '&etapa=eq.LEITURA' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ etapa: 'LEITURA_RESERVA', etapa_detalhe: String($json.motivoGemini || '').slice(0, 1000) }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "t6DCsidxPWw7kdQX",
+          "name": "Supabase — gc-dev (service)"
+        }
+      }
+    },
+    {
+      "id": "etapa---gravando",
+      "name": "Etapa - Gravando",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        1984,
+        -80
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://gzbmhgnpoehormnidmgg.supabase.co/rest/v1/documentos_processamento?id=eq.' + $('Supabase - Criar registro').first(0).json.id + '&etapa=in.(LEITURA,LEITURA_RESERVA)' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ etapa: 'GRAVANDO', etapa_detalhe: null }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "t6DCsidxPWw7kdQX",
+          "name": "Supabase — gc-dev (service)"
+        }
+      }
+    },
+    {
+      "id": "log-sem-registro",
+      "name": "Log - Registro falhou",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        672,
+        528
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://gzbmhgnpoehormnidmgg.supabase.co/rest/v1/automacao_eventos",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ empresa_id: $('Normalizar entrada').first().json.empresa_id, origem: 'n8n', etapa: 'ERRO', nivel: 'erro', mensagem: 'não foi possível registrar o documento recebido', detalhe: [$json.error?.message, $json.error?.description].filter(Boolean).join(' — ').slice(0, 1000), execucao_id: $execution.id }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "t6DCsidxPWw7kdQX",
+          "name": "Supabase — gc-dev (service)"
+        }
+      }
+    },
+    {
+      "id": "resp-if",
+      "name": "Resposta de texto?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        1456
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c-resp",
+              "leftValue": "={{ $json.acao }}",
+              "rightValue": "resposta",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "resp-rota",
+      "name": "Rota - Resposta da obra",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        1104,
+        1456
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://gc-sistema-nine.vercel.app/api/ingestao/resposta-obra",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ empresaId: $json.empresa_id, chatId: $json.chat_id, remetenteId: $json.remetente_id, texto: $json.texto }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5Kf5wOUxCNenfQkd",
+          "name": "gc-sistema — rota de ingestão"
+        }
+      }
+    },
+    {
+      "id": "resp-tratar",
+      "name": "Tratar resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        1456
+      ],
+      "parameters": {
+        "jsCode": "// Decisão 31: o que a rota resposta-obra decidiu vira mensagem ao contato e,\n// se a obra foi escolhida, a entrada que volta ao 'Normalizar entrada' (relê o\n// PDF com a obra fixada). Erro da rota (inclusive 404 antes do deploy) cai no\n// aviso de sempre.\nconst t = $('Triar mensagem').first().json;\nconst r = $input.first().json ?? {};\nconst ctx = { documentoId: r.documentoId ?? null, empresaId: t.empresa_id, origem: 'telegram-resposta-obra' };\nconst msg = (texto) => ({ json: { destino: 'CLIENTE', canal: 'TELEGRAM', chat_id: t.chat_id, reply_to: t.mensagem_id ?? null, texto, opcoes: null, contexto: ctx } });\nconst aoAdmin = (texto) => ({ json: { destino: 'ADMIN', canal: 'TELEGRAM', chat_id: null, texto, opcoes: null, contexto: ctx } });\nif (r.acao === 'reprocessar' && r.entrada) {\n  return [\n    msg('Certo: obra ' + r.obra + '. Vamos registrar o documento e te avisamos aqui.'),\n    { json: { ...r.entrada, reprocessar: true } },\n  ];\n}\nif (r.acao === 'repetir' && r.pergunta) return [msg('Não entendi a resposta. ' + r.pergunta)];\nif (r.acao === 'nenhuma') {\n  return [\n    msg('Certo. A equipe vai cadastrar a obra e registrar o documento. Obrigado!'),\n    aoAdmin('[REVISÃO] Documento ' + r.documentoId + '\\nQuem enviou disse que a obra não está cadastrada. Cadastre a obra e reprocesse em /documentos.'),\n  ];\n}\nconst noGrupo = String(t.chat_id).startsWith('-');\nreturn [msg(noGrupo ? 'Para registrar uma proposta ou um contrato aqui no grupo, mande o PDF com /enviar na legenda.' : 'Para registrar uma proposta ou um contrato, envie o arquivo PDF aqui nesta conversa.')];"
+      }
+    },
+    {
+      "id": "resp-reproc",
+      "name": "Reprocessar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1552,
+        1456
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c-rep",
+              "leftValue": "={{ $json.reprocessar === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "tg-rota-triagem",
+      "name": "Rota - Triagem do Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "position": [
+        224,
+        768
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://gc-sistema-nine.vercel.app/api/ingestao/triagem-telegram",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Telegram Trigger').first().json) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5Kf5wOUxCNenfQkd",
+          "name": "gc-sistema — rota de ingestão"
+        }
+      }
+    },
+    {
+      "id": "env-citacao-if",
+      "name": "Responder em citação?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3552,
+        304
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-cit",
+              "leftValue": "={{ Number($json.reply_to) > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "telegram---responder",
+      "name": "Telegram - Responder",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        3664,
+        208
+      ],
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.texto }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "reply_to_message_id": "={{ $json.reply_to }}"
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "wtbObcZ5ituuVNek",
+          "name": "Telegram — ObraMinds Ingestão (produção)"
+        }
+      },
+      "webhookId": "b4f1d7c3-62a9-4e58-8c0d-9a3e5f2b7d16"
+    }
+  ],
+  "connections": {
+    "Trigger - Documento recebido": {
+      "main": [
+        [
+          {
+            "node": "Normalizar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar entrada": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Criar registro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Criar registro": {
+      "main": [
+        [
+          {
+            "node": "Baixar PDF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Montar avisos",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log - Registro falhou",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Baixar PDF": {
+      "main": [
+        [
+          {
+            "node": "PDF para base64",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar falha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF para base64": {
+      "main": [
+        [
+          {
+            "node": "Gemini - Extrair dados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Extrair dados": {
+      "main": [
+        [
+          {
+            "node": "Analisar e decidir",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reserva - PDF de volta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Documento aprovado": {
+      "main": [
+        [
+          {
+            "node": "Montar avisos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar falha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar falha": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Documento em revisão",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Documento em revisão": {
+      "main": [
+        [
+          {
+            "node": "Montar avisos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar avisos": {
+      "main": [
+        [
+          {
+            "node": "Preparar envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analisar e decidir": {
+      "main": [
+        [
+          {
+            "node": "Registrar no sistema?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Rota - Triagem do Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Triar mensagem": {
+      "main": [
+        [
+          {
+            "node": "Processar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processar?": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Baixar arquivo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resposta de texto?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Baixar arquivo": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Guardar PDF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Falha na recepção",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Guardar PDF": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Assinar URL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Falha na recepção",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase - Assinar URL": {
+      "main": [
+        [
+          {
+            "node": "Normalizar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Falha na recepção",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Falha na recepção": {
+      "main": [
+        [
+          {
+            "node": "Preparar envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reserva - PDF de volta": {
+      "main": [
+        [
+          {
+            "node": "Extrair texto do PDF",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Etapa - Reserva Groq",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair texto do PDF": {
+      "main": [
+        [
+          {
+            "node": "Preparar pedido Groq",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar falha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar pedido Groq": {
+      "main": [
+        [
+          {
+            "node": "Groq - Extrair dados",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar falha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq - Extrair dados": {
+      "main": [
+        [
+          {
+            "node": "Groq no formato do Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar falha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq no formato do Gemini": {
+      "main": [
+        [
+          {
+            "node": "Analisar e decidir",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar falha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar envio": {
+      "main": [
+        [
+          {
+            "node": "Responder em citação?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Envio pela tela": {
+      "main": [
+        [
+          {
+            "node": "Normalizar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar no sistema?": {
+      "main": [
+        [
+          {
+            "node": "Montar pedido da rota",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase - Documento em revisão",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar pedido da rota": {
+      "main": [
+        [
+          {
+            "node": "Rota - Gravar no sistema",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Etapa - Gravando",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rota - Gravar no sistema": {
+      "main": [
+        [
+          {
+            "node": "Supabase - Documento aprovado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar falha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resposta de texto?": {
+      "main": [
+        [
+          {
+            "node": "Rota - Resposta da obra",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rota - Resposta da obra": {
+      "main": [
+        [
+          {
+            "node": "Tratar resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tratar resposta": {
+      "main": [
+        [
+          {
+            "node": "Reprocessar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reprocessar?": {
+      "main": [
+        [
+          {
+            "node": "Normalizar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar envio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rota - Triagem do Telegram": {
+      "main": [
+        [
+          {
+            "node": "Triar mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder em citação?": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Responder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram - Enviar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "errorWorkflow": "zblwWrHmis3GNGKU",
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  }
+}

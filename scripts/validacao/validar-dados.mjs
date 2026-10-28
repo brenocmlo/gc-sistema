@@ -869,22 +869,67 @@ const CHECKS = [
     },
   },
   {
-    // Query de src/app/(app)/configuracoes/contatos/page.tsx: contatos do bot
-    // com a obra pelo JOIN. Seed não tem contato Telegram; os 2 de WhatsApp
-    // antigos da LC EMPRESA bastam para exercitar o join e a RLS.
-    nome: 'contatos_whatsapp: listagem dos contatos do bot com JOIN de obra',
-    bloco: 'automação · Fase 7',
+    // Query de src/app/(app)/configuracoes/bot/page.tsx (Usuários permitidos):
+    // contatos do bot com a obra pelo JOIN e a coluna ativo (migration
+    // 20261027100000). Seed não tem contato Telegram; os 2 de WhatsApp antigos
+    // da LC EMPRESA bastam para exercitar o join e a RLS.
+    nome: 'contatos_whatsapp: usuários permitidos do bot com JOIN de obra e ativo',
+    bloco: 'automação · envio pelo grupo',
     query: (sb) =>
       sb
         .from('contatos_whatsapp')
-        .select('id, nome, canal, telegram_chat_id, telefone, obra_id, created_at, obra:obras(codigo_obra, nome)')
+        .select('id, nome, canal, telegram_chat_id, telefone, obra_id, ativo, created_at, obra:obras(codigo_obra, nome)')
         .order('created_at', { ascending: false }),
     valida: (r) => {
       const linhas = r.data ?? []
       if (linhas.some((c) => Array.isArray(c.obra))) return 'obra veio como array, esperado objeto'
       if (linhas.some((c) => !('nome' in c))) return 'coluna nome ausente (migration 20260924100000)'
+      if (linhas.some((c) => typeof c.ativo !== 'boolean')) return 'coluna ativo ausente ou nula (migration 20261027100000)'
       return null
     },
+  },
+  {
+    // Query de src/app/(app)/configuracoes/bot/pedidos/page.tsx: pedidos de
+    // acesso ao bot com o grupo de origem pelo JOIN (bot_pedidos_acesso_grupo_fk).
+    nome: 'bot_pedidos_acesso: listagem dos pedidos com JOIN de grupo',
+    bloco: 'automação · envio pelo grupo',
+    query: (sb) =>
+      sb
+        .from('bot_pedidos_acesso')
+        .select('id, nome, telegram_username, telegram_user_id, status, created_at, grupo:bot_grupos(nome, telegram_chat_id)')
+        .order('created_at', { ascending: false })
+        .limit(200),
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.some((p) => Array.isArray(p.grupo))) return 'grupo veio como array, esperado objeto'
+      if (linhas.some((p) => !['PENDENTE', 'APROVADO', 'RECUSADO'].includes(p.status))) return 'status fora do CHECK'
+      return null
+    },
+  },
+  {
+    // Query de src/app/(app)/configuracoes/bot/grupos/page.tsx: grupos do
+    // Telegram em que o bot aceita documento.
+    nome: 'bot_grupos: listagem dos grupos do bot',
+    bloco: 'automação · envio pelo grupo',
+    query: (sb) =>
+      sb
+        .from('bot_grupos')
+        .select('id, nome, telegram_chat_id, status, created_at')
+        .order('created_at', { ascending: false }),
+    valida: (r) => {
+      const linhas = r.data ?? []
+      if (linhas.some((g) => !['PENDENTE', 'LIBERADO', 'BLOQUEADO'].includes(g.status))) return 'status fora do CHECK'
+      if (linhas.some((g) => !/^-\d{5,20}$/.test(g.telegram_chat_id))) return 'telegram_chat_id fora do formato'
+      return null
+    },
+  },
+  {
+    // Query de src/app/(app)/configuracoes/bot/layout.tsx (selo da aba Pedidos):
+    // pedidos pendentes, só a contagem, sem trazer linha.
+    nome: 'bot_pedidos_acesso: contagem de pedidos pendentes (abas do bot)',
+    bloco: 'automação · envio pelo grupo',
+    query: (sb) => sb.from('bot_pedidos_acesso').select('id', { count: 'exact', head: true }).eq('status', 'PENDENTE'),
+    valida: (r) => (typeof r.count !== 'number' ? 'count ausente' : null),
   },
   {
     // Query de src/app/(app)/documentos/page.tsx: caixa de entrada com a obra
@@ -1862,12 +1907,34 @@ const CHECKS = [
     nome: 'matriz de RLS: perfil × tabela × CRUD e perfil × bucket batem com matriz-rls.json',
     bloco: '13.3',
     query: async () => {
+      // As tabelas do bot (bot_grupos, bot_pedidos_acesso) só ganham linha
+      // quando alguém chama o bot num grupo: sem amostra, a matriz cairia em
+      // "não exercitada". Uma linha VALIDA- em cada, pela chave de serviço (é
+      // quem grava nelas), na empresa dos usuários de teste; sai no finally.
+      const svc = createClient(URL_SUPABASE, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
+      const RUN = Date.now()
+      let grupoId = null
+      let pedidoId = null
       try {
+        const { data: eu } = await svc.from('profiles').select('empresa_id').eq('email', EMAIL).single()
+        const { data: g, error: eg } = await svc.from('bot_grupos')
+          .insert({ empresa_id: eu.empresa_id, telegram_chat_id: `-100${3_000_000_000 + (RUN % 900_000_000)}`, nome: `VALIDA-MATRIZ-${RUN}`, status: 'PENDENTE' })
+          .select('id').single()
+        if (eg) throw new Error(`amostra de bot_grupos: ${eg.message}`)
+        grupoId = g.id
+        const { data: p, error: ep } = await svc.from('bot_pedidos_acesso')
+          .insert({ empresa_id: eu.empresa_id, telegram_user_id: String(3_000_000_000 + (RUN % 900_000_000)), nome: `VALIDA-MATRIZ-${RUN}`, grupo_id: grupoId })
+          .select('id').single()
+        if (ep) throw new Error(`amostra de bot_pedidos_acesso: ${ep.message}`)
+        pedidoId = p.id
         const r = await rodarMatrizRls()
         console.log(`         matriz: ${r.tabelas.conferidas} células de tabela, ${r.buckets.conferidas} de bucket`)
         return { data: [r] }
       } catch (e) {
         return { error: { message: e.message } }
+      } finally {
+        if (pedidoId) await svc.from('bot_pedidos_acesso').delete().eq('id', pedidoId)
+        if (grupoId) await svc.from('bot_grupos').delete().eq('id', grupoId)
       }
     },
     valida: (r) => {

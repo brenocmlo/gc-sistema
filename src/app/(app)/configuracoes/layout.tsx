@@ -7,7 +7,7 @@ import ConfiguracoesAbas from './abas'
 
 /**
  * Só exige sessão: "Meu perfil" é de todos os perfis. As abas de admin
- * (Empresa, Contatos do bot, Usuários) repetem o guard na própria página.
+ * (Empresa, Bot, Usuários) repetem o guard na própria página.
  */
 export default async function ConfiguracoesLayout({
   children,
